@@ -79,8 +79,18 @@ export default function SettingsPage() {
             fd.append("kind", "image");
             const r = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
             setForm((f) => ({ ...f, picture: r.data.url }));
+            await api.patch("/settings", { picture: r.data.url });
+            await refresh();
             toast.success("Photo mise à jour");
         } catch (e) { showError(toast, e, "Téléversement impossible"); }
+    };
+
+    const removePicture = async () => {
+        setForm((f) => ({ ...f, picture: "" }));
+        try {
+            await api.patch("/settings", { picture: null });
+            await refresh();
+        } catch (e) { showError(toast, e, "Erreur"); }
     };
 
     const setPinNow = async () => {
@@ -153,7 +163,7 @@ export default function SettingsPage() {
                                 </label>
                                 {form.picture && (
                                     <button
-                                        onClick={() => setForm((f) => ({ ...f, picture: "" }))}
+                                        onClick={removePicture}
                                         className="ml-3 text-sm text-neutral-500 hover:text-red-400"
                                     >Retirer</button>
                                 )}
