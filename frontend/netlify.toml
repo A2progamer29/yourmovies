@@ -1,0 +1,14 @@
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "build"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Défini aussi dans l'UI Netlify (Site settings > Environment variables) :
+  # REACT_APP_BACKEND_URL = "https://TON-BACKEND.onrender.com"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

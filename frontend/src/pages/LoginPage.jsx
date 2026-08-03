@@ -1,0 +1,133 @@
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Film } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useAuth } from "@/context/AuthContext";
+import { describeError, showError } from "@/lib/errors";
+
+export default function LoginPage() {
+    const { login, register } = useAuth();
+    const navigate = useNavigate();
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [name, setName] = useState("");
+    const [loading, setLoading] = useState(false);
+
+    const doLogin = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await login(email, password);
+            toast.success("Connecté");
+            navigate("/");
+        } catch (err) {
+            showError(toast, err, "Connexion impossible");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const doRegister = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await register(email, password, name);
+            toast.success("Compte créé");
+            navigate("/");
+        } catch (err) {
+            showError(toast, err, "Inscription impossible");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const doGoogle = () => {
+        // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+        const redirectUrl = window.location.origin + "/";
+        window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+    };
+
+    return (
+        <div className="min-h-screen bg-[#050505] text-white flex flex-col">
+            <div className="noise-overlay" />
+            <div className="max-w-md w-full mx-auto px-6 py-16 flex-1 flex flex-col justify-center">
+                <Link to="/" className="flex items-center gap-2 mb-10">
+                    <div className="w-9 h-9 rounded-full border border-[#E8D2A6]/30 flex items-center justify-center">
+                        <Film size={16} className="text-[#E8D2A6]" />
+                    </div>
+                    <span className="font-display text-xl">
+                        YourMovie<span className="text-[#E8D2A6]">&apos;s</span>
+                    </span>
+                </Link>
+
+                <h1 className="font-display text-4xl mb-2 tracking-tighter">Bienvenue</h1>
+                <p className="text-neutral-400 mb-8">Connectez-vous ou créez un compte pour laisser des avis, garder vos favoris et une watchlist.</p>
+
+                <Button
+                    onClick={doGoogle}
+                    data-testid="google-login-btn"
+                    className="w-full bg-white text-black hover:bg-neutral-200 rounded-full h-11 font-medium mb-4"
+                >
+                    <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    </svg>
+                    Continuer avec Google
+                </Button>
+
+                <div className="flex items-center gap-3 my-6">
+                    <div className="flex-1 h-px bg-[#262626]" />
+                    <span className="text-xs uppercase tracking-widest text-neutral-500">Ou</span>
+                    <div className="flex-1 h-px bg-[#262626]" />
+                </div>
+
+                <Tabs defaultValue="login">
+                    <TabsList className="grid grid-cols-2 bg-[#111] border border-[#262626]">
+                        <TabsTrigger value="login" data-testid="tab-login" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">Connexion</TabsTrigger>
+                        <TabsTrigger value="register" data-testid="tab-register" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">Inscription</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="login" className="mt-6">
+                        <form onSubmit={doLogin} className="space-y-4">
+                            <div>
+                                <Label htmlFor="email" className="text-neutral-300">Email</Label>
+                                <Input id="email" data-testid="login-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="bg-[#111] border-[#262626] text-white mt-1.5 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]" />
+                            </div>
+                            <div>
+                                <Label htmlFor="password" className="text-neutral-300">Mot de passe</Label>
+                                <Input id="password" data-testid="login-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="bg-[#111] border-[#262626] text-white mt-1.5 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]" />
+                            </div>
+                            <Button type="submit" disabled={loading} data-testid="submit-login-btn" className="w-full bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 font-semibold">
+                                {loading ? "..." : "Se connecter"}
+                            </Button>
+                        </form>
+                    </TabsContent>
+                    <TabsContent value="register" className="mt-6">
+                        <form onSubmit={doRegister} className="space-y-4">
+                            <div>
+                                <Label htmlFor="rname" className="text-neutral-300">Nom</Label>
+                                <Input id="rname" data-testid="register-name" required value={name} onChange={(e) => setName(e.target.value)} className="bg-[#111] border-[#262626] text-white mt-1.5 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]" />
+                            </div>
+                            <div>
+                                <Label htmlFor="remail" className="text-neutral-300">Email</Label>
+                                <Input id="remail" data-testid="register-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="bg-[#111] border-[#262626] text-white mt-1.5 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]" />
+                            </div>
+                            <div>
+                                <Label htmlFor="rpassword" className="text-neutral-300">Mot de passe</Label>
+                                <Input id="rpassword" data-testid="register-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="bg-[#111] border-[#262626] text-white mt-1.5 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]" />
+                            </div>
+                            <Button type="submit" disabled={loading} data-testid="submit-register-btn" className="w-full bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 font-semibold">
+                                {loading ? "..." : "Créer mon compte"}
+                            </Button>
+                        </form>
+                    </TabsContent>
+                </Tabs>
+            </div>
+        </div>
+    );
+}

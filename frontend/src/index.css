@@ -1,0 +1,195 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700&family=Manrope:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --background: #050505;
+    --surface: #111111;
+    --surface-hover: #1A1A1A;
+    --primary: #E8D2A6;
+    --primary-hover: #D4BB8B;
+    --text-main: #F5F5F5;
+    --text-muted: #A3A3A3;
+    --border: #262626;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--background);
+    color: var(--text-main);
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: 'Outfit', system-ui, sans-serif;
+    color: var(--text-main);
+    letter-spacing: -0.02em;
+}
+
+/* User-customizable accent color (Premium). Overrides gold #E8D2A6 buttons/text globally when set. */
+:root {
+    --accent: #E8D2A6;
+    --accent-hover: #D4BB8B;
+}
+
+html[style*="--accent"] .bg-\[\#E8D2A6\] {
+    background-color: var(--accent) !important;
+}
+
+html[style*="--accent"] .hover\:bg-\[\#D4BB8B\]:hover {
+    background-color: var(--accent-hover) !important;
+}
+
+html[style*="--accent"] .text-\[\#E8D2A6\] {
+    color: var(--accent) !important;
+}
+
+html[style*="--accent"] .border-\[\#E8D2A6\] {
+    border-color: var(--accent) !important;
+}
+
+/* Noise texture overlay */
+.noise-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.02;
+    z-index: 1;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E");
+}
+
+/* Hide scrollbar for carousels */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Custom scrollbar for main body */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #262626;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3a3a3a;
+}
+
+/* Selection color */
+::selection {
+    background: rgba(232, 210, 166, 0.3);
+    color: #ffffff;
+}
+
+/* Shadcn CSS vars (dark theme by default) */
+@layer base {
+    :root {
+        --radius: 0.5rem;
+        --background-hsl: 0 0% 2%;
+        --foreground-hsl: 0 0% 96%;
+        --card-hsl: 0 0% 7%;
+        --card-foreground-hsl: 0 0% 96%;
+        --popover-hsl: 0 0% 7%;
+        --popover-foreground-hsl: 0 0% 96%;
+        --primary-hsl: 40 55% 78%;
+        --primary-foreground-hsl: 0 0% 5%;
+        --secondary-hsl: 0 0% 12%;
+        --secondary-foreground-hsl: 0 0% 96%;
+        --muted-hsl: 0 0% 12%;
+        --muted-foreground-hsl: 0 0% 60%;
+        --accent-hsl: 40 55% 78%;
+        --accent-foreground-hsl: 0 0% 5%;
+        --destructive-hsl: 0 62% 40%;
+        --destructive-foreground-hsl: 0 0% 96%;
+        --border-hsl: 0 0% 15%;
+        --input-hsl: 0 0% 12%;
+        --ring-hsl: 40 55% 78%;
+    }
+}
+
+@layer base {
+    .shadcn-container {
+        --background: var(--background-hsl);
+        --foreground: var(--foreground-hsl);
+        --card: var(--card-hsl);
+        --card-foreground: var(--card-foreground-hsl);
+        --popover: var(--popover-hsl);
+        --popover-foreground: var(--popover-foreground-hsl);
+        --primary: var(--primary-hsl);
+        --primary-foreground: var(--primary-foreground-hsl);
+        --secondary: var(--secondary-hsl);
+        --secondary-foreground: var(--secondary-foreground-hsl);
+        --muted: var(--muted-hsl);
+        --muted-foreground: var(--muted-foreground-hsl);
+        --accent: var(--accent-hsl);
+        --accent-foreground: var(--accent-foreground-hsl);
+        --destructive: var(--destructive-hsl);
+        --destructive-foreground: var(--destructive-foreground-hsl);
+        --border: var(--border-hsl);
+        --input: var(--input-hsl);
+        --ring: var(--ring-hsl);
+    }
+}
+
+/* Fade-in animation */
+@keyframes fadeSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-slide-up {
+    animation: fadeSlideUp 0.6s ease-out both;
+}
+
+/* Poster hover */
+.poster-tile img {
+    transition:
+        transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
+        filter 0.4s ease;
+}
+
+.poster-tile:hover img {
+    transform: scale(1.04);
+    filter: brightness(1.08);
+}
+
+/* Focus ring util */
+.focus-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(232, 210, 166, 0.6);
+}

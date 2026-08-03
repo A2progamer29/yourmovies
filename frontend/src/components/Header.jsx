@@ -1,0 +1,179 @@
+import React from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { Film, Search, User, LogOut, Settings, Heart, Crown, Sliders } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const links = [
+    { to: "/", label: "Accueil" },
+    { to: "/browse?type=movie", label: "Films" },
+    { to: "/browse?type=series", label: "Séries" },
+    { to: "/browse?type=anime", label: "Animes" },
+    { to: "/pricing", label: "Premium" },
+];
+
+export default function Header() {
+    const { user, logout } = useAuth();
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    const isActive = (to) => {
+        if (to === "/") return location.pathname === "/";
+        const [path, q] = to.split("?");
+        if (location.pathname !== path) return false;
+        if (q) {
+            const key = q.split("=")[0];
+            const val = q.split("=")[1];
+            return new URLSearchParams(location.search).get(key) === val;
+        }
+        return true;
+    };
+
+    return (
+        <header className="sticky top-0 z-40 backdrop-blur-2xl bg-[#050505]/70 border-b border-white/5">
+            <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-6">
+                <Link to="/" data-testid="header-logo" className="flex items-center gap-2 group">
+                    <div className="w-9 h-9 rounded-full border border-[#E8D2A6]/30 flex items-center justify-center group-hover:border-[#E8D2A6]/80 transition-colors">
+                        <Film size={16} className="text-[#E8D2A6]" />
+                    </div>
+                    <span className="font-display text-xl tracking-tight text-white">
+                        YourMovie<span className="text-[#E8D2A6]">&apos;s</span>
+                    </span>
+                </Link>
+
+                <nav className="hidden md:flex items-center gap-1">
+                    {links.map((l) => (
+                        <Link
+                            key={l.to}
+                            to={l.to}
+                            data-testid={`nav-${l.label.toLowerCase()}`}
+                            className={`px-4 py-2 rounded-full text-sm transition-colors ${isActive(l.to)
+                                ? "text-[#E8D2A6] bg-white/5"
+                                : "text-neutral-300 hover:text-white hover:bg-white/5"
+                                }`}
+                        >
+                            {l.label}
+                        </Link>
+                    ))}
+                </nav>
+
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-neutral-300 hover:text-[#E8D2A6] hover:bg-white/5"
+                        onClick={() => navigate("/browse")}
+                        data-testid="header-search-btn"
+                        aria-label="Rechercher"
+                    >
+                        <Search size={18} />
+                    </Button>
+
+                    {user ? (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <button
+                                    data-testid="header-user-menu"
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#262626] hover:border-[#E8D2A6]/50 transition-colors focus-ring"
+                                >
+                                    {user.picture ? (
+                                        <img src={user.picture} alt={user.name} className="w-6 h-6 rounded-full" />
+                                    ) : (
+                                        <div className="w-6 h-6 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-xs font-semibold">
+                                            {user.name?.[0]?.toUpperCase() || "U"}
+                                        </div>
+                                    )}
+                                    <span className="text-sm text-white hidden sm:block">{user.name}</span>
+                                    {user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="bg-[#111111] border-[#262626] text-white" align="end">
+                                <DropdownMenuLabel className="text-neutral-400">
+                                    {user.email}
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator className="bg-[#262626]" />
+                                <DropdownMenuItem
+                                    onClick={() => navigate("/profile")}
+                                    data-testid="menu-profile"
+                                    className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                >
+                                    <User size={14} className="mr-2" /> Mon profil
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    onClick={() => navigate("/profile?tab=favorites")}
+                                    data-testid="menu-favorites"
+                                    className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                >
+                                    <Heart size={14} className="mr-2" /> Favoris & Watchlist
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    onClick={() => navigate("/pricing")}
+                                    data-testid="menu-pricing"
+                                    className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                >
+                                    <Crown size={14} className="mr-2" /> {user.premium ? "Mon abonnement" : "Passer Premium"}
+                                </DropdownMenuItem>
+                                {user.premium && (
+                                    <DropdownMenuItem
+                                        onClick={() => navigate("/account/subscription")}
+                                        data-testid="menu-subscription"
+                                        className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                    >
+                                        <Crown size={14} className="mr-2" /> Gérer mon abonnement
+                                    </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                    onClick={() => navigate("/profiles")}
+                                    data-testid="menu-profiles"
+                                    className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                >
+                                    <User size={14} className="mr-2" /> Profils
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    onClick={() => navigate("/settings")}
+                                    data-testid="menu-settings"
+                                    className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                >
+                                    <Sliders size={14} className="mr-2" /> Paramètres
+                                </DropdownMenuItem>
+                                {user.is_admin && (
+                                    <DropdownMenuItem
+                                        onClick={() => navigate("/admin")}
+                                        data-testid="menu-admin"
+                                        className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                    >
+                                        <Settings size={14} className="mr-2" /> Panneau admin
+                                    </DropdownMenuItem>
+                                )}
+                                <DropdownMenuSeparator className="bg-[#262626]" />
+                                <DropdownMenuItem
+                                    onClick={logout}
+                                    data-testid="menu-logout"
+                                    className="focus:bg-white/5 focus:text-red-400 cursor-pointer"
+                                >
+                                    <LogOut size={14} className="mr-2" /> Déconnexion
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    ) : (
+                        <Button
+                            onClick={() => navigate("/login")}
+                            data-testid="header-login-btn"
+                            className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold"
+                        >
+                            Connexion
+                        </Button>
+                    )}
+                </div>
+            </div>
+        </header>
+    );
+}

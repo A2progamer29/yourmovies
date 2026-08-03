@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 3 full e2e verification for YourMovie's — quality tiers, custom VideoPlayer + Google IMA, auto-rotating hero, full-page admin form, admin users tab, subscription page, multi-profiles. Backend: 13/13 pytest tests pass (subscription current returns all fields, cancel/resume returns 400 without stripe_subscription_id, admin-only list/toggle/delete users with self-delete guard, profiles CRUD with 403 for non-premium + 4 max limit, media qualities and featured_order persistence). Frontend (Playwright): 10/10 flows pass — Home auto-rotating hero shows BBB and 'Regarder' navigates to /watch; Anon Watch page shows quality-720p only, 1080p/4k rendered as locked links to /pricing; Premium admin Watch shows all 3 quality-720p/1080p/4k testids clickable; Google IMA SDK script is injected (ad playback falls back gracefully); Admin has both admin-tab-media and admin-tab-users tabs, users list shows toggle-admin-{id} & delete-user-{id} buttons; /admin/media/new is a full-page form (0 modals) with add-quality-btn + form-featured + form-featured-order; /admin/media/{id}/edit loads BBB data + its 3 quality rows; /account/subscription shows sub-plan='premium' + cancel-btn for premium admin; /profiles allows premium admin to open modal, fill name, save, and profile appears in grid; MediaCard href points to /media/{id} only (no /watch) and has no play-circle overlay.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/browse", "issues": ["GENRE and ANNÉE dropdowns use native <select> instead of shadcn Select component — inconsistent with rest of the app which uses shadcn Select (see /admin/media/new form-type). Minor UX polish."]},
+      {"screen": "/profiles dialog", "issues": ["DialogContent missing Description/aria-describedby (React a11y warning in console). Minor a11y issue."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Replace native <select> in BrowsePage filters with shadcn Select for consistency.",
+    "(Optional) Add DialogDescription or aria-describedby to profile creation dialog to silence a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 950 lines and mixes 8 domains (auth, media, reviews, favorites, uploads, Stripe, watch-progress, similar, subscription mgmt, profiles, admin users). Strongly recommend splitting into routers (auth.py, media.py, payments.py, watch.py, admin.py, profiles.py) — exceeds the >700-line threshold from code review guidelines.",
+    "VideoPlayer.jsx (438 lines) — quality change reloads <video> src which will restart ad pod on some browsers if IMA plays post-ad; consider using HTMLMediaElement.setSinkId or Adaptive Bitrate via HLS/DASH manifest for smoother switching. Also the useEffect that starts main video after adsFinished can race if the user paused during ad (playing state stale).",
+    "Backend cancel/resume return 400 when stripe_subscription_id is null — good, but the SubscriptionPage never calls /subscription/cancel for such a user because it renders the plan card even when sub_id is null (manual premium via admin flag). Clicking cancel-btn would show a red toast with 'No active subscription'. Consider hiding cancel-btn when !sub?.stripe_subscription_id to avoid dead-end UX.",
+    "AdminMediaForm.jsx — uploadFile for kind='video' via `default_video` cb sets video_file_path but doesn't build a URL; a downstream player then can't play it unless it also has video_url. Consider auto-populating video_url = buildFileUrl(p).",
+    "ProfilesPage — save reloads list but does not clear the persisted ym_profile_id if it references a now-deleted profile.",
+    "HomePage — featured_order default 999 in JS sort but backend allows null; fine. Featured-only query works but the fallback to `all.data.slice(0,1)` when no featured items may show a random newest item as hero (acceptable).",
+    "Admin toggle-admin has no guard against demoting the last remaining admin (a self-lockout scenario if only one admin toggles themselves). Non-critical since backend already blocks self-delete, but consider similar guard for last-admin demotion."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (13/13 pytest)", "frontend": "100% (10/10 flows)"},
+  "test_credentials": "admin@yourmovies.app / Admin123! (admin + manually flagged premium=true/premium_plan=premium/premium_until=+1y, but stripe_subscription_id is null so cancel/resume return 400 as expected); user@yourmovies.app / User1234! (regular user, used to test 403 on POST /profiles and 403 on GET /admin/users).",
+  "seed_data_creation": "Media qualities for BBB (id retrieved dynamically) set to [{720p,1080p,4k} → Google BBB CDN URL] and featured=true, featured_order=1 so the auto-rotating hero and quality selector both surface BBB. Regular test user user@yourmovies.app registered via /api/auth/register (safe to keep). All TEST_-prefixed profiles created during tests were cleaned up.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 3 is fully green. BBB media in DB currently has 3 identical qualities (all pointing to the same Google BBB MP4) — if you need genuinely different quality streams, update via PUT /api/media/{id}. Admin is manually premium (no stripe_subscription_id) so real Stripe subscription flow (cancel/resume 200 path) can only be tested end-to-end via Stripe test-mode checkout completion. The IMA SDK script IS loaded but Google's sample VAST tag often fails in headless/preview browsers — this is expected and the player falls back to direct video play. Native <select> on /browse for genre/year is a known minor design deviation."
+}

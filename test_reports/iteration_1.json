@@ -1,0 +1,50 @@
+{
+  "summary": "First-finish smoke test of YourMovie's. Backend auth, media CRUD, favorites, and file/list flows mostly work. Frontend homepage, browse, login, admin panel, profile, and media detail pages render correctly and JWT-based auth works end-to-end. Two backend bugs detected: POST /api/reviews returns 500 (ObjectId serialization) and PUT /api/media/{id} returns 422 with partial payload.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login with correct credentials returns JWT (key: 'token'), user includes is_admin=true",
+    "GET /api/auth/me with Bearer token returns admin user; without token returns 401",
+    "POST /api/auth/login with wrong password returns 401",
+    "POST /api/auth/register creates a new (non-admin) user and returns token",
+    "GET /api/media returns 6 seeded items; ?type=movie filters correctly; ?q=Dune search works",
+    "GET /api/media/{id} returns single media",
+    "POST /api/media as admin creates item; without token returns 401",
+    "DELETE /api/media/{id} as admin returns 200",
+    "POST /api/favorites/{id}?list_type=favorite toggles ({active:true}); GET /api/favorites returns user list; GET /api/favorites/status/{id} returns {favorite,watchlist}",
+    "Frontend homepage loads with brand 'YourMovie\u2019s', hero (Dune), and 3 catalog carousels (Films/S\u00e9ries/Animes)",
+    "Browse page /browse shows filter buttons Tout/Films/S\u00e9ries/Animes",
+    "Login form accepts admin credentials and stores JWT in localStorage as ym_token (len=145); redirects to /",
+    "Admin page /admin renders stats (Total 7, Films 3, S\u00e9ries 2, Animes 2), 'Ajouter un contenu' button, and media table with edit/delete actions",
+    "Profile page /profile shows Favoris (1) and Watchlist (0) tabs after favoriting",
+    "Media detail page /media/{id} shows type/year/title/description, Favori & Watchlist buttons, and reviews section"
+  ],
+  "failed": [
+    {
+      "area": "backend",
+      "issue": "POST /api/reviews returns 500 Internal Server Error",
+      "evidence": "Payload {media_id, rating:8, comment:'Test review'} with valid JWT returns 500. Backend log: ValueError: [TypeError(\"'ObjectId' object is not iterable\"), TypeError('vars() argument must have __dict__ attribute')] in fastapi/encoders.py \u2192 the endpoint returns a Mongo document containing raw ObjectId that FastAPI cannot serialize. Fix: strip _id or return Pydantic model.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "backend",
+      "issue": "PUT /api/media/{id} returns 422 with partial update payload",
+      "evidence": "PUT /api/media/m_202df8a41cd0 with body {\"title\":\"TmpUpdated\"} and admin JWT returns 422. Endpoint likely requires a full Media model instead of a partial/optional update schema.",
+      "priority": "MEDIUM"
+    },
+    {
+      "area": "frontend",
+      "issue": "Google OAuth button is a <button> without visible href; cannot directly assert it starts with https://auth.emergentagent.com/ from DOM",
+      "evidence": "querySelector for 'Google' button returned tag=BUTTON with empty href. Redirect likely happens via onClick JS. Not verified against Emergent auth URL (per instructions we did not complete OAuth).",
+      "priority": "LOW"
+    }
+  ],
+  "action_items": [
+    "Fix POST /api/reviews: serialize the created review without raw ObjectId (return response_model or drop _id) so review creation works from UI",
+    "After fix, verify that media rating is recomputed as average of reviews",
+    "Change PUT /api/media/{id} to accept a partial update schema (all fields Optional) so admin edit dialog can send only changed fields",
+    "Optionally: expose the Emergent OAuth target URL on the Google button (data-href or window.location assignment) so it can be asserted; ensure it starts with https://auth.emergentagent.com/"
+  ],
+  "success_rate": {"backend": "80%", "frontend": "100%"},
+  "retest_needed": true,
+  "full_testing_deferred": true
+}

@@ -1,0 +1,111 @@
+{
+  "theme": "dark",
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "Manrope",
+    "scales": {
+      "h1": "text-5xl sm:text-6xl tracking-tighter leading-none font-light",
+      "h2": "text-3xl sm:text-4xl tracking-tight leading-tight",
+      "h3": "text-xl sm:text-2xl tracking-tight",
+      "body": "text-base leading-relaxed text-neutral-400",
+      "small": "text-sm tracking-wide text-neutral-500 uppercase"
+    }
+  },
+  "colors": {
+    "background": "#050505",
+    "surface": "#111111",
+    "surface_hover": "#1A1A1A",
+    "primary": "#E8D2A6",
+    "primary_hover": "#D4BB8B",
+    "text_main": "#F5F5F5",
+    "text_muted": "#A3A3A3",
+    "border": "#262626",
+    "error": "#991B1B"
+  },
+  "visual_enhancers": {
+    "shadows": "Ambient diffuse shadows for floating elements, e.g. shadow-[0_8px_32px_rgba(232,210,166,0.1)] on active hover states. Otherwise flat.",
+    "borders": "1px solid #262626 on surfaces, changing to #E8D2A6/30 on hover for interactive cards.",
+    "glassmorphism": "backdrop-blur-2xl bg-[#050505]/60 border-b border-white/5 for the sticky header. Must look like premium milled crystal.",
+    "texture": "Optional 2% noise overlay on the main background to break digital flatness."
+  },
+  "grids_layouts": {
+    "hero": "Full-width layout with an 80vh max-height hero image, text aligned to the left, bottom-aligned with a gradient overlay bg-gradient-to-t from-[#050505] via-[#050505]/60 to-transparent. Never purely black overlay.",
+    "media_carousel": "Horizontal scrolling (overflow-x-auto snap-x) with gap-4 or gap-6. Hide scrollbars.",
+    "media_grid": "CSS Grid: grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6. Items are posters with aspect-[2/3].",
+    "bento_dashboard": "Admin panel uses a high-density bento grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6. Strict hierarchy."
+  },
+  "components": {
+    "buttons": "Pill-shaped (rounded-full) for primary actions. Primary buttons use bg-[#E8D2A6] text-black font-semibold hover:-translate-y-1 transition-transform. Secondary buttons use transparent bg with border border-[#262626] text-white hover:border-[#E8D2A6]/50.",
+    "cards": "Cardless approach for media items. Just the image poster with rounded-lg overflow-hidden and text below. Admin dashboard uses flat rectangular cards with 1px border border-[#262626] and no shadow.",
+    "navigation": "Sticky top header. Navigation links must be visible on desktop. Logo (YourMovie's) on left, links center, Auth/Profile on right.",
+    "inputs": "Shadcn inputs heavily customized: bg-[#111111] border-[#262626] focus:border-[#E8D2A6] focus:ring-1 focus:ring-[#E8D2A6]/50 rounded-md text-white."
+  },
+  "motion": {
+    "hover": "Movie posters slightly scale up (scale-105) on hover with a 0.4s ease-out transition. Images must not break border-radius on scale.",
+    "page_transition": "Framer motion for subtle fade-in and slide-up on route changes.",
+    "image_load": "Fade in images using opacity transition to prevent pop-in."
+  },
+  "accessibility": {
+    "contrast": "Ensure primary text meets APCA contrast standards against #050505. Do not use pure transparent backgrounds for text-bearing elements.",
+    "focus": "focus-visible:ring-2 focus-visible:ring-[#E8D2A6] focus-visible:outline-none",
+    "aria": "Add aria-labels to all icon-only buttons (like play, favorite, watchlist)."
+  },
+  "media": {
+    "posters": "Maintain 2:3 aspect ratio for all movie/anime/series posters using aspect-[2/3] object-cover.",
+    "banners": "Maintain 16:9 or full-viewport width aspect ratio for hero banners and trailers."
+  },
+  "image_urls": {
+    "hero_banners": [
+      {
+        "url": "https://images.pexels.com/photos/13534013/pexels-photo-13534013.jpeg",
+        "description": "Misty mountains for fantasy/anime hero section"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1580920459139-68dcb30f70fe",
+        "description": "Tokyo aerial view for urban anime/sci-fi hero section"
+      }
+    ],
+    "movie_posters": [
+      {
+        "url": "https://images.unsplash.com/photo-1572188863110-46d457c9234d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxjaW5lbWF0aWMlMjBtb3ZpZSUyMHBvc3RlciUyMGRhcmt8ZW58MHx8fHwxNzg1NTI3MzkzfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Three assorted-title movie posters"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1782020934325-cfe4cea4fd9c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwyfHxjaW5lbWF0aWMlMjBtb3ZpZSUyMHBvc3RlciUyMGRhcmt8ZW58MHx8fHwxNzg1NTI3MzkzfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Person holding hannibal book in dark room"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1572700432881-42c60fe8c869?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA7MDB8MHwxfHNlYXJjaHwxfHx0diUyMHNlcmllcyUyMGRyYW1hJTIwcG9zdGVyfGVufDB8fHx8MTc4NTUyNzM5M3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Drama series poster"
+      },
+      {
+        "url": "https://images.pexels.com/photos/3137890/pexels-photo-3137890.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Framed posters of upcoming movies"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "App name is 'YourMovie\\'s'. Implement this in the branding.",
+    "Use react-router-dom for navigation.",
+    "Implement lucide-react for all icons, keeping a minimal and sharp icon style.",
+    "DO NOT use generic colors like tailwind's blue-500. Strictly use the defined Pale Gold (#E8D2A6) and dark surface shades (#111111).",
+    "DO NOT use Inter for headings. Use 'Outfit' from Google Fonts. Body text should be 'Manrope'.",
+    "Implement Framer Motion for micro-interactions (hover, layout changes, page transitions).",
+    "Hero sections MUST have a bottom-to-top gradient overlay (max 60% opacity) for text legibility. Never full black overlays.",
+    "Include data-testid attributes on all interactive elements (buttons, inputs, links).",
+    "Use standard HTML5 video element for local mp4 playback, styled with Tailwind for a custom cinematic player look. Embed YouTube trailers via iframe.",
+    "Admin panel should use Shadcn UI heavily customized to fit the dark aesthetic (remove default shadows, 1px subtle borders, dark backgrounds)."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for sticky navs and overlays.",
+    "NEVER use universal transition (transition: all). Use specific transitions (transition-colors, transition-transform).",
+    "DO NOT center align the app container. No .App { text-align: center; }.",
+    "Always use modern button styles (pill-shaped or sharp) with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters (🤖, etc.) for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Main agent relies on these image URLs. DO NOT use placeholder text or dummy image services. If missing, use flat colored divs with category icons."
+  ],
+  "3d_libraries": "Framer Motion for 2D layout animations and micro-interactions. No heavy 3D library required for this context, to keep the streaming performance optimal and clean."
+}

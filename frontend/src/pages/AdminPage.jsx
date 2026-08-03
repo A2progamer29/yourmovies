@@ -1,0 +1,236 @@
+import React, { useEffect, useState } from "react";
+import { Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search } from "lucide-react";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import Header from "@/components/Header";
+import { showError } from "@/lib/errors";
+
+export default function AdminPage() {
+    const { user, loading } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const [items, setItems] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [q, setQ] = useState("");
+    const [userQ, setUserQ] = useState("");
+    const tabParam = new URLSearchParams(location.search).get("tab") || "media";
+
+    const loadMedia = async () => {
+        const r = await api.get("/media?limit=500");
+        setItems(r.data);
+    };
+    const loadUsers = async () => {
+        try {
+            const r = await api.get("/admin/users");
+            setUsers(r.data);
+        } catch (e) { showError(toast, e, "Chargement utilisateurs impossible"); }
+    };
+
+    useEffect(() => {
+        if (user?.is_admin) {
+            loadMedia();
+            loadUsers();
+        }
+    }, [user]);
+
+    if (loading) return null;
+    if (!user) return <Navigate to="/login" replace />;
+    if (!user.is_admin) return <Navigate to="/" replace />;
+
+    const remove = async (id) => {
+        if (!window.confirm("Supprimer ce contenu ?")) return;
+        await api.delete(`/media/${id}`);
+        toast.success("Supprimé");
+        loadMedia();
+    };
+    const toggleAdmin = async (u) => {
+        try {
+            await api.post(`/admin/users/${u.user_id}/toggle-admin`);
+            toast.success("Rôle mis à jour");
+            loadUsers();
+        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+    };
+    const deleteUser = async (u) => {
+        if (u.user_id === user.user_id) { toast.error("Impossible de supprimer votre propre compte"); return; }
+        if (!window.confirm(`Supprimer ${u.email} et toutes ses données ?`)) return;
+        try {
+            await api.delete(`/admin/users/${u.user_id}`);
+            toast.success("Utilisateur supprimé");
+            loadUsers();
+        } catch (e) { showError(toast, e, "Suppression impossible"); }
+    };
+
+    const stats = {
+        total: items.length,
+        movies: items.filter((i) => i.type === "movie").length,
+        series: items.filter((i) => i.type === "series").length,
+        animes: items.filter((i) => i.type === "anime").length,
+        featured: items.filter((i) => i.featured).length,
+        users: users.length,
+        premium: users.filter((u) => u.premium).length,
+    };
+
+    const filteredItems = items.filter((m) => !q || m.title.toLowerCase().includes(q.toLowerCase()));
+    const filteredUsers = users.filter((u) => !userQ ||
+        (u.email || "").toLowerCase().includes(userQ.toLowerCase()) ||
+        (u.name || "").toLowerCase().includes(userQ.toLowerCase())
+    );
+
+    const setTab = (t) => navigate(`/admin?tab=${t}`, { replace: true });
+
+    return (
+        <div className="min-h-screen bg-[#050505] text-white">
+            <Header />
+            <div className="max-w-7xl mx-auto px-6 py-12">
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-10">
+                    <div>
+                        <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Admin</div>
+                        <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Panneau de gestion</h1>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-10">
+                    {[
+                        { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
+                        { label: "Films", val: stats.movies, icon: <Film size={14} /> },
+                        { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
+                        { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
+                        { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
+                        { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
+                        { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
+                    ].map((s) => (
+                        <div key={s.label} className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                            <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5">{s.icon} {s.label}</div>
+                            <div className="font-display text-2xl mt-1.5">{s.val}</div>
+                        </div>
+                    ))}
+                </div>
+
+                <Tabs value={tabParam} onValueChange={setTab}>
+                    <TabsList className="bg-[#111] border border-[#262626]">
+                        <TabsTrigger value="media" data-testid="admin-tab-media" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <Film size={14} className="mr-2" /> Contenus
+                        </TabsTrigger>
+                        <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <Users size={14} className="mr-2" /> Utilisateurs
+                        </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="media" className="mt-8">
+                        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                            <div className="relative flex-1">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher..." className="pl-9 bg-[#111] border-[#262626] text-white" />
+                            </div>
+                            <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-5 font-semibold">
+                                <Plus size={16} className="mr-2" /> Ajouter un contenu
+                            </Button>
+                        </div>
+
+                        <div className="border border-[#262626] rounded-lg overflow-hidden">
+                            <div className="grid grid-cols-12 text-xs uppercase tracking-widest text-neutral-500 px-5 py-3 border-b border-[#262626] bg-[#0a0a0a]">
+                                <div className="col-span-5">Titre</div>
+                                <div className="col-span-2">Type</div>
+                                <div className="col-span-1">Année</div>
+                                <div className="col-span-1">Affiche</div>
+                                <div className="col-span-1">Note</div>
+                                <div className="col-span-2 text-right">Actions</div>
+                            </div>
+                            {filteredItems.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun contenu.</div>}
+                            {filteredItems.map((m) => (
+                                <div key={m.id} className="grid grid-cols-12 px-5 py-4 border-b border-[#1a1a1a] items-center text-sm hover:bg-white/[0.02]">
+                                    <div className="col-span-5 flex items-center gap-3">
+                                        {m.poster_url && <img src={m.poster_url} alt="" className="w-8 h-12 object-cover rounded" />}
+                                        <div>
+                                            <div className="text-white">{m.title}</div>
+                                            <div className="text-xs text-neutral-500">{(m.genres || []).slice(0, 3).join(" · ")}</div>
+                                        </div>
+                                    </div>
+                                    <div className="col-span-2 text-neutral-300 capitalize">{m.type}</div>
+                                    <div className="col-span-1 text-neutral-400">{m.year || "—"}</div>
+                                    <div className="col-span-1">
+                                        {m.featured ? <span className="text-[#E8D2A6] text-xs">★ #{m.featured_order ?? "—"}</span> : <span className="text-neutral-600 text-xs">—</span>}
+                                    </div>
+                                    <div className="col-span-1 text-[#E8D2A6]">{m.rating ? m.rating.toFixed(1) : "—"}</div>
+                                    <div className="col-span-2 flex items-center gap-1 justify-end">
+                                        <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>
+                                        <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="users" className="mt-8">
+                        <div className="mb-6 relative max-w-md">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                            <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
+                        </div>
+
+                        <div className="border border-[#262626] rounded-lg overflow-hidden">
+                            <div className="grid grid-cols-12 text-xs uppercase tracking-widest text-neutral-500 px-5 py-3 border-b border-[#262626] bg-[#0a0a0a]">
+                                <div className="col-span-4">Utilisateur</div>
+                                <div className="col-span-2">Auth</div>
+                                <div className="col-span-2">Abonnement</div>
+                                <div className="col-span-2">Fin d&apos;abo</div>
+                                <div className="col-span-2 text-right">Actions</div>
+                            </div>
+                            {filteredUsers.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun utilisateur.</div>}
+                            {filteredUsers.map((u) => (
+                                <div key={u.user_id} className="grid grid-cols-12 px-5 py-4 border-b border-[#1a1a1a] items-center text-sm hover:bg-white/[0.02]" data-testid={`user-row-${u.user_id}`}>
+                                    <div className="col-span-4 flex items-center gap-3">
+                                        {u.picture ? (
+                                            <img src={u.picture} alt="" className="w-8 h-8 rounded-full" />
+                                        ) : (
+                                            <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-xs font-semibold">
+                                                {u.name?.[0]?.toUpperCase()}
+                                            </div>
+                                        )}
+                                        <div>
+                                            <div className="text-white flex items-center gap-1.5">
+                                                {u.name}
+                                                {u.is_admin && <Shield size={11} className="text-[#E8D2A6]" />}
+                                            </div>
+                                            <div className="text-xs text-neutral-500">{u.email}</div>
+                                        </div>
+                                    </div>
+                                    <div className="col-span-2 text-neutral-400 capitalize">{u.auth_provider}</div>
+                                    <div className="col-span-2">
+                                        {u.premium ? (
+                                            <span className="inline-flex items-center gap-1 text-[#E8D2A6] text-xs px-2 py-1 rounded-full border border-[#E8D2A6]/30 bg-[#E8D2A6]/10">
+                                                <Crown size={10} /> {u.premium_plan}
+                                            </span>
+                                        ) : (
+                                            <span className="text-neutral-500 text-xs">Gratuit</span>
+                                        )}
+                                    </div>
+                                    <div className="col-span-2 text-neutral-400 text-xs">
+                                        {u.premium_until ? new Date(u.premium_until).toLocaleDateString("fr-FR") : "—"}
+                                    </div>
+                                    <div className="col-span-2 flex items-center gap-1 justify-end">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => toggleAdmin(u)}
+                                            data-testid={`toggle-admin-${u.user_id}`}
+                                            className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"
+                                        >
+                                            {u.is_admin ? <ShieldOff size={12} className="mr-1" /> : <Shield size={12} className="mr-1" />}
+                                            {u.is_admin ? "Retirer" : "Admin"}
+                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.user_id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+                </Tabs>
+            </div>
+        </div>
+    );
+}
