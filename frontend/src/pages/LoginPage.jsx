@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Film } from "lucide-react";
 import { toast } from "sonner";
@@ -18,43 +18,37 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [name, setName] = useState("");
     const [loading, setLoading] = useState(false);
-    const googleBtnRef = useRef(null);
+    // Connexion Google par redirection pleine page (aucun popup).
+    const startGoogleLogin = () => {
+        const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const params = new URLSearchParams({
+            client_id: GOOGLE_CLIENT_ID,
+            redirect_uri: window.location.origin + "/login",
+            response_type: "id_token",
+            scope: "openid email profile",
+            nonce,
+            prompt: "select_account",
+        });
+        window.location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+    };
 
-    const onGoogleCredential = useCallback(async (response) => {
-        try {
-            await loginWithGoogle(response.credential);
-            toast.success("Connecté");
-            navigate("/");
-        } catch (err) {
-            showError(toast, err, "Connexion Google impossible");
-        }
-    }, [loginWithGoogle, navigate]);
-
+    // Au retour de Google, l'id_token est dans le fragment d'URL (#id_token=...).
     useEffect(() => {
         if (!GOOGLE_CLIENT_ID) return;
-        let cancelled = false;
-        const init = () => {
-            if (cancelled) return;
-            if (window.google?.accounts?.id && googleBtnRef.current) {
-                window.google.accounts.id.initialize({
-                    client_id: GOOGLE_CLIENT_ID,
-                    callback: onGoogleCredential,
-                });
-                window.google.accounts.id.renderButton(googleBtnRef.current, {
-                    theme: "filled_black",
-                    size: "large",
-                    shape: "pill",
-                    text: "continue_with",
-                    logo_alignment: "center",
-                    width: 320,
-                });
-            } else {
-                setTimeout(init, 300);
+        const frag = window.location.hash?.startsWith("#") ? window.location.hash.slice(1) : "";
+        const idToken = frag ? new URLSearchParams(frag).get("id_token") : null;
+        if (!idToken) return;
+        window.history.replaceState(null, "", window.location.pathname);
+        (async () => {
+            try {
+                await loginWithGoogle(idToken);
+                toast.success("Connecté");
+                navigate("/");
+            } catch (err) {
+                showError(toast, err, "Connexion Google impossible");
             }
-        };
-        init();
-        return () => { cancelled = true; };
-    }, [onGoogleCredential]);
+        })();
+    }, [loginWithGoogle, navigate]);
 
     const doLogin = async (e) => {
         e.preventDefault();
@@ -102,7 +96,20 @@ export default function LoginPage() {
 
                 {GOOGLE_CLIENT_ID && (
                     <>
-                        <div ref={googleBtnRef} className="flex justify-center mb-2" />
+                        <button
+                            type="button"
+                            onClick={startGoogleLogin}
+                            data-testid="google-login-btn"
+                            className="w-full flex items-center justify-center gap-2 h-11 rounded-full bg-white text-black hover:bg-neutral-200 font-medium mb-2"
+                        >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                            </svg>
+                            Continuer avec Google
+                        </button>
                         <div className="flex items-center gap-3 my-6">
                             <div className="flex-1 h-px bg-[#262626]" />
                             <span className="text-xs uppercase tracking-widest text-neutral-500">Ou</span>
