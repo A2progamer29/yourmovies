@@ -55,6 +55,13 @@ export default function AdminPage() {
             loadUsers();
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
+    const togglePremium = async (u) => {
+        try {
+            await api.post(`/admin/users/${u.user_id}/toggle-premium`);
+            toast.success("Premium mis à jour");
+            loadUsers();
+        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+    };
     const deleteUser = async (u) => {
         if (u.user_id === user.user_id) { toast.error("Impossible de supprimer votre propre compte"); return; }
         if (!window.confirm(`Supprimer ${u.email} et toutes ses données ?`)) return;
@@ -222,6 +229,16 @@ export default function AdminPage() {
                                         >
                                             {u.is_admin ? <ShieldOff size={12} className="mr-1" /> : <Shield size={12} className="mr-1" />}
                                             {u.is_admin ? "Retirer" : "Admin"}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => togglePremium(u)}
+                                            data-testid={`toggle-premium-${u.user_id}`}
+                                            className={u.premium ? "text-[#E8D2A6] hover:bg-white/5" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}
+                                        >
+                                            <Crown size={12} className="mr-1" />
+                                            {u.premium ? "Retirer Premium" : "Premium"}
                                         </Button>
                                         <Button variant="ghost" size="icon" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.user_id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
                                     </div>

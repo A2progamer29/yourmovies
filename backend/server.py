@@ -517,7 +517,9 @@ async def favorite_status(media_id: str, user: dict = Depends(get_current_user))
 
 # ---------- Upload / File ----------
 @api_router.post("/upload")
-async def upload_file(file: UploadFile = File(...), kind: str = Form("image"), user: dict = Depends(require_admin)):
+async def upload_file(file: UploadFile = File(...), kind: str = Form("image"), user: dict = Depends(get_current_user)):
+    if kind == "video" and not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
     ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
     path = f"{APP_NAME}/uploads/{kind}/{uuid.uuid4().hex}.{ext}"
     data = await file.read()
@@ -928,6 +930,28 @@ async def admin_toggle_admin(user_id: str, admin: dict = Depends(require_admin))
     new_val = not bool(target.get("is_admin"))
     await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": new_val}})
     return {"is_admin": new_val}
+
+@api_router.post("/admin/users/{user_id}/toggle-premium")
+async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Not found")
+    pu = target.get("premium_until")
+    active = False
+    if pu:
+        try:
+            dt = datetime.fromisoformat(pu) if isinstance(pu, str) else pu
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            active = dt > datetime.now(timezone.utc)
+        except Exception:
+            active = False
+    if active:
+        await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": None, "premium_plan": None}})
+        return {"premium": False}
+    until = (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat()
+    await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": "admin"}})
+    return {"premium": True}
 
 @api_router.delete("/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
