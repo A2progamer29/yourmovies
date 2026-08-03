@@ -83,7 +83,7 @@ export default function AdminMediaForm() {
     if (!user) return <Navigate to="/login" replace />;
     if (!user.is_admin) return <Navigate to="/" replace />;
 
-    const buildFileUrl = (path) => path ? `${process.env.REACT_APP_BACKEND_URL}/api/files/${path}` : "";
+    const buildFileUrl = (p) => !p ? "" : (/^https?:\/\//.test(p) ? p : `${process.env.REACT_APP_BACKEND_URL}/api/files/${p}`);
 
     const uploadFile = async (file, kind, key, cb) => {
         setUploading(key);
@@ -92,7 +92,7 @@ export default function AdminMediaForm() {
             fd.append("file", file);
             fd.append("kind", kind);
             const r = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-            cb(r.data.path, buildFileUrl(r.data.path));
+            cb(r.data.url, r.data.url);
             toast.success("Fichier téléversé");
         } catch (e) {
             showError(toast, e, "Téléversement impossible");

@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Film, Search, User, LogOut, Settings, Heart, Crown, Sliders } from "lucide-react";
+import { Search, User, LogOut, Settings, Heart, Crown, Sliders } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -41,9 +41,7 @@ export default function Header() {
         <header className="sticky top-0 z-40 backdrop-blur-2xl bg-[#050505]/70 border-b border-white/5">
             <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-6">
                 <Link to="/" data-testid="header-logo" className="flex items-center gap-2 group">
-                    <div className="w-9 h-9 rounded-full border border-[#E8D2A6]/30 flex items-center justify-center group-hover:border-[#E8D2A6]/80 transition-colors">
-                        <Film size={16} className="text-[#E8D2A6]" />
-                    </div>
+                    <img src="/logo.png" alt="YourMovie's" className="w-9 h-9 rounded-full object-cover" />
                     <span className="font-display text-xl tracking-tight text-white">
                         YourMovie<span className="text-[#E8D2A6]">&apos;s</span>
                     </span>

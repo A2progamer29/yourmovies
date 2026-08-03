@@ -39,59 +39,14 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ---------- Storage ----------
-storage_key: Optional[str] = None
-
-def init_storage():
-    global storage_key
-    if storage_key:
-        return storage_key
-    try:
-        resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
-        resp.raise_for_status()
-        storage_key = resp.json()["storage_key"]
-        logger.info("Storage initialized")
-        return storage_key
-    except Exception as e:
-        logger.error(f"Storage init failed: {e}")
-        return None
-
-def put_object(path: str, data: bytes, content_type: str):
-    key = init_storage()
-    if not key:
-        raise HTTPException(status_code=500, detail="Storage unavailable")
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=300
-    )
-    if resp.status_code == 403:
-        global storage_key
-        storage_key = None
-        key = init_storage()
-        resp = requests.put(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key, "Content-Type": content_type},
-            data=data, timeout=300
-        )
-    resp.raise_for_status()
-    return resp.json()
-
-def get_object(path: str):
-    key = init_storage()
-    if not key:
-        raise HTTPException(status_code=500, detail="Storage unavailable")
-    resp = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key}, timeout=120
-    )
-    if resp.status_code == 403:
-        global storage_key
-        storage_key = None
-        key = init_storage()
-        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=120)
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+# ---------- Storage (Cloudinary) ----------
+import cloudinary
+import cloudinary.uploader
+# Le SDK se configure automatiquement via la variable d'env CLOUDINARY_URL
+# (format: cloudinary://api_key:api_secret@cloud_name)
+CLOUDINARY_CONFIGURED = bool(os.environ.get("CLOUDINARY_URL"))
+if CLOUDINARY_CONFIGURED:
+    cloudinary.config(secure=True)
 
 # ---------- Models ----------
 class UserPublic(BaseModel):
@@ -520,32 +475,30 @@ async def favorite_status(media_id: str, user: dict = Depends(get_current_user))
 async def upload_file(file: UploadFile = File(...), kind: str = Form("image"), user: dict = Depends(get_current_user)):
     if kind == "video" and not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Admin only")
-    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
-    path = f"{APP_NAME}/uploads/{kind}/{uuid.uuid4().hex}.{ext}"
+    if not CLOUDINARY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Stockage non configuré (CLOUDINARY_URL manquant)")
     data = await file.read()
-    content_type = file.content_type or ("video/mp4" if kind == "video" else "application/octet-stream")
-    result = put_object(path, data, content_type)
-    stored_path = result.get("path", path)
+    resource_type = "video" if kind == "video" else "image"
+    try:
+        result = cloudinary.uploader.upload(
+            data,
+            folder=f"{APP_NAME}/{kind}",
+            resource_type=resource_type,
+        )
+    except Exception as e:
+        logger.error(f"Cloudinary upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Téléversement impossible")
+    url = result.get("secure_url")
     await db.files.insert_one({
         "id": str(uuid.uuid4()),
-        "storage_path": stored_path,
+        "storage_path": result.get("public_id"),
+        "url": url,
         "original_filename": file.filename,
-        "content_type": content_type,
-        "size": result.get("size", len(data)),
         "kind": kind,
         "uploaded_by": user["user_id"],
-        "is_deleted": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    return {"path": stored_path, "size": result.get("size", len(data)), "content_type": content_type}
-
-@api_router.get("/files/{path:path}")
-async def download_file(path: str):
-    record = await db.files.find_one({"storage_path": path, "is_deleted": False}, {"_id": 0})
-    if not record:
-        raise HTTPException(status_code=404, detail="File not found")
-    data, content_type = get_object(path)
-    return FastAPIResponse(content=data, media_type=record.get("content_type", content_type))
+    return {"path": result.get("public_id"), "url": url, "size": result.get("bytes", len(data)), "content_type": file.content_type}
 
 # ---------- Plans / Stripe ----------
 import stripe
@@ -1208,10 +1161,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    try:
-        init_storage()
-    except Exception as e:
-        logger.error(f"Startup storage init failed: {e}")
+    logger.info(f"Storage: {'Cloudinary configuré' if CLOUDINARY_CONFIGURED else 'AUCUN (CLOUDINARY_URL manquant)'}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

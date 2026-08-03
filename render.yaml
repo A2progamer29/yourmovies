@@ -21,3 +21,5 @@ services:
         value: yourmovies
       - key: GOOGLE_CLIENT_ID
         value: 709682814260-hmnqf2ca2jh12puead6f4j39uabef1t9.apps.googleusercontent.com
+      - key: CLOUDINARY_URL
+        sync: false

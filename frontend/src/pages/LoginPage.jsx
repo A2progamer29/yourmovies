@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Film } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,9 +82,7 @@ export default function LoginPage() {
             <div className="noise-overlay" />
             <div className="max-w-md w-full mx-auto px-6 py-16 flex-1 flex flex-col justify-center">
                 <Link to="/" className="flex items-center gap-2 mb-10">
-                    <div className="w-9 h-9 rounded-full border border-[#E8D2A6]/30 flex items-center justify-center">
-                        <Film size={16} className="text-[#E8D2A6]" />
-                    </div>
+                    <img src="/logo.png" alt="YourMovie's" className="w-9 h-9 rounded-full object-cover" />
                     <span className="font-display text-xl">
                         YourMovie<span className="text-[#E8D2A6]">&apos;s</span>
                     </span>

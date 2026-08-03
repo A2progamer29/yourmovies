@@ -78,8 +78,7 @@ export default function SettingsPage() {
             fd.append("file", file);
             fd.append("kind", "image");
             const r = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-            const url = `${process.env.REACT_APP_BACKEND_URL}/api/files/${r.data.path}`;
-            setForm((f) => ({ ...f, picture: url }));
+            setForm((f) => ({ ...f, picture: r.data.url }));
             toast.success("Photo mise à jour");
         } catch (e) { showError(toast, e, "Téléversement impossible"); }
     };
