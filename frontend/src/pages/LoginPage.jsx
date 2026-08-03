@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Film } from "lucide-react";
 import { toast } from "sonner";
@@ -9,13 +9,52 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/context/AuthContext";
 import { describeError, showError } from "@/lib/errors";
 
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+
 export default function LoginPage() {
-    const { login, register } = useAuth();
+    const { login, register, loginWithGoogle } = useAuth();
     const navigate = useNavigate();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [name, setName] = useState("");
     const [loading, setLoading] = useState(false);
+    const googleBtnRef = useRef(null);
+
+    const onGoogleCredential = useCallback(async (response) => {
+        try {
+            await loginWithGoogle(response.credential);
+            toast.success("Connecté");
+            navigate("/");
+        } catch (err) {
+            showError(toast, err, "Connexion Google impossible");
+        }
+    }, [loginWithGoogle, navigate]);
+
+    useEffect(() => {
+        if (!GOOGLE_CLIENT_ID) return;
+        let cancelled = false;
+        const init = () => {
+            if (cancelled) return;
+            if (window.google?.accounts?.id && googleBtnRef.current) {
+                window.google.accounts.id.initialize({
+                    client_id: GOOGLE_CLIENT_ID,
+                    callback: onGoogleCredential,
+                });
+                window.google.accounts.id.renderButton(googleBtnRef.current, {
+                    theme: "filled_black",
+                    size: "large",
+                    shape: "pill",
+                    text: "continue_with",
+                    logo_alignment: "center",
+                    width: 320,
+                });
+            } else {
+                setTimeout(init, 300);
+            }
+        };
+        init();
+        return () => { cancelled = true; };
+    }, [onGoogleCredential]);
 
     const doLogin = async (e) => {
         e.preventDefault();
@@ -60,6 +99,17 @@ export default function LoginPage() {
 
                 <h1 className="font-display text-4xl mb-2 tracking-tighter">Bienvenue</h1>
                 <p className="text-neutral-400 mb-8">Connectez-vous ou créez un compte pour laisser des avis, garder vos favoris et une watchlist.</p>
+
+                {GOOGLE_CLIENT_ID && (
+                    <>
+                        <div ref={googleBtnRef} className="flex justify-center mb-2" />
+                        <div className="flex items-center gap-3 my-6">
+                            <div className="flex-1 h-px bg-[#262626]" />
+                            <span className="text-xs uppercase tracking-widest text-neutral-500">Ou</span>
+                            <div className="flex-1 h-px bg-[#262626]" />
+                        </div>
+                    </>
+                )}
 
                 <Tabs defaultValue="login">
                     <TabsList className="grid grid-cols-2 bg-[#111] border border-[#262626]">

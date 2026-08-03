@@ -23,6 +23,7 @@ MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
 JWT_SECRET = os.environ.get('JWT_SECRET', 'change-me')
 JWT_ALGO = 'HS256'
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 APP_NAME = os.environ.get('APP_NAME', 'yourmovies')
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
@@ -310,25 +311,28 @@ async def login(inp: LoginInput):
     token = create_jwt(user["user_id"])
     return {"token": token, "user": user_public_dict(user)}
 
-@api_router.post("/auth/session")
-async def exchange_session(inp: SessionExchangeInput, response: Response):
-    # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    try:
-        r = requests.get(
-            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-            headers={"X-Session-ID": inp.session_id},
-            timeout=15,
-        )
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        logger.error(f"Session exchange failed: {e}")
-        raise HTTPException(status_code=401, detail="Invalid session_id")
+class GoogleAuthInput(BaseModel):
+    credential: str
 
-    email = data["email"].lower()
-    name = data.get("name", email.split("@")[0])
-    picture = data.get("picture")
-    session_token = data["session_token"]
+@api_router.post("/auth/google")
+async def auth_google(inp: GoogleAuthInput):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google login not configured")
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+        idinfo = google_id_token.verify_oauth2_token(
+            inp.credential, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except Exception as e:
+        logger.error(f"Google token verification failed: {e}")
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    email = (idinfo.get("email") or "").lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="Google account has no email")
+    name = idinfo.get("name") or email.split("@")[0]
+    picture = idinfo.get("picture")
 
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
@@ -346,26 +350,9 @@ async def exchange_session(inp: SessionExchangeInput, response: Response):
             "auth_provider": "google",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-
-    expires = datetime.now(timezone.utc) + timedelta(days=7)
-    await db.user_sessions.insert_one({
-        "session_token": session_token,
-        "user_id": user_id,
-        "expires_at": expires.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        max_age=7 * 24 * 60 * 60,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-    )
     user = await get_user_by_id(user_id)
-    return {"user": user_public_dict(user)}
+    token = create_jwt(user_id)
+    return {"token": token, "user": user_public_dict(user)}
 
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):

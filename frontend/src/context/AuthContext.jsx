@@ -70,6 +70,13 @@ export function AuthProvider({ children }) {
         return res.data.user;
     };
 
+    const loginWithGoogle = async (credential) => {
+        const res = await api.post("/auth/google", { credential });
+        localStorage.setItem("ym_token", res.data.token);
+        setUser(res.data.user);
+        return res.data.user;
+    };
+
     const logout = async () => {
         try {
             await api.post("/auth/logout");
@@ -81,7 +88,7 @@ export function AuthProvider({ children }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, setUser, loading, login, register, logout, refresh: checkAuth }}>
+        <AuthContext.Provider value={{ user, setUser, loading, login, register, loginWithGoogle, logout, refresh: checkAuth }}>
             {children}
         </AuthContext.Provider>
     );
