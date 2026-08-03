@@ -12,8 +12,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import Header from "@/components/Header";
 import MediaCard from "@/components/MediaCard";
 
-const POSTER_FALLBACK = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?q=80&w=800";
-const BANNER_FALLBACK = "https://images.unsplash.com/photo-1489599735734-79b4212eba05?q=80&w=2000";
+const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
+const BANNER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 
 export default function MediaDetailPage() {
     const { id } = useParams();
@@ -86,7 +86,7 @@ export default function MediaDetailPage() {
             {/* Banner */}
             <section className="relative w-full h-[70vh] min-h-[480px] overflow-hidden">
                 <img src={banner} alt={media.title} className="w-full h-full object-cover"
-                    onError={(e) => { e.currentTarget.src = BANNER_FALLBACK; }} />
+                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = BANNER_FALLBACK; }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/70 to-[#050505]/20" />
                 <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/90 via-transparent to-[#050505]/30" />
 
@@ -95,7 +95,7 @@ export default function MediaDetailPage() {
                         <img
                             src={media.poster_url || POSTER_FALLBACK}
                             alt={media.title}
-                            onError={(e) => { e.currentTarget.src = POSTER_FALLBACK; }}
+                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = POSTER_FALLBACK; }}
                             className="hidden md:block w-48 lg:w-56 aspect-[2/3] object-cover rounded-lg border border-[#262626] shadow-2xl"
                         />
                         <div className="max-w-2xl">

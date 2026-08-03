@@ -2,7 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Star, Clock } from "lucide-react";
 
-const POSTER_FALLBACK = "https://images.unsplash.com/photo-1478720568477-152d9b164e26?q=80&w=800";
+const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 
 export default function MediaCard({ media, size = "md" }) {
     const widths = {
@@ -22,7 +22,7 @@ export default function MediaCard({ media, size = "md" }) {
                     alt={media.title}
                     loading="lazy"
                     className="w-full h-full object-cover"
-                    onError={(e) => { e.currentTarget.src = POSTER_FALLBACK; }}
+                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = POSTER_FALLBACK; }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505]/95 via-[#050505]/10 to-transparent opacity-90" />
                 <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest bg-[#050505]/70 border border-[#262626] text-[#E8D2A6]">

@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import MediaCarousel from "@/components/MediaCarousel";
 
-const HERO_FALLBACK = "https://images.unsplash.com/photo-1489599735734-79b4212eba05?q=80&w=2000";
+const HERO_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const AUTO_ROTATE_MS = 7000;
 
 export default function HomePage() {
@@ -97,7 +97,7 @@ export default function HomePage() {
                                 src={current?.banner_url || current?.poster_url || HERO_FALLBACK}
                                 alt={current?.title || "Hero"}
                                 className="w-full h-full object-cover"
-                                onError={(e) => { e.currentTarget.src = HERO_FALLBACK; }}
+                                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = HERO_FALLBACK; }}
                             />
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/60 to-transparent" />
