@@ -19,6 +19,8 @@ const PLAN_MAX_QUALITY = {
     premium: "4k",
 };
 
+const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
+
 function fallbackQualities(media) {
     if (media.qualities && media.qualities.length > 0) {
         return media.qualities.map((q) => ({
@@ -152,7 +154,19 @@ export default function WatchPage() {
 
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
-                        {qualities.length === 0 ? (
+                        {media.bunny_video_id ? (
+                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                                <iframe
+                                    data-testid="bunny-player"
+                                    src={`https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${media.bunny_video_id}?autoplay=true&preload=true`}
+                                    loading="lazy"
+                                    className="absolute inset-0 w-full h-full"
+                                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+                                    allowFullScreen
+                                    title={media.title}
+                                />
+                            </div>
+                        ) : qualities.length === 0 ? (
                             <div className="p-12 border border-[#262626] rounded-lg text-center text-neutral-400">
                                 Aucun fichier vidéo disponible pour ce contenu.
                             </div>
@@ -169,11 +183,11 @@ export default function WatchPage() {
                             />
                         )}
 
-                        <div className="mt-4 text-xs text-neutral-500 flex items-center gap-3 flex-wrap">
-                            <span>Qualité max autorisée : <span className="text-[#E8D2A6]">{userMaxQuality.toUpperCase()}</span></span>
-                            {!user?.premium && <span>· Passez <Link to="/pricing" className="text-[#E8D2A6] hover:underline">Premium</Link> pour la 4K sans pub</span>}
-                            {resumeAt > 0 && <span>· Reprise à {Math.floor(resumeAt / 60)}m {Math.floor(resumeAt % 60)}s</span>}
-                        </div>
+                        {resumeAt > 0 && !media.bunny_video_id && (
+                            <div className="mt-4 text-xs text-neutral-500">
+                                Reprise à {Math.floor(resumeAt / 60)}m {Math.floor(resumeAt % 60)}s
+                            </div>
+                        )}
 
                         {media.description && (
                             <p className="mt-8 text-neutral-300 leading-relaxed max-w-3xl">{media.description}</p>

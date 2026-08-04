@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
+import * as tus from "tus-js-client";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const EMPTY = {
     trailer_video_url: "",
     video_file_path: "",
     video_url: "",
+    bunny_video_id: "",
     qualities: [],
     cast: "",
     director: "",
@@ -60,6 +62,7 @@ export default function AdminMediaForm() {
     const [uploading, setUploading] = useState(null); // key currently uploading
     const [progress, setProgress] = useState(0);
     const [dragTrailer, setDragTrailer] = useState(false);
+    const [dragBunny, setDragBunny] = useState(false);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -121,6 +124,41 @@ export default function AdminMediaForm() {
         }
     };
 
+    const uploadToBunny = async (file) => {
+        setUploading("bunny");
+        setProgress(0);
+        try {
+            const fd = new FormData();
+            fd.append("title", form.title || file.name);
+            const r = await api.post("/bunny/create-video", fd);
+            const { videoId, libraryId, signature, expire } = r.data;
+            await new Promise((resolve, reject) => {
+                const upload = new tus.Upload(file, {
+                    endpoint: "https://video.bunnycdn.com/tusupload",
+                    retryDelays: [0, 3000, 5000, 10000, 20000],
+                    headers: {
+                        AuthorizationSignature: signature,
+                        AuthorizationExpire: expire,
+                        VideoId: videoId,
+                        LibraryId: libraryId,
+                    },
+                    metadata: { filetype: file.type, title: form.title || file.name },
+                    onError: reject,
+                    onProgress: (loaded, total) => setProgress(Math.round((loaded / total) * 100)),
+                    onSuccess: resolve,
+                });
+                upload.start();
+            });
+            setForm((f) => ({ ...f, bunny_video_id: videoId }));
+            toast.success("Vidéo envoyée sur Bunny");
+        } catch (e) {
+            showError(toast, e, "Upload Bunny impossible");
+        } finally {
+            setUploading(null);
+            setProgress(0);
+        }
+    };
+
     const save = async () => {
         const payload = {
             title: form.title,
@@ -137,6 +175,7 @@ export default function AdminMediaForm() {
             age_rating: form.age_rating || null,
             video_file_path: form.video_file_path || null,
             video_url: form.video_url || null,
+            bunny_video_id: form.bunny_video_id || null,
             qualities: (form.qualities || []).filter((q) => q.quality && (q.url || q.file_path)),
             cast: form.cast ? form.cast.split(",").map((s) => s.trim()).filter(Boolean) : [],
             director: form.director || null,
@@ -384,6 +423,33 @@ export default function AdminMediaForm() {
                     {/* SECTION: Vidéo & qualités */}
                     <section>
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Vidéo & qualités multiples</h2>
+
+                        <div className="p-4 rounded-lg border border-[#E8D2A6]/30 bg-[#171208] mb-6">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Film size={14} className="text-[#E8D2A6]" />
+                                <span className="text-sm font-medium text-[#E8D2A6]">Vidéo principale — Bunny Stream (recommandé pour les films)</span>
+                            </div>
+                            <label
+                                onDragOver={(e) => { e.preventDefault(); setDragBunny(true); }}
+                                onDragLeave={() => setDragBunny(false)}
+                                onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f); }}
+                                className={`block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragBunny ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
+                            >
+                                <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
+                                {uploading === "bunny" ? (
+                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> Envoi vers Bunny… {progress}%</div>
+                                ) : form.bunny_video_id ? (
+                                    <div className="text-sm text-[#E8D2A6]">✓ Vidéo hébergée sur Bunny — glisse un autre fichier pour remplacer</div>
+                                ) : (
+                                    <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo du film ici (gros fichiers OK), ou clique</div>
+                                )}
+                            </label>
+                            {form.bunny_video_id && (
+                                <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo Bunny</button>
+                            )}
+                            <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présent, cette vidéo est prioritaire sur les champs ci-dessous.</div>
+                        </div>
+
                         <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
                             <Label className="text-neutral-300 text-xs">Vidéo par défaut (fallback si aucune qualité)</Label>
                             <div className="flex gap-2 mt-1.5">

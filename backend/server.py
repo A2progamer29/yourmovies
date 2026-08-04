@@ -48,6 +48,12 @@ CLOUDINARY_CONFIGURED = bool(os.environ.get("CLOUDINARY_URL"))
 if CLOUDINARY_CONFIGURED:
     cloudinary.config(secure=True)
 
+# ---------- Bunny Stream (hébergement des grosses vidéos) ----------
+BUNNY_LIBRARY_ID = os.environ.get("BUNNY_LIBRARY_ID")
+BUNNY_API_KEY = os.environ.get("BUNNY_API_KEY")
+BUNNY_CDN_HOST = os.environ.get("BUNNY_CDN_HOST")
+BUNNY_CONFIGURED = bool(BUNNY_LIBRARY_ID and BUNNY_API_KEY)
+
 # ---------- Models ----------
 class UserPublic(BaseModel):
     user_id: str
@@ -92,6 +98,7 @@ class MediaBase(BaseModel):
     trailer_video_url: Optional[str] = None  # fichier vidéo uploadé pour la bande-annonce
     video_file_path: Optional[str] = None
     video_url: Optional[str] = None  # external MP4/HLS URL alternative to upload
+    bunny_video_id: Optional[str] = None  # vidéo hébergée sur Bunny Stream
     qualities: List[dict] = []  # [{quality: "720p"|"1080p"|"4k", url: "https://...", file_path: "..."}]
     cast: List[str] = []
     director: Optional[str] = None
@@ -116,6 +123,7 @@ class MediaUpdate(BaseModel):
     trailer_video_url: Optional[str] = None
     video_file_path: Optional[str] = None
     video_url: Optional[str] = None
+    bunny_video_id: Optional[str] = None
     qualities: Optional[List[dict]] = None
     cast: Optional[List[str]] = None
     director: Optional[str] = None
@@ -339,6 +347,7 @@ def serialize_media(doc) -> dict:
         "trailer_video_url": doc.get("trailer_video_url"),
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
+        "bunny_video_id": doc.get("bunny_video_id"),
         "qualities": doc.get("qualities", []),
         "title_logo_url": doc.get("title_logo_url"),
         "age_rating": doc.get("age_rating"),
@@ -523,6 +532,24 @@ async def upload_sign(kind: str = Form("image"), user: dict = Depends(get_curren
         "folder": folder,
         "resource_type": "video" if kind == "video" else "image",
     }
+
+@api_router.post("/bunny/create-video")
+async def bunny_create_video(title: str = Form("video"), user: dict = Depends(require_admin)):
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    import hashlib, time
+    r = requests.post(
+        f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos",
+        headers={"AccessKey": BUNNY_API_KEY, "Content-Type": "application/json"},
+        json={"title": title}, timeout=30,
+    )
+    if not r.ok:
+        logger.error(f"Bunny create video failed: {r.status_code} {r.text[:200]}")
+        raise HTTPException(status_code=500, detail="Création vidéo Bunny impossible")
+    video_id = r.json().get("guid")
+    expire = int(time.time()) + 3600
+    signature = hashlib.sha256(f"{BUNNY_LIBRARY_ID}{BUNNY_API_KEY}{expire}{video_id}".encode()).hexdigest()
+    return {"videoId": video_id, "libraryId": str(BUNNY_LIBRARY_ID), "signature": signature, "expire": expire}
 
 # ---------- Plans / Stripe ----------
 import stripe
