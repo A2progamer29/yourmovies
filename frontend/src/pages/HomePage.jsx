@@ -86,8 +86,8 @@ export default function HomePage() {
                         {showTrailerAutoplay ? (
                             <iframe
                                 data-testid="hero-trailer-autoplay"
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"
-                                src={`https://www.youtube.com/embed/${current.trailer_youtube_id}?autoplay=1&mute=1&loop=1&controls=0&modestbranding=1&showinfo=0&rel=0&playlist=${current.trailer_youtube_id}&playsinline=1`}
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-125 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"
+                                src={`https://www.youtube.com/embed/${current.trailer_youtube_id}?autoplay=1&mute=1&loop=1&controls=0&modestbranding=1&showinfo=0&rel=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&playlist=${current.trailer_youtube_id}`}
                                 title="Trailer"
                                 frameBorder="0"
                                 allow="autoplay; encrypted-media"

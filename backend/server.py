@@ -513,7 +513,6 @@ PLANS = [
         "tagline": "Découvrez l'essentiel",
         "features": [
             "Accès complet au catalogue",
-            "Qualité SD (480p)",
             "1 écran simultané",
             "Sans publicité",
         ],
@@ -528,7 +527,6 @@ PLANS = [
         "tagline": "Le choix des cinéphiles",
         "features": [
             "Accès complet au catalogue",
-            "Qualité HD (1080p)",
             "2 écrans simultanés",
             "Sans publicité",
             "Téléchargements hors-ligne (à venir)",
@@ -544,7 +542,6 @@ PLANS = [
         "tagline": "L'expérience ultime",
         "features": [
             "Accès complet + accès anticipé",
-            "Qualité 4K UHD + HDR",
             "4 écrans simultanés",
             "Sans publicité",
             "Bande-annonce cinéma sur l'accueil",

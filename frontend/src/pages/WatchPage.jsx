@@ -105,7 +105,7 @@ export default function WatchPage() {
     }
 
     const qualities = fallbackQualities(media);
-    const userMaxQuality = PLAN_MAX_QUALITY[user?.premium_plan] || "720p";
+    const userMaxQuality = "4k";
     const runAds = !user?.premium;
     const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
 

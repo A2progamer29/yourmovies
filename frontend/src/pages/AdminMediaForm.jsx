@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv } from "lucide-react";
+import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -56,6 +56,7 @@ export default function AdminMediaForm() {
     const isEdit = Boolean(id);
     const [form, setForm] = useState(EMPTY);
     const [uploading, setUploading] = useState(null); // key currently uploading
+    const [progress, setProgress] = useState(0);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -87,17 +88,22 @@ export default function AdminMediaForm() {
 
     const uploadFile = async (file, kind, key, cb) => {
         setUploading(key);
+        setProgress(0);
         try {
             const fd = new FormData();
             fd.append("file", file);
             fd.append("kind", kind);
-            const r = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+            const r = await api.post("/upload", fd, {
+                headers: { "Content-Type": "multipart/form-data" },
+                onUploadProgress: (e) => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)); },
+            });
             cb(r.data.url, r.data.url);
             toast.success("Fichier téléversé");
         } catch (e) {
             showError(toast, e, "Téléversement impossible");
         } finally {
             setUploading(null);
+            setProgress(0);
         }
     };
 
@@ -344,7 +350,7 @@ export default function AdminMediaForm() {
                                 <Input value={form.video_url} onChange={(e) => setForm({ ...form, video_url: e.target.value })} placeholder="URL MP4/HLS externe" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "default_video", (p, url) => setForm((f) => ({ ...f, video_file_path: p, video_url: f.video_url || url })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {uploading === "default_video" ? "..." : "Upload MP4"}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300">{uploading === "default_video" ? <><Loader2 size={14} className="animate-spin" /> {progress}%</> : <><Upload size={14} /> Upload MP4</>}</span>
                                     </label>
                             </div>
                             {form.video_file_path && <div className="text-xs text-neutral-500 mt-1.5">Fichier: {form.video_file_path}</div>}
@@ -359,7 +365,7 @@ export default function AdminMediaForm() {
                         <div className="space-y-3">
                             {(form.qualities || []).length === 0 && (
                                 <div className="text-xs text-neutral-500 p-3 rounded border border-dashed border-[#262626]">
-                                    Ajoutez plusieurs qualités (720p pour tous, 1080p à partir de Basic, 4K en Premium).
+                                    Ajoutez plusieurs qualités — toutes accessibles à tous les utilisateurs (sans abonnement).
                                 </div>
                             )}
                             {(form.qualities || []).map((q, i) => (
@@ -373,7 +379,7 @@ export default function AdminMediaForm() {
                                     <Input value={q.url || ""} onChange={(e) => updateQuality(i, { url: e.target.value })} placeholder="URL MP4/HLS" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", `q${i}`, (p) => updateQuality(i, { url: buildFileUrl(p), file_path: p }))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-3 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300"><Upload size={12} /> {uploading === `q${i}` ? "..." : "Upload"}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-3 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">{uploading === `q${i}` ? <><Loader2 size={12} className="animate-spin" /> {progress}%</> : <><Upload size={12} /> Upload</>}</span>
                                     </label>
                                     <Button variant="ghost" size="icon" onClick={() => removeQuality(i)} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><X size={14} /></Button>
                                 </div>
