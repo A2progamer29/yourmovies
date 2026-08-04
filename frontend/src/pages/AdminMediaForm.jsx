@@ -356,6 +356,7 @@ export default function AdminMediaForm() {
                         <div className="space-y-4">
                             <div>
                                 <Label className="text-neutral-300">Poster (URL ou upload)</Label>
+                                <div className="text-xs text-neutral-500 mt-1">Ratio 2:3 (vertical) — ex. 600×900 px — JPG ou WebP</div>
                                 <div className="flex gap-2 mt-1.5">
                                     <Input value={form.poster_url} onChange={(e) => setForm({ ...form, poster_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
@@ -367,6 +368,7 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <Label className="text-neutral-300">Bannière (URL ou upload)</Label>
+                                <div className="text-xs text-neutral-500 mt-1">Ratio 16:9 (paysage) — ex. 1920×1080 px — JPG ou WebP</div>
                                 <div className="flex gap-2 mt-1.5">
                                     <Input value={form.banner_url} onChange={(e) => setForm({ ...form, banner_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
@@ -377,6 +379,7 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <Label className="text-neutral-300">Logo du titre (PNG transparent recommandé)</Label>
+                                <div className="text-xs text-neutral-500 mt-1">PNG à fond transparent — paysage, ~800×320 px</div>
                                 <div className="flex gap-2 mt-1.5">
                                     <Input data-testid="form-title-logo" value={form.title_logo_url} onChange={(e) => setForm({ ...form, title_logo_url: e.target.value })} placeholder="https://... (superposé au hero à la place du texte)" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
