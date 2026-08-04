@@ -139,15 +139,13 @@ export default function MediaDetailPage() {
                             )}
                             <p className="mt-6 text-lg text-neutral-300 leading-relaxed">{media.description}</p>
                             <div className="mt-7 flex flex-wrap items-center gap-3">
-                                {(media.bunny_video_id || media.video_file_path || media.video_url || (media.qualities && media.qualities.length > 0)) && (
-                                    <Button
-                                        onClick={() => navigate(`/watch/${media.id}`)}
-                                        data-testid="watch-btn"
-                                        className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12 px-6"
-                                    >
-                                        <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
-                                    </Button>
-                                )}
+                                <Button
+                                    onClick={() => navigate(`/watch/${media.id}`)}
+                                    data-testid="watch-btn"
+                                    className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12 px-6"
+                                >
+                                    <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
+                                </Button>
                                 <Button
                                     onClick={() => toggle("favorite")}
                                     data-testid="toggle-favorite-btn"

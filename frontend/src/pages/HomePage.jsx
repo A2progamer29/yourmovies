@@ -145,6 +145,13 @@ export default function HomePage() {
                                     {current?.title || "Votre catalogue"}
                                 </h1>
                             )}
+                            {current?.genres?.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-5">
+                                    {current.genres.slice(0, 4).map((g) => (
+                                        <span key={g} className="text-xs uppercase tracking-wider px-3 py-1 rounded-full border border-[#E8D2A6]/30 text-[#E8D2A6]">{g}</span>
+                                    ))}
+                                </div>
+                            )}
                             <p className="mt-6 text-lg text-neutral-300 leading-relaxed max-w-xl line-clamp-3">
                                 {current?.description || "Films, séries et animes — avec toutes les fiches, saisons, épisodes et bandes-annonces."}
                             </p>

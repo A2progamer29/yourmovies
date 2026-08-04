@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import Splash from "@/components/Splash";
 import HomePage from "@/pages/HomePage";
 import BrowsePage from "@/pages/BrowsePage";
 import MediaDetailPage from "@/pages/MediaDetailPage";
@@ -47,6 +48,7 @@ function AppRouter() {
 function App() {
     return (
         <div className="App">
+            <Splash />
             <BrowserRouter>
                 <ErrorBoundary>
                     <AuthProvider>

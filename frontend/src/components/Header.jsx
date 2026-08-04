@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Search, User, LogOut, Settings, Heart, Crown, Sliders } from "lucide-react";
+import { Search, User, LogOut, Settings, Heart, Crown, Sliders, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -24,6 +25,31 @@ export default function Header() {
     const { user, logout } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchQ, setSearchQ] = useState("");
+    const [searchResults, setSearchResults] = useState([]);
+
+    useEffect(() => {
+        if (!searchOpen) return;
+        const q = searchQ.trim();
+        if (!q) { setSearchResults([]); return; }
+        const t = setTimeout(async () => {
+            try {
+                const r = await api.get(`/media?q=${encodeURIComponent(q)}&limit=8`, { silent: true });
+                setSearchResults(r.data || []);
+            } catch { setSearchResults([]); }
+        }, 250);
+        return () => clearTimeout(t);
+    }, [searchQ, searchOpen]);
+
+    useEffect(() => {
+        if (!searchOpen) return;
+        const onKey = (e) => { if (e.key === "Escape") setSearchOpen(false); };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [searchOpen]);
+
+    const openSearch = () => { setSearchQ(""); setSearchResults([]); setSearchOpen(true); };
 
     const isActive = (to) => {
         if (to === "/") return location.pathname === "/";
@@ -68,7 +94,7 @@ export default function Header() {
                         variant="ghost"
                         size="icon"
                         className="text-neutral-300 hover:text-[#E8D2A6] hover:bg-white/5"
-                        onClick={() => navigate("/browse")}
+                        onClick={openSearch}
                         data-testid="header-search-btn"
                         aria-label="Rechercher"
                     >
@@ -119,15 +145,6 @@ export default function Header() {
                                 >
                                     <Crown size={14} className="mr-2" /> {user.premium ? "Mon abonnement" : "Passer Premium"}
                                 </DropdownMenuItem>
-                                {user.premium && (
-                                    <DropdownMenuItem
-                                        onClick={() => navigate("/account/subscription")}
-                                        data-testid="menu-subscription"
-                                        className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
-                                    >
-                                        <Crown size={14} className="mr-2" /> Gérer mon abonnement
-                                    </DropdownMenuItem>
-                                )}
                                 <DropdownMenuItem
                                     onClick={() => navigate("/profiles")}
                                     data-testid="menu-profiles"
@@ -172,6 +189,54 @@ export default function Header() {
                     )}
                 </div>
             </div>
+
+            {searchOpen && (
+                <div
+                    className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-start justify-center pt-24 px-4"
+                    onClick={() => setSearchOpen(false)}
+                >
+                    <div
+                        className="w-full max-w-xl bg-[#0a0a0a] border border-[#262626] rounded-2xl shadow-2xl overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-3 px-4 py-3 border-b border-[#262626]">
+                            <Search size={18} className="text-[#E8D2A6]" />
+                            <input
+                                autoFocus
+                                value={searchQ}
+                                onChange={(e) => setSearchQ(e.target.value)}
+                                data-testid="search-input"
+                                placeholder="Rechercher un film, une série, un anime…"
+                                className="flex-1 bg-transparent outline-none text-white placeholder:text-neutral-500"
+                            />
+                            <button onClick={() => setSearchOpen(false)} className="text-neutral-500 hover:text-white"><X size={18} /></button>
+                        </div>
+                        <div className="max-h-[60vh] overflow-y-auto">
+                            {searchResults.length === 0 ? (
+                                <div className="px-4 py-10 text-center text-sm text-neutral-500">
+                                    {searchQ.trim() ? "Aucun résultat" : "Tape pour rechercher…"}
+                                </div>
+                            ) : (
+                                searchResults.map((m) => (
+                                    <button
+                                        key={m.id}
+                                        onClick={() => { setSearchOpen(false); navigate(`/media/${m.id}`); }}
+                                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 text-left transition-colors"
+                                    >
+                                        {m.poster_url
+                                            ? <img src={m.poster_url} alt="" className="w-9 h-12 object-cover rounded bg-[#111] shrink-0" />
+                                            : <div className="w-9 h-12 rounded bg-[#111] shrink-0" />}
+                                        <div className="min-w-0">
+                                            <div className="text-sm text-white truncate">{m.title}</div>
+                                            <div className="text-xs text-neutral-500 capitalize">{m.type}{m.year ? ` · ${m.year}` : ""}</div>
+                                        </div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </header>
     );
 }
