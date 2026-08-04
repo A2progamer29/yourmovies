@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, Users, Play } from "lucide-react";
+import { ChevronLeft, Users, Play, Film } from "lucide-react";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -44,6 +44,27 @@ export default function WatchPage() {
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
+    const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress}
+
+    useEffect(() => {
+        const vid = media?.bunny_video_id;
+        if (!vid) { setBunnyReady(null); return; }
+        let active = true;
+        let timer;
+        const check = async () => {
+            try {
+                const s = await api.get(`/bunny/video-status/${vid}`, { silent: true });
+                if (!active) return;
+                if (s.data.status >= 4) { setBunnyReady({ ready: true }); return; }
+                setBunnyReady({ ready: false, encodeProgress: s.data.encodeProgress || 0 });
+                timer = setTimeout(check, 5000);
+            } catch {
+                if (active) setBunnyReady({ ready: true });
+            }
+        };
+        check();
+        return () => { active = false; clearTimeout(timer); };
+    }, [media?.bunny_video_id]);
 
     useEffect(() => {
         (async () => {
@@ -165,6 +186,26 @@ export default function WatchPage() {
                                     allowFullScreen
                                     title={media.title}
                                 />
+                                {bunnyReady && bunnyReady.ready === false && (
+                                    <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] to-[#050505] flex items-center justify-center">
+                                        <div className="text-center px-6">
+                                            <div className="relative w-16 h-16 mx-auto mb-5">
+                                                <div className="absolute inset-0 rounded-full border-2 border-[#E8D2A6]/15" />
+                                                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#E8D2A6] animate-spin" />
+                                                <Film className="absolute inset-0 m-auto text-[#E8D2A6]" size={22} />
+                                            </div>
+                                            <div className="font-display text-xl sm:text-2xl text-white mb-1.5">En attente…</div>
+                                            <div className="text-sm text-neutral-400">
+                                                La vidéo se prépare, elle sera disponible dans un instant{bunnyReady.encodeProgress ? ` · ${bunnyReady.encodeProgress}%` : ""}
+                                            </div>
+                                            <div className="mt-5 flex items-center justify-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-[#E8D2A6] animate-bounce" style={{ animationDelay: "0ms" }} />
+                                                <span className="w-2 h-2 rounded-full bg-[#E8D2A6] animate-bounce" style={{ animationDelay: "150ms" }} />
+                                                <span className="w-2 h-2 rounded-full bg-[#E8D2A6] animate-bounce" style={{ animationDelay: "300ms" }} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : qualities.length === 0 ? (
                             <div className="p-12 border border-[#262626] rounded-lg text-center text-neutral-400">

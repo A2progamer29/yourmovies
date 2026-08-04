@@ -552,7 +552,7 @@ async def bunny_create_video(title: str = Form("video"), user: dict = Depends(re
     return {"videoId": video_id, "libraryId": str(BUNNY_LIBRARY_ID), "signature": signature, "expire": expire}
 
 @api_router.get("/bunny/video-status/{video_id}")
-async def bunny_video_status(video_id: str, user: dict = Depends(require_admin)):
+async def bunny_video_status(video_id: str):
     if not BUNNY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
     r = requests.get(
