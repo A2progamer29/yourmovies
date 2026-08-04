@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import { showError } from "@/lib/errors";
@@ -16,6 +17,9 @@ export default function AdminPage() {
     const location = useLocation();
     const [items, setItems] = useState([]);
     const [users, setUsers] = useState([]);
+    const [announcements, setAnnouncements] = useState([]);
+    const [annTitle, setAnnTitle] = useState("");
+    const [annBody, setAnnBody] = useState("");
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -30,11 +34,18 @@ export default function AdminPage() {
             setUsers(r.data);
         } catch (e) { showError(toast, e, "Chargement utilisateurs impossible"); }
     };
+    const loadAnnouncements = async () => {
+        try {
+            const r = await api.get("/announcements");
+            setAnnouncements(r.data);
+        } catch (e) { showError(toast, e, "Chargement des annonces impossible"); }
+    };
 
     useEffect(() => {
         if (user?.is_admin) {
             loadMedia();
             loadUsers();
+            loadAnnouncements();
         }
     }, [user]);
 
@@ -69,6 +80,26 @@ export default function AdminPage() {
             await api.delete(`/admin/users/${u.user_id}`);
             toast.success("Utilisateur supprimé");
             loadUsers();
+        } catch (e) { showError(toast, e, "Suppression impossible"); }
+    };
+
+    const createAnnouncement = async () => {
+        const title = annTitle.trim();
+        if (!title) { toast.error("Ajoute un titre"); return; }
+        try {
+            await api.post("/announcements", { title, body: annBody.trim() });
+            toast.success("Annonce publiée");
+            setAnnTitle("");
+            setAnnBody("");
+            loadAnnouncements();
+        } catch (e) { showError(toast, e, "Publication impossible"); }
+    };
+    const deleteAnnouncement = async (id) => {
+        if (!window.confirm("Supprimer cette annonce ?")) return;
+        try {
+            await api.delete(`/announcements/${id}`);
+            toast.success("Annonce supprimée");
+            loadAnnouncements();
         } catch (e) { showError(toast, e, "Suppression impossible"); }
     };
 
@@ -125,6 +156,9 @@ export default function AdminPage() {
                         </TabsTrigger>
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Users size={14} className="mr-2" /> Utilisateurs
+                        </TabsTrigger>
+                        <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <Megaphone size={14} className="mr-2" /> Annonces
                         </TabsTrigger>
                     </TabsList>
 
@@ -244,6 +278,60 @@ export default function AdminPage() {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="announcements" className="mt-8">
+                        <div className="grid lg:grid-cols-2 gap-8">
+                            <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] h-fit">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Megaphone size={16} className="text-[#E8D2A6]" />
+                                    <h3 className="text-white font-medium">Nouvelle annonce</h3>
+                                </div>
+                                <p className="text-xs text-neutral-500 mb-4">Visible par tous les utilisateurs dans leur cloche de notifications.</p>
+                                <label className="text-xs text-neutral-400">Titre</label>
+                                <Input
+                                    value={annTitle}
+                                    onChange={(e) => setAnnTitle(e.target.value)}
+                                    data-testid="announcement-title"
+                                    placeholder="Ex. Maintenance prévue ce week-end"
+                                    className="mt-1 mb-4 bg-[#111] border-[#262626] text-white"
+                                />
+                                <label className="text-xs text-neutral-400">Message (optionnel)</label>
+                                <Textarea
+                                    value={annBody}
+                                    onChange={(e) => setAnnBody(e.target.value)}
+                                    data-testid="announcement-body"
+                                    placeholder="Détails de l'information importante..."
+                                    className="mt-1 min-h-[120px] bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
+                                />
+                                <div className="mt-4 text-right">
+                                    <Button onClick={createAnnouncement} data-testid="publish-announcement" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">
+                                        <Plus size={16} className="mr-2" /> Publier
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Annonces publiées</div>
+                                <div className="space-y-3">
+                                    {announcements.length === 0 && (
+                                        <div className="p-5 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] text-sm text-neutral-500">Aucune annonce.</div>
+                                    )}
+                                    {announcements.map((a) => (
+                                        <div key={a.id} className="p-4 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="text-white text-sm font-medium">{a.title}</div>
+                                                {a.body && <div className="text-sm text-neutral-400 mt-1 leading-relaxed">{a.body}</div>}
+                                                <div className="text-[11px] text-neutral-600 mt-2">
+                                                    {a.author_name || "Admin"} · {a.created_at ? new Date(a.created_at).toLocaleString("fr-FR") : ""}
+                                                </div>
+                                            </div>
+                                            <Button variant="ghost" size="icon" onClick={() => deleteAnnouncement(a.id)} data-testid={`delete-announcement-${a.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5 shrink-0"><Trash2 size={14} /></Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </TabsContent>
                 </Tabs>

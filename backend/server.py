@@ -161,6 +161,10 @@ class ReviewEdit(BaseModel):
     rating: Optional[float] = Field(default=None, ge=0, le=10)
     comment: Optional[str] = None
 
+class AnnouncementCreate(BaseModel):
+    title: str
+    body: str = ""
+
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
@@ -458,6 +462,7 @@ async def reply_review(parent_id: str, r: ReplyCreate, user: dict = Depends(get_
     comment = (r.comment or "").strip()
     if not comment:
         raise HTTPException(status_code=400, detail="Réponse vide")
+    now = datetime.now(timezone.utc).isoformat()
     doc = {
         "id": f"r_{uuid.uuid4().hex[:12]}",
         "media_id": parent["media_id"],
@@ -466,9 +471,25 @@ async def reply_review(parent_id: str, r: ReplyCreate, user: dict = Depends(get_
         "user_name": user.get("name", "User"),
         "rating": None,
         "comment": comment,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now,
     }
     await db.reviews.insert_one(doc)
+    # notify the review author (unless they replied to themselves)
+    if parent["user_id"] != user["user_id"]:
+        media = await db.media.find_one({"id": parent["media_id"]}, {"_id": 0, "title": 1})
+        actor = user.get("name") or "Quelqu'un"
+        await db.notifications.insert_one({
+            "id": f"n_{uuid.uuid4().hex[:12]}",
+            "user_id": parent["user_id"],
+            "type": "reply",
+            "title": f"{actor} a répondu à votre avis",
+            "body": comment[:140] + ("…" if len(comment) > 140 else ""),
+            "media_id": parent["media_id"],
+            "media_title": media.get("title") if media else "",
+            "link": f"/media/{parent['media_id']}",
+            "read": False,
+            "created_at": now,
+        })
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.patch("/reviews/{review_id}")
@@ -502,6 +523,60 @@ async def delete_review(review_id: str, user: dict = Depends(get_current_user)):
     if doc.get("parent_id") is None:
         await db.reviews.delete_many({"parent_id": review_id})
         await _recompute_rating(doc["media_id"])
+    return {"ok": True}
+
+# ---------- Notifications & Announcements ----------
+@api_router.get("/notifications")
+async def get_notifications(user: dict = Depends(get_current_user)):
+    personal = await db.notifications.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    anns = await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    seen_at = user.get("notif_seen_at")
+    ann_items = [{
+        "id": a["id"],
+        "type": "announcement",
+        "title": a.get("title", ""),
+        "body": a.get("body", ""),
+        "media_title": None,
+        "link": None,
+        "created_at": a.get("created_at", ""),
+        "read": bool(seen_at and a.get("created_at", "") <= seen_at),
+    } for a in anns]
+    items = personal + ann_items
+    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    unread = sum(1 for it in items if not it.get("read"))
+    return {"items": items[:50], "unread": unread}
+
+@api_router.post("/notifications/read")
+async def mark_notifications_read(user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    await db.notifications.update_many({"user_id": user["user_id"], "read": False}, {"$set": {"read": True}})
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"notif_seen_at": now}})
+    return {"ok": True}
+
+@api_router.get("/announcements")
+async def list_announcements():
+    return await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+
+@api_router.post("/announcements")
+async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(require_admin)):
+    title = (a.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titre requis")
+    doc = {
+        "id": f"a_{uuid.uuid4().hex[:12]}",
+        "title": title,
+        "body": (a.body or "").strip(),
+        "author_name": admin.get("name", "Admin"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.announcements.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api_router.delete("/announcements/{announcement_id}")
+async def delete_announcement(announcement_id: str, admin: dict = Depends(require_admin)):
+    res = await db.announcements.delete_one({"id": announcement_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
 # ---------- Favorites / Watchlist ----------
@@ -1034,6 +1109,7 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
     await db.favorites.delete_many({"user_id": user_id})
     await db.watch_progress.delete_many({"user_id": user_id})
     await db.profiles.delete_many({"user_id": user_id})
+    await db.notifications.delete_many({"user_id": user_id})
     return {"ok": True}
 
 # ---------- Settings ----------

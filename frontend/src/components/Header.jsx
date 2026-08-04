@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Search, User, LogOut, Settings, Heart, Crown, Sliders, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import NotificationsBell from "@/components/NotificationsBell";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -100,6 +101,8 @@ export default function Header() {
                     >
                         <Search size={18} />
                     </Button>
+
+                    {user && <NotificationsBell />}
 
                     {user ? (
                         <DropdownMenu>
