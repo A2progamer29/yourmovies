@@ -503,6 +503,27 @@ async def upload_file(file: UploadFile = File(...), kind: str = Form("image"), u
     })
     return {"path": result.get("public_id"), "url": url, "size": result.get("bytes", len(data)), "content_type": file.content_type}
 
+@api_router.post("/upload/sign")
+async def upload_sign(kind: str = Form("image"), user: dict = Depends(get_current_user)):
+    if kind == "video" and not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not CLOUDINARY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Stockage non configuré")
+    import time
+    import cloudinary.utils
+    cfg = cloudinary.config()
+    timestamp = int(time.time())
+    folder = f"{APP_NAME}/{kind}"
+    signature = cloudinary.utils.api_sign_request({"timestamp": timestamp, "folder": folder}, cfg.api_secret)
+    return {
+        "signature": signature,
+        "timestamp": timestamp,
+        "api_key": cfg.api_key,
+        "cloud_name": cfg.cloud_name,
+        "folder": folder,
+        "resource_type": "video" if kind == "video" else "image",
+    }
+
 # ---------- Plans / Stripe ----------
 import stripe
 

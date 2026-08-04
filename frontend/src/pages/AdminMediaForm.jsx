@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import axios from "axios";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -92,14 +93,25 @@ export default function AdminMediaForm() {
         setUploading(key);
         setProgress(0);
         try {
+            // 1. Signature sécurisée depuis notre backend
+            const sigForm = new FormData();
+            sigForm.append("kind", kind);
+            const sig = await api.post("/upload/sign", sigForm);
+            const { signature, timestamp, api_key, cloud_name, folder, resource_type } = sig.data;
+            // 2. Upload DIRECT vers Cloudinary (sans passer par Render)
             const fd = new FormData();
             fd.append("file", file);
-            fd.append("kind", kind);
-            const r = await api.post("/upload", fd, {
-                headers: { "Content-Type": "multipart/form-data" },
-                onUploadProgress: (e) => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)); },
-            });
-            cb(r.data.url, r.data.url);
+            fd.append("api_key", api_key);
+            fd.append("timestamp", timestamp);
+            fd.append("signature", signature);
+            fd.append("folder", folder);
+            const r = await axios.post(
+                `https://api.cloudinary.com/v1_1/${cloud_name}/${resource_type}/upload`,
+                fd,
+                { onUploadProgress: (e) => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)); } },
+            );
+            const url = r.data.secure_url;
+            cb(url, url);
             toast.success("Fichier téléversé");
         } catch (e) {
             showError(toast, e, "Téléversement impossible");
