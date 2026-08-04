@@ -457,16 +457,23 @@ async def reply_review(parent_id: str, r: ReplyCreate, user: dict = Depends(get_
     parent = await db.reviews.find_one({"id": parent_id}, {"_id": 0})
     if not parent:
         raise HTTPException(status_code=404, detail="Not found")
-    if parent.get("parent_id"):
-        raise HTTPException(status_code=400, detail="On ne peut répondre qu'à un avis")
     comment = (r.comment or "").strip()
     if not comment:
         raise HTTPException(status_code=400, detail="Réponse vide")
+    # keep the thread flat: a reply to a reply is attached to the root review,
+    # tagging who is addressed so the UI can show "@Name".
+    if parent.get("parent_id"):
+        root_id = parent["parent_id"]
+        reply_to_name = parent.get("user_name")
+    else:
+        root_id = parent_id
+        reply_to_name = None
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "id": f"r_{uuid.uuid4().hex[:12]}",
         "media_id": parent["media_id"],
-        "parent_id": parent_id,
+        "parent_id": root_id,
+        "reply_to_name": reply_to_name,
         "user_id": user["user_id"],
         "user_name": user.get("name", "User"),
         "rating": None,

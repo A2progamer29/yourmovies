@@ -125,6 +125,21 @@ export default function MediaDetailPage() {
         list.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
     );
 
+    const renderReplyForm = (parentId) => (
+        <div className="mt-3 flex items-start gap-2">
+            <Textarea
+                value={replyInput}
+                onChange={(e) => setReplyInput(e.target.value)}
+                placeholder="Votre réponse..."
+                className="min-h-[60px] bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
+            />
+            <div className="flex flex-col gap-2">
+                <Button onClick={() => submitReply(parentId)} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-9 px-4 text-sm font-semibold">Envoyer</Button>
+                <button onClick={() => setReplyTo(null)} className="flex items-center justify-center gap-1 text-xs text-neutral-500 hover:text-white"><X size={12} /> Annuler</button>
+            </div>
+        </div>
+    );
+
     return (
         <div className="min-h-screen bg-[#050505] text-white">
             <div className="noise-overlay" />
@@ -364,20 +379,7 @@ export default function MediaDetailPage() {
                                                 </div>
                                             )}
 
-                                            {replyTo === r.id && (
-                                                <div className="mt-3 flex items-start gap-2">
-                                                    <Textarea
-                                                        value={replyInput}
-                                                        onChange={(e) => setReplyInput(e.target.value)}
-                                                        placeholder="Votre réponse..."
-                                                        className="min-h-[60px] bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
-                                                    />
-                                                    <div className="flex flex-col gap-2">
-                                                        <Button onClick={() => submitReply(r.id)} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-9 px-4 text-sm font-semibold">Envoyer</Button>
-                                                        <button onClick={() => setReplyTo(null)} className="flex items-center justify-center gap-1 text-xs text-neutral-500 hover:text-white"><X size={12} /> Annuler</button>
-                                                    </div>
-                                                </div>
-                                            )}
+                                            {replyTo === r.id && renderReplyForm(r.id)}
 
                                             {replies.length > 0 && (
                                                 <div className="mt-4 space-y-3 pl-4 border-l border-[#1a1a1a]">
@@ -391,12 +393,25 @@ export default function MediaDetailPage() {
                                                                     </div>
                                                                     <div className="text-neutral-200 text-sm">{rp.user_name}</div>
                                                                 </div>
-                                                                {rp.comment && <p className="mt-1.5 ml-8 text-neutral-400 text-sm leading-relaxed">{rp.comment}</p>}
-                                                                {mineReply && (
-                                                                    <button onClick={() => deleteReview(rp.id)} className="mt-1 ml-8 flex items-center gap-1 text-xs text-neutral-600 hover:text-red-400">
-                                                                        <Trash2 size={11} /> Supprimer
-                                                                    </button>
+                                                                <p className="mt-1.5 ml-8 text-neutral-400 text-sm leading-relaxed">
+                                                                    {rp.reply_to_name && <span className="text-[#E8D2A6]">@{rp.reply_to_name} </span>}
+                                                                    {rp.comment}
+                                                                </p>
+                                                                {user && (
+                                                                    <div className="mt-1 ml-8 flex items-center gap-4 text-xs">
+                                                                        {!mineReply && (
+                                                                            <button onClick={() => { setReplyTo(replyTo === rp.id ? null : rp.id); setReplyInput(""); }} className="flex items-center gap-1 text-neutral-600 hover:text-[#E8D2A6]">
+                                                                                <Reply size={11} /> Répondre
+                                                                            </button>
+                                                                        )}
+                                                                        {mineReply && (
+                                                                            <button onClick={() => deleteReview(rp.id)} className="flex items-center gap-1 text-neutral-600 hover:text-red-400">
+                                                                                <Trash2 size={11} /> Supprimer
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
                                                                 )}
+                                                                {replyTo === rp.id && <div className="ml-8">{renderReplyForm(rp.id)}</div>}
                                                             </div>
                                                         );
                                                     })}
