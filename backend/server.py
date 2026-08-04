@@ -562,7 +562,7 @@ async def bunny_video_status(video_id: str):
     if not r.ok:
         raise HTTPException(status_code=500, detail="Statut vidéo indisponible")
     j = r.json()
-    return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0)}
+    return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0), "availableResolutions": j.get("availableResolutions")}
 
 # ---------- Plans / Stripe ----------
 import stripe

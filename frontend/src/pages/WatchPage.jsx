@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, Users, Play, Film } from "lucide-react";
+import { ChevronLeft, Users, Play } from "lucide-react";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -55,7 +55,9 @@ export default function WatchPage() {
             try {
                 const s = await api.get(`/bunny/video-status/${vid}`, { silent: true });
                 if (!active) return;
-                if (s.data.status >= 4) { setBunnyReady({ ready: true }); return; }
+                const st = Number(s.data.status);
+                const hasRes = !!(s.data.availableResolutions && String(s.data.availableResolutions).length);
+                if (st >= 4 || hasRes) { setBunnyReady({ ready: true }); return; }
                 setBunnyReady({ ready: false, encodeProgress: s.data.encodeProgress || 0 });
                 timer = setTimeout(check, 5000);
             } catch {
@@ -188,21 +190,17 @@ export default function WatchPage() {
                                 />
                                 {bunnyReady && bunnyReady.ready === false && (
                                     <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] to-[#050505] flex items-center justify-center">
-                                        <div className="text-center px-6">
-                                            <div className="relative w-16 h-16 mx-auto mb-5">
-                                                <div className="absolute inset-0 rounded-full border-2 border-[#E8D2A6]/15" />
-                                                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#E8D2A6] animate-spin" />
-                                                <Film className="absolute inset-0 m-auto text-[#E8D2A6]" size={22} />
+                                        <div className="text-center px-6 w-full max-w-sm">
+                                            <div className="relative w-20 h-20 mx-auto mb-5">
+                                                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#E8D2A6] border-r-[#E8D2A6]/30 animate-spin" />
+                                                <img src="/logo.png" alt="" className="absolute inset-[7px] rounded-full object-cover" />
                                             </div>
-                                            <div className="font-display text-xl sm:text-2xl text-white mb-1.5">En attente…</div>
-                                            <div className="text-sm text-neutral-400">
-                                                La vidéo se prépare, elle sera disponible dans un instant{bunnyReady.encodeProgress ? ` · ${bunnyReady.encodeProgress}%` : ""}
+                                            <div className="font-display text-xl sm:text-2xl text-white mb-1.5">Préparation de la vidéo…</div>
+                                            <div className="text-sm text-neutral-400 mb-4">Encodage en cours — la lecture démarrera automatiquement</div>
+                                            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                                                <div className="h-full bg-[#E8D2A6] transition-all duration-500" style={{ width: `${Math.max(3, bunnyReady.encodeProgress || 0)}%` }} />
                                             </div>
-                                            <div className="mt-5 flex items-center justify-center gap-1.5">
-                                                <span className="w-2 h-2 rounded-full bg-[#E8D2A6] animate-bounce" style={{ animationDelay: "0ms" }} />
-                                                <span className="w-2 h-2 rounded-full bg-[#E8D2A6] animate-bounce" style={{ animationDelay: "150ms" }} />
-                                                <span className="w-2 h-2 rounded-full bg-[#E8D2A6] animate-bounce" style={{ animationDelay: "300ms" }} />
-                                            </div>
+                                            <div className="text-xs text-[#E8D2A6] mt-2">{bunnyReady.encodeProgress || 0}%</div>
                                         </div>
                                     </div>
                                 )}
