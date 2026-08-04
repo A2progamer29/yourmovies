@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon } from "lucide-react";
+import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -32,6 +32,12 @@ export default function SettingsPage() {
     const [saving, setSaving] = useState(false);
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
+    const [sub, setSub] = useState(null);
+    const [subBusy, setSubBusy] = useState(false);
+
+    useEffect(() => {
+        if (user?.premium) api.get("/subscription/current").then((r) => setSub(r.data)).catch(() => {});
+    }, [user]);
 
     useEffect(() => {
         if (user) {
@@ -71,6 +77,36 @@ export default function SettingsPage() {
             setSaving(false);
         }
     };
+
+    // Applique la couleur immédiatement (aperçu en direct), en plus de l'enregistrer.
+    const pickAccent = (color) => {
+        setForm((f) => ({ ...f, accent_color: color }));
+        const root = document.documentElement;
+        root.style.setProperty("--accent", color);
+        root.style.setProperty("--accent-hover", color);
+    };
+
+    const cancelSub = async () => {
+        if (!window.confirm("Confirmez-vous l'annulation à la fin de la période en cours ?")) return;
+        setSubBusy(true);
+        try {
+            await api.post("/subscription/cancel");
+            const r = await api.get("/subscription/current"); setSub(r.data);
+            toast.success("Abonnement annulé à la fin de la période");
+        } catch (e) { showError(toast, e, "Annulation impossible"); }
+        finally { setSubBusy(false); }
+    };
+    const resumeSub = async () => {
+        setSubBusy(true);
+        try {
+            await api.post("/subscription/resume");
+            const r = await api.get("/subscription/current"); setSub(r.data);
+            toast.success("Abonnement réactivé");
+        } catch (e) { showError(toast, e, "Réactivation impossible"); }
+        finally { setSubBusy(false); }
+    };
+    const fmtDate = (iso) => { if (!iso) return "—"; try { return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }); } catch { return iso; } };
+    const fmtMoney = (cents, cur) => cents == null ? "—" : `${(cents / 100).toFixed(2)} ${(cur || "eur").toUpperCase()}`;
 
     const uploadPicture = async (file) => {
         try {
@@ -118,6 +154,7 @@ export default function SettingsPage() {
     const TABS = [
         { id: "profile", label: "Profil", icon: <UserIcon size={14} /> },
         { id: "preferences", label: "Préférences", icon: <Play size={14} /> },
+        { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
         { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
 
@@ -226,7 +263,7 @@ export default function SettingsPage() {
                                     <button
                                         key={c.value}
                                         disabled={!user.premium}
-                                        onClick={() => setForm({ ...form, accent_color: c.value })}
+                                        onClick={() => pickAccent(c.value)}
                                         data-testid={`accent-${c.value.replace('#', '')}`}
                                         className={`aspect-square rounded-lg border-2 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${form.accent_color === c.value ? "border-white ring-2 ring-white/40" : "border-transparent"}`}
                                         style={{ background: c.value }}
@@ -235,6 +272,52 @@ export default function SettingsPage() {
                                 ))}
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {tab === "subscription" && (
+                    <div className="space-y-6">
+                        {!user.premium ? (
+                            <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a] text-center">
+                                <Crown size={36} className="mx-auto text-[#E8D2A6] mb-4" />
+                                <div className="font-display text-2xl mb-2">Aucun abonnement actif</div>
+                                <p className="text-neutral-400 mb-6">Passez Premium pour du contenu sans pub, en 4K, avec multi-profils.</p>
+                                <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">Voir les plans</Button>
+                            </div>
+                        ) : (
+                            <div className="rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-b from-[#171208] to-[#0a0a0a] p-8">
+                                <div className="flex items-center justify-between gap-4 mb-6">
+                                    <div>
+                                        <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Plan actuel</div>
+                                        <div className="font-display text-3xl capitalize mt-1" data-testid="sub-plan">{user.premium_plan || sub?.plan || "premium"}</div>
+                                        <div className="text-sm text-neutral-400 mt-1">Facturation {sub?.interval === "yearly" ? "annuelle" : "mensuelle"}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-display text-3xl">{fmtMoney(sub?.amount, sub?.currency)}</div>
+                                        <div className="text-xs text-neutral-500">/ {sub?.interval === "yearly" ? "an" : "mois"}</div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6 py-6 border-y border-[#262626]">
+                                    <div>
+                                        <div className="text-xs uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1"><Calendar size={12} /> Prochaine facture</div>
+                                        <div className="text-white">{fmtDate(sub?.next_billing_date || user.premium_until)}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1"><CreditCard size={12} /> Statut</div>
+                                        <div className="text-white">{sub?.cancel_at_period_end ? <span className="text-yellow-400">Annulation à la fin de la période</span> : <span className="text-emerald-400">Actif</span>}</div>
+                                    </div>
+                                </div>
+                                <div className="mt-6 flex flex-wrap gap-3">
+                                    {sub?.stripe_subscription_id && (sub?.cancel_at_period_end ? (
+                                        <Button onClick={resumeSub} disabled={subBusy} data-testid="resume-btn" className="bg-emerald-500 text-black hover:bg-emerald-400 rounded-full h-11 px-6 font-semibold"><RefreshCw size={14} className="mr-2" /> Réactiver</Button>
+                                    ) : (
+                                        <Button onClick={cancelSub} disabled={subBusy} data-testid="cancel-btn" variant="outline" className="border-red-500/40 text-red-400 hover:bg-red-500/10 rounded-full h-11 px-6 bg-transparent"><XCircle size={14} className="mr-2" /> Annuler l&apos;abonnement</Button>
+                                    ))}
+                                    <Button onClick={() => navigate("/pricing")} variant="outline" className="border-[#262626] text-white hover:bg-white/5 rounded-full h-11 px-6 bg-transparent">Changer de plan</Button>
+                                    <Button onClick={() => navigate("/profiles")} variant="outline" className="border-[#262626] text-white hover:bg-white/5 rounded-full h-11 px-6 bg-transparent">Gérer mes profils</Button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -297,7 +380,7 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {tab !== "security" && (
+                {tab !== "security" && tab !== "subscription" && (
                     <div className="mt-10 flex justify-end gap-2 border-t border-[#262626] pt-6">
                         <Button
                             onClick={save}
@@ -318,7 +401,7 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex gap-2">
                             <Button onClick={() => navigate("/profiles")} variant="outline" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">Profils</Button>
-                            <Button onClick={() => navigate("/account/subscription")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">Abonnement</Button>
+                            <Button onClick={() => setTab("subscription")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">Abonnement</Button>
                         </div>
                     </div>
                 )}
