@@ -11,6 +11,10 @@ const SAMPLE_VAST_TAG =
     "cust_params=sample_ct%3Dlinear&ciu_szs=300x250%2C728x90&" +
     "gdfp_req=1&output=vast&unviewed_position_start=1&env=vp&impl=s&correlator=";
 
+// Tag publicitaire : défini via REACT_APP_AD_TAG_URL (ta régie, ex. Google Ad Manager).
+// Sans lui, ce sont les pubs de démonstration de Google (aucun revenu).
+const AD_TAG_URL = process.env.REACT_APP_AD_TAG_URL || SAMPLE_VAST_TAG;
+
 const QUALITY_ORDER = ["4k", "1080p", "720p", "480p"];
 
 function loadIma() {
@@ -175,7 +179,7 @@ export default function VideoPlayer({
         });
 
         const adsRequest = new ima.AdsRequest();
-        adsRequest.adTagUrl = SAMPLE_VAST_TAG + Date.now();
+        adsRequest.adTagUrl = AD_TAG_URL.endsWith("correlator=") ? AD_TAG_URL + Date.now() : AD_TAG_URL;
         adsRequest.linearAdSlotWidth = wrapRef.current?.clientWidth || 1280;
         adsRequest.linearAdSlotHeight = wrapRef.current?.clientHeight || 720;
         adsLoader.requestAds(adsRequest);
