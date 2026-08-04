@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Play, Heart, Bookmark, Star, Clock, Calendar, Users, Film as FilmIcon } from "lucide-react";
+import { Play, Heart, Bookmark, Star, Clock, Calendar, Users, Film as FilmIcon, Pencil, Trash2, Reply, X } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
@@ -25,6 +25,10 @@ export default function MediaDetailPage() {
     const [status, setStatus] = useState({ favorite: false, watchlist: false });
     const [ratingInput, setRatingInput] = useState(7);
     const [commentInput, setCommentInput] = useState("");
+    const [editingReview, setEditingReview] = useState(false);
+    const [replyTo, setReplyTo] = useState(null);
+    const [replyInput, setReplyInput] = useState("");
+    const formRef = useRef(null);
 
     const load = async () => {
         const [m, r, s] = await Promise.all([
@@ -58,11 +62,43 @@ export default function MediaDetailPage() {
         if (!user) { navigate("/login"); return; }
         try {
             await api.post("/reviews", { media_id: id, rating: Number(ratingInput), comment: commentInput });
-            toast.success("Avis publié");
+            toast.success(editingReview ? "Avis mis à jour" : "Avis publié");
             setCommentInput("");
+            setEditingReview(false);
             load();
         } catch (e) {
             showError(toast, e, "Publication impossible");
+        }
+    };
+
+    const startEditReview = (r) => {
+        setEditingReview(true);
+        setRatingInput(r.rating ?? 7);
+        setCommentInput(r.comment || "");
+        formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+
+    const deleteReview = async (rid) => {
+        try {
+            await api.delete(`/reviews/${rid}`);
+            toast.success("Supprimé");
+            load();
+        } catch (e) {
+            showError(toast, e, "Suppression impossible");
+        }
+    };
+
+    const submitReply = async (parentId) => {
+        if (!user) { navigate("/login"); return; }
+        const text = replyInput.trim();
+        if (!text) return;
+        try {
+            await api.post(`/reviews/${parentId}/reply`, { comment: text });
+            setReplyInput("");
+            setReplyTo(null);
+            load();
+        } catch (e) {
+            showError(toast, e, "Réponse impossible");
         }
     };
 
@@ -78,6 +114,17 @@ export default function MediaDetailPage() {
     const banner = media.banner_url || media.poster_url || BANNER_FALLBACK;
     const totalEpisodes = (media.seasons || []).reduce((acc, s) => acc + (s.episodes?.length || 0), 0);
 
+    const topReviews = reviews.filter((r) => !r.parent_id);
+    const repliesByParent = reviews.reduce((acc, r) => {
+        if (r.parent_id) {
+            (acc[r.parent_id] = acc[r.parent_id] || []).push(r);
+        }
+        return acc;
+    }, {});
+    Object.values(repliesByParent).forEach((list) =>
+        list.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
+    );
+
     return (
         <div className="min-h-screen bg-[#050505] text-white">
             <div className="noise-overlay" />
@@ -85,7 +132,7 @@ export default function MediaDetailPage() {
 
             {/* Banner */}
             <section className="relative w-full h-[70vh] min-h-[480px] overflow-hidden">
-                <img src={banner} alt={media.title} className="w-full h-full object-cover"
+                <img src={banner} alt={media.title} className="w-full h-full object-cover scale-105 blur-sm"
                     onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = BANNER_FALLBACK; }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/70 to-[#050505]/20" />
                 <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/90 via-transparent to-[#050505]/30" />
@@ -228,7 +275,7 @@ export default function MediaDetailPage() {
                     <div>
                         <h2 className="font-display text-2xl mb-4">Avis & Notes</h2>
                         {user ? (
-                            <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
+                            <div ref={formRef} className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
                                 <div className="flex items-center gap-3 mb-3">
                                     <label className="text-sm text-neutral-400">Ma note :</label>
                                     <input
@@ -250,13 +297,21 @@ export default function MediaDetailPage() {
                                     placeholder="Écrivez votre avis..."
                                     className="bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
                                 />
-                                <div className="mt-3 text-right">
+                                <div className="mt-3 flex items-center justify-end gap-3">
+                                    {editingReview && (
+                                        <button
+                                            onClick={() => { setEditingReview(false); setCommentInput(""); setRatingInput(7); }}
+                                            className="text-sm text-neutral-400 hover:text-white"
+                                        >
+                                            Annuler
+                                        </button>
+                                    )}
                                     <Button
                                         onClick={submitReview}
                                         data-testid="submit-review-btn"
                                         className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold"
                                     >
-                                        Publier
+                                        {editingReview ? "Mettre à jour" : "Publier"}
                                     </Button>
                                 </div>
                             </div>
@@ -266,26 +321,90 @@ export default function MediaDetailPage() {
                             </div>
                         )}
 
-                        {reviews.length === 0 ? (
+                        {topReviews.length === 0 ? (
                             <div className="text-neutral-500 text-sm">Aucun avis pour le moment. Soyez le premier.</div>
                         ) : (
                             <div className="space-y-4">
-                                {reviews.map((r) => (
-                                    <div key={r.id} className="p-5 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-sm font-semibold">
-                                                    {r.user_name?.[0]?.toUpperCase() || "U"}
+                                {topReviews.map((r) => {
+                                    const mine = user && r.user_id === user.user_id;
+                                    const replies = repliesByParent[r.id] || [];
+                                    return (
+                                        <div key={r.id} className="p-5 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-sm font-semibold">
+                                                        {r.user_name?.[0]?.toUpperCase() || "U"}
+                                                    </div>
+                                                    <div className="text-white text-sm">{r.user_name}</div>
                                                 </div>
-                                                <div className="text-white text-sm">{r.user_name}</div>
+                                                {typeof r.rating === "number" && (
+                                                    <div className="flex items-center gap-1 text-[#E8D2A6] text-sm">
+                                                        <Star size={12} fill="#E8D2A6" /> {r.rating.toFixed(1)}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="flex items-center gap-1 text-[#E8D2A6] text-sm">
-                                                <Star size={12} fill="#E8D2A6" /> {r.rating.toFixed(1)}
-                                            </div>
+                                            {r.comment && <p className="mt-3 text-neutral-300 text-sm leading-relaxed">{r.comment}</p>}
+
+                                            {user && (
+                                                <div className="mt-3 flex items-center gap-4 text-xs">
+                                                    {mine ? (
+                                                        <>
+                                                            <button onClick={() => startEditReview(r)} className="flex items-center gap-1 text-neutral-500 hover:text-white">
+                                                                <Pencil size={12} /> Modifier
+                                                            </button>
+                                                            <button onClick={() => deleteReview(r.id)} className="flex items-center gap-1 text-neutral-500 hover:text-red-400">
+                                                                <Trash2 size={12} /> Supprimer
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <button onClick={() => { setReplyTo(replyTo === r.id ? null : r.id); setReplyInput(""); }} className="flex items-center gap-1 text-neutral-500 hover:text-[#E8D2A6]">
+                                                            <Reply size={12} /> Répondre
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {replyTo === r.id && (
+                                                <div className="mt-3 flex items-start gap-2">
+                                                    <Textarea
+                                                        value={replyInput}
+                                                        onChange={(e) => setReplyInput(e.target.value)}
+                                                        placeholder="Votre réponse..."
+                                                        className="min-h-[60px] bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
+                                                    />
+                                                    <div className="flex flex-col gap-2">
+                                                        <Button onClick={() => submitReply(r.id)} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-9 px-4 text-sm font-semibold">Envoyer</Button>
+                                                        <button onClick={() => setReplyTo(null)} className="flex items-center justify-center gap-1 text-xs text-neutral-500 hover:text-white"><X size={12} /> Annuler</button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {replies.length > 0 && (
+                                                <div className="mt-4 space-y-3 pl-4 border-l border-[#1a1a1a]">
+                                                    {replies.map((rp) => {
+                                                        const mineReply = user && rp.user_id === user.user_id;
+                                                        return (
+                                                            <div key={rp.id}>
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-6 h-6 rounded-full bg-[#262626] text-neutral-200 flex items-center justify-center text-xs font-semibold">
+                                                                        {rp.user_name?.[0]?.toUpperCase() || "U"}
+                                                                    </div>
+                                                                    <div className="text-neutral-200 text-sm">{rp.user_name}</div>
+                                                                </div>
+                                                                {rp.comment && <p className="mt-1.5 ml-8 text-neutral-400 text-sm leading-relaxed">{rp.comment}</p>}
+                                                                {mineReply && (
+                                                                    <button onClick={() => deleteReview(rp.id)} className="mt-1 ml-8 flex items-center gap-1 text-xs text-neutral-600 hover:text-red-400">
+                                                                        <Trash2 size={11} /> Supprimer
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
                                         </div>
-                                        {r.comment && <p className="mt-3 text-neutral-300 text-sm leading-relaxed">{r.comment}</p>}
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

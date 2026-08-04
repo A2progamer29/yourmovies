@@ -379,7 +379,7 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <Label className="text-neutral-300">Logo du titre (PNG transparent recommandé)</Label>
-                                <div className="text-xs text-neutral-500 mt-1">PNG à fond transparent — paysage, ~800×320 px</div>
+                                <div className="text-xs text-neutral-500 mt-1">PNG à fond transparent — paysage, ~800×320 px. <span className="text-neutral-400">S'il n'y a pas de logo, le <b>titre</b> (saisi en haut du formulaire) s'affiche automatiquement en texte.</span></div>
                                 <div className="flex gap-2 mt-1.5">
                                     <Input data-testid="form-title-logo" value={form.title_logo_url} onChange={(e) => setForm({ ...form, title_logo_url: e.target.value })} placeholder="https://... (superposé au hero à la place du texte)" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
@@ -445,7 +445,7 @@ export default function AdminMediaForm() {
                     <section>
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Vidéo & qualités multiples</h2>
 
-                        <div className="p-4 rounded-lg border border-[#E8D2A6]/30 bg-[#171208] mb-6">
+                        <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
                             <div className="flex items-center gap-2 mb-2">
                                 <Film size={14} className="text-[#E8D2A6]" />
                                 <span className="text-sm font-medium text-[#E8D2A6]">Vidéo principale</span>

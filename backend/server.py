@@ -154,6 +154,13 @@ class ReviewOut(BaseModel):
     comment: str
     created_at: str
 
+class ReplyCreate(BaseModel):
+    comment: str
+
+class ReviewEdit(BaseModel):
+    rating: Optional[float] = Field(default=None, ge=0, le=10)
+    comment: Optional[str] = None
+
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
@@ -413,14 +420,24 @@ async def list_reviews(media_id: str):
     docs = await db.reviews.find({"media_id": media_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return docs
 
+async def _recompute_rating(media_id: str):
+    pipeline = [
+        {"$match": {"media_id": media_id, "parent_id": None}},
+        {"$group": {"_id": None, "avg": {"$avg": "$rating"}}},
+    ]
+    agg = await db.reviews.aggregate(pipeline).to_list(1)
+    avg = agg[0]["avg"] if agg else None
+    await db.media.update_one({"id": media_id}, {"$set": {"rating": round(avg, 1) if avg else None}})
+
 @api_router.post("/reviews")
 async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user)):
     review_id = f"r_{uuid.uuid4().hex[:12]}"
-    # replace existing review by same user for this media
-    await db.reviews.delete_many({"media_id": r.media_id, "user_id": user["user_id"]})
+    # replace existing top-level review by same user (keep their replies intact)
+    await db.reviews.delete_many({"media_id": r.media_id, "user_id": user["user_id"], "parent_id": None})
     doc = {
         "id": review_id,
         "media_id": r.media_id,
+        "parent_id": None,
         "user_id": user["user_id"],
         "user_name": user.get("name", "User"),
         "rating": r.rating,
@@ -428,13 +445,50 @@ async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user))
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.reviews.insert_one(doc)
-    # Recompute average rating for media
-    pipeline = [{"$match": {"media_id": r.media_id}}, {"$group": {"_id": None, "avg": {"$avg": "$rating"}}}]
-    agg = await db.reviews.aggregate(pipeline).to_list(1)
-    avg = agg[0]["avg"] if agg else None
-    await db.media.update_one({"id": r.media_id}, {"$set": {"rating": round(avg, 1) if avg else None}})
-    # Return a clean dict (drop MongoDB _id if inserted)
+    await _recompute_rating(r.media_id)
     return {k: v for k, v in doc.items() if k != "_id"}
+
+@api_router.post("/reviews/{parent_id}/reply")
+async def reply_review(parent_id: str, r: ReplyCreate, user: dict = Depends(get_current_user)):
+    parent = await db.reviews.find_one({"id": parent_id}, {"_id": 0})
+    if not parent:
+        raise HTTPException(status_code=404, detail="Not found")
+    if parent.get("parent_id"):
+        raise HTTPException(status_code=400, detail="On ne peut répondre qu'à un avis")
+    comment = (r.comment or "").strip()
+    if not comment:
+        raise HTTPException(status_code=400, detail="Réponse vide")
+    doc = {
+        "id": f"r_{uuid.uuid4().hex[:12]}",
+        "media_id": parent["media_id"],
+        "parent_id": parent_id,
+        "user_id": user["user_id"],
+        "user_name": user.get("name", "User"),
+        "rating": None,
+        "comment": comment,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.reviews.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api_router.patch("/reviews/{review_id}")
+async def edit_review(review_id: str, r: ReviewEdit, user: dict = Depends(get_current_user)):
+    doc = await db.reviews.find_one({"id": review_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if doc["user_id"] != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    updates = {}
+    if r.comment is not None:
+        updates["comment"] = r.comment
+    if r.rating is not None and doc.get("parent_id") is None:
+        updates["rating"] = r.rating
+    if updates:
+        await db.reviews.update_one({"id": review_id}, {"$set": updates})
+        if "rating" in updates:
+            await _recompute_rating(doc["media_id"])
+    merged = {**doc, **updates}
+    return {k: v for k, v in merged.items() if k != "_id"}
 
 @api_router.delete("/reviews/{review_id}")
 async def delete_review(review_id: str, user: dict = Depends(get_current_user)):
@@ -444,6 +498,10 @@ async def delete_review(review_id: str, user: dict = Depends(get_current_user)):
     if doc["user_id"] != user["user_id"] and not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.reviews.delete_one({"id": review_id})
+    # remove any replies attached to a deleted top-level review
+    if doc.get("parent_id") is None:
+        await db.reviews.delete_many({"parent_id": review_id})
+        await _recompute_rating(doc["media_id"])
     return {"ok": True}
 
 # ---------- Favorites / Watchlist ----------
