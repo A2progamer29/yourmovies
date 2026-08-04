@@ -150,9 +150,9 @@ export default function AdminMediaForm() {
                 upload.start();
             });
             setForm((f) => ({ ...f, bunny_video_id: videoId }));
-            toast.success("Vidéo envoyée sur Bunny");
+            toast.success("Vidéo ajoutée");
         } catch (e) {
-            showError(toast, e, "Upload Bunny impossible");
+            showError(toast, e, "Téléversement impossible");
         } finally {
             setUploading(null);
             setProgress(0);
@@ -427,7 +427,7 @@ export default function AdminMediaForm() {
                         <div className="p-4 rounded-lg border border-[#E8D2A6]/30 bg-[#171208] mb-6">
                             <div className="flex items-center gap-2 mb-2">
                                 <Film size={14} className="text-[#E8D2A6]" />
-                                <span className="text-sm font-medium text-[#E8D2A6]">Vidéo principale — Bunny Stream (recommandé pour les films)</span>
+                                <span className="text-sm font-medium text-[#E8D2A6]">Vidéo principale</span>
                             </div>
                             <label
                                 onDragOver={(e) => { e.preventDefault(); setDragBunny(true); }}
@@ -437,15 +437,15 @@ export default function AdminMediaForm() {
                             >
                                 <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
                                 {uploading === "bunny" ? (
-                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> Envoi vers Bunny… {progress}%</div>
+                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> Envoi… {progress}%</div>
                                 ) : form.bunny_video_id ? (
-                                    <div className="text-sm text-[#E8D2A6]">✓ Vidéo hébergée sur Bunny — glisse un autre fichier pour remplacer</div>
+                                    <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
                                 ) : (
-                                    <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo du film ici (gros fichiers OK), ou clique</div>
+                                    <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo ici, ou clique pour choisir</div>
                                 )}
                             </label>
                             {form.bunny_video_id && (
-                                <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo Bunny</button>
+                                <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
                             )}
                             <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présent, cette vidéo est prioritaire sur les champs ci-dessous.</div>
                         </div>
