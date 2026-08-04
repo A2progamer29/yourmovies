@@ -90,6 +90,12 @@ export default function MediaDetailPage() {
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/70 to-[#050505]/20" />
                 <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/90 via-transparent to-[#050505]/30" />
 
+                {media.title_logo_url && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center px-6 pointer-events-none">
+                        <img src={media.title_logo_url} alt={media.title} className="max-h-40 sm:max-h-56 w-auto max-w-[85%] object-contain drop-shadow-2xl" />
+                    </div>
+                )}
+
                 <div className="relative z-10 max-w-7xl mx-auto h-full px-6 flex items-end pb-16">
                     <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="flex gap-8 items-end">
                         <img
@@ -103,17 +109,11 @@ export default function MediaDetailPage() {
                                 {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"}
                                 {media.year && <span className="text-neutral-500 ml-3">· {media.year}</span>}
                             </div>
-                            <h1 data-testid="media-title" className="font-display text-4xl sm:text-6xl tracking-tighter leading-none font-light">
-                                {media.title_logo_url ? (
-                                    <img
-                                        src={media.title_logo_url}
-                                        alt={media.title}
-                                        className="max-h-32 sm:max-h-40 w-auto object-contain drop-shadow-2xl"
-                                    />
-                                ) : (
-                                    media.title
-                                )}
-                            </h1>
+                            {!media.title_logo_url && (
+                                <h1 data-testid="media-title" className="font-display text-4xl sm:text-6xl tracking-tighter leading-none font-light">
+                                    {media.title}
+                                </h1>
+                            )}
                             <div className="flex flex-wrap items-center gap-4 mt-5 text-sm text-neutral-400">
                                 {media.rating && (
                                     <div className="flex items-center gap-1.5 text-white">
