@@ -61,7 +61,9 @@ export default function HomePage() {
 
     const isEmpty = latest.length === 0;
     const current = featured[heroIndex];
-    const showTrailerAutoplay = user?.premium && user?.autoplay_hero !== false && current?.trailer_youtube_id;
+    const heroTrailerActive = user?.premium && user?.autoplay_hero !== false;
+    const showTrailerVideo = heroTrailerActive && current?.trailer_video_url;
+    const showTrailerAutoplay = heroTrailerActive && !current?.trailer_video_url && current?.trailer_youtube_id;
 
     return (
         <div className="min-h-screen bg-[#050505] relative">
@@ -83,7 +85,14 @@ export default function HomePage() {
                         transition={{ duration: 0.8 }}
                         className="absolute inset-0"
                     >
-                        {showTrailerAutoplay ? (
+                        {showTrailerVideo ? (
+                            <video
+                                data-testid="hero-trailer-video"
+                                src={current.trailer_video_url}
+                                autoPlay muted loop playsInline
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 min-w-full min-h-full w-auto h-auto object-cover pointer-events-none"
+                            />
+                        ) : showTrailerAutoplay ? (
                             <iframe
                                 data-testid="hero-trailer-autoplay"
                                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-125 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"

@@ -89,6 +89,7 @@ class MediaBase(BaseModel):
     title_logo_url: Optional[str] = None  # PNG logo of the title (overlays hero)
     age_rating: Optional[str] = None  # "G", "PG", "PG-13", "R", "18+", or numeric min age as string
     trailer_youtube_id: Optional[str] = None
+    trailer_video_url: Optional[str] = None  # fichier vidéo uploadé pour la bande-annonce
     video_file_path: Optional[str] = None
     video_url: Optional[str] = None  # external MP4/HLS URL alternative to upload
     qualities: List[dict] = []  # [{quality: "720p"|"1080p"|"4k", url: "https://...", file_path: "..."}]
@@ -112,6 +113,7 @@ class MediaUpdate(BaseModel):
     title_logo_url: Optional[str] = None
     age_rating: Optional[str] = None
     trailer_youtube_id: Optional[str] = None
+    trailer_video_url: Optional[str] = None
     video_file_path: Optional[str] = None
     video_url: Optional[str] = None
     qualities: Optional[List[dict]] = None
@@ -334,6 +336,7 @@ def serialize_media(doc) -> dict:
         "poster_url": doc.get("poster_url"),
         "banner_url": doc.get("banner_url"),
         "trailer_youtube_id": doc.get("trailer_youtube_id"),
+        "trailer_video_url": doc.get("trailer_video_url"),
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
         "qualities": doc.get("qualities", []),

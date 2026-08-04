@@ -25,6 +25,7 @@ const EMPTY = {
     title_logo_url: "",
     age_rating: "",
     trailer_youtube_id: "",
+    trailer_video_url: "",
     video_file_path: "",
     video_url: "",
     qualities: [],
@@ -57,6 +58,7 @@ export default function AdminMediaForm() {
     const [form, setForm] = useState(EMPTY);
     const [uploading, setUploading] = useState(null); // key currently uploading
     const [progress, setProgress] = useState(0);
+    const [dragTrailer, setDragTrailer] = useState(false);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -118,6 +120,7 @@ export default function AdminMediaForm() {
             poster_url: form.poster_url || null,
             banner_url: form.banner_url || null,
             trailer_youtube_id: parseYouTubeId(form.trailer_youtube_id) || null,
+            trailer_video_url: form.trailer_video_url || null,
             title_logo_url: form.title_logo_url || null,
             age_rating: form.age_rating || null,
             video_file_path: form.video_file_path || null,
@@ -321,6 +324,31 @@ export default function AdminMediaForm() {
                             <div>
                                 <Label className="text-neutral-300">Bande-annonce YouTube (ID ou URL)</Label>
                                 <Input value={form.trailer_youtube_id} onChange={(e) => setForm({ ...form, trailer_youtube_id: e.target.value })} placeholder="dQw4w9WgXcQ ou https://youtu.be/..." className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                            </div>
+                            <div>
+                                <Label className="text-neutral-300">Bande-annonce — fichier vidéo (glisser-déposer)</Label>
+                                <label
+                                    onDragOver={(e) => { e.preventDefault(); setDragTrailer(true); }}
+                                    onDragLeave={() => setDragTrailer(false)}
+                                    onDrop={(e) => { e.preventDefault(); setDragTrailer(false); const f = e.dataTransfer.files?.[0]; if (f) uploadFile(f, "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url }))); }}
+                                    className={`mt-1.5 block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragTrailer ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
+                                >
+                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url })))} />
+                                    {uploading === "trailer" ? (
+                                        <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {progress}%</div>
+                                    ) : form.trailer_video_url ? (
+                                        <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
+                                    ) : (
+                                        <div className="text-sm text-neutral-400"><Upload size={16} className="inline mr-1.5" />Glisse un fichier vidéo ici, ou clique pour choisir</div>
+                                    )}
+                                </label>
+                                {form.trailer_video_url && (
+                                    <div className="flex items-center gap-3 mt-2">
+                                        <video src={form.trailer_video_url} className="h-20 rounded border border-[#262626]" muted />
+                                        <button type="button" onClick={() => setForm((f) => ({ ...f, trailer_video_url: "" }))} className="text-xs text-neutral-500 hover:text-red-400">Retirer</button>
+                                    </div>
+                                )}
+                                <div className="text-xs text-neutral-500 mt-1">Si un fichier est présent, il est prioritaire sur YouTube pour la bande-annonce de l'accueil.</div>
                             </div>
                             <div>
                                 <Label className="text-neutral-300">Classification d&apos;âge</Label>
