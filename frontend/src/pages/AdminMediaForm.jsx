@@ -368,7 +368,7 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <Label className="text-neutral-300">Bannière (URL ou upload)</Label>
-                                <div className="text-xs text-neutral-500 mt-1">Ratio 16:9 (paysage) — ex. 1920×1080 px — JPG ou WebP</div>
+                                <div className="text-xs text-neutral-500 mt-1">Paysage haute résolution — min. 1920×1080, idéal 2560×1440 px — sujet centré (recadrée pour remplir le hero, jamais déformée)</div>
                                 <div className="flex gap-2 mt-1.5">
                                     <Input value={form.banner_url} onChange={(e) => setForm({ ...form, banner_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
