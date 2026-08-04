@@ -139,7 +139,7 @@ export default function MediaDetailPage() {
                             )}
                             <p className="mt-6 text-lg text-neutral-300 leading-relaxed">{media.description}</p>
                             <div className="mt-7 flex flex-wrap items-center gap-3">
-                                {(media.video_file_path || media.video_url) && (
+                                {(media.bunny_video_id || media.video_file_path || media.video_url || (media.qualities && media.qualities.length > 0)) && (
                                     <Button
                                         onClick={() => navigate(`/watch/${media.id}`)}
                                         data-testid="watch-btn"
