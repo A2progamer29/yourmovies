@@ -235,7 +235,7 @@ export default function SettingsPage() {
                             <div className="text-xs text-neutral-500 mt-1">La qualité de départ dans le lecteur. Vous pouvez la changer à tout moment.</div>
                         </div>
 
-                        <div className={`flex items-center justify-between p-4 rounded-lg border ${user.premium ? "border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a]" : "border-[#262626] bg-[#0a0a0a]"}`}>
+                        <div className="flex items-center justify-between p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             <div>
                                 <div className="text-white flex items-center gap-2">
                                     Bande-annonce cinéma sur l&apos;accueil
@@ -251,7 +251,7 @@ export default function SettingsPage() {
                             />
                         </div>
 
-                        <div className={`p-5 rounded-lg border ${user.premium ? "border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a]" : "border-[#262626] bg-[#0a0a0a]"}`}>
+                        <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-3">
                                 <Palette size={14} className="text-[#E8D2A6]" />
                                 <div className="text-white">Couleur d&apos;accent</div>
@@ -285,7 +285,7 @@ export default function SettingsPage() {
                                 <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">Voir les plans</Button>
                             </div>
                         ) : (
-                            <div className="rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-b from-[#171208] to-[#0a0a0a] p-8">
+                            <div className="rounded-2xl border border-[#262626] bg-[#0a0a0a] p-8">
                                 <div className="flex items-center justify-between gap-4 mb-6">
                                     <div>
                                         <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Plan actuel</div>
@@ -390,19 +390,6 @@ export default function SettingsPage() {
                         >
                             <Save size={14} className="mr-2" /> {saving ? "..." : "Enregistrer"}
                         </Button>
-                    </div>
-                )}
-
-                {user.premium && (
-                    <div className="mt-10 p-5 rounded-2xl border border-[#E8D2A6]/30 bg-[#0a0a0a] flex items-center justify-between gap-4">
-                        <div>
-                            <div className="text-xs uppercase tracking-widest text-[#E8D2A6] flex items-center gap-1"><Crown size={12} /> Premium</div>
-                            <div className="mt-1 text-white">Gérer mes profils Premium et mon abonnement</div>
-                        </div>
-                        <div className="flex gap-2">
-                            <Button onClick={() => navigate("/profiles")} variant="outline" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">Profils</Button>
-                            <Button onClick={() => setTab("subscription")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">Abonnement</Button>
-                        </div>
                     </div>
                 )}
             </div>
