@@ -292,6 +292,13 @@ export default function MediaDetailPage() {
                 </div>
 
                 <aside className="space-y-8">
+                    <Button
+                        onClick={() => navigate(`/watch/${media.id}`)}
+                        data-testid="watch-btn-aside"
+                        className="w-full bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12"
+                    >
+                        <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
+                    </Button>
                     {(media.director || media.cast?.length > 0) && (
                         <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Distribution</div>

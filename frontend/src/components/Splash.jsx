@@ -1,41 +1,45 @@
 import React, { useEffect, useState } from "react";
 
-// Écran de préchargement bloquant : logo animé + barre de progression + pourcentage.
+// Écran de préchargement : affiché une seule fois par session (si déjà chargé, ne réapparaît pas).
 export default function Splash() {
+    const [show] = useState(() => {
+        try {
+            if (sessionStorage.getItem("ym_splash_seen")) return false;
+            sessionStorage.setItem("ym_splash_seen", "1");
+            return true;
+        } catch { return true; }
+    });
     const [progress, setProgress] = useState(0);
     const [hidden, setHidden] = useState(false);
 
     useEffect(() => {
+        if (!show) return;
         let p = 0;
         const tick = setInterval(() => {
-            p += Math.random() * 11 + 5;
+            p += Math.random() * 12 + 6;
             if (p >= 100) {
                 p = 100;
                 clearInterval(tick);
                 setTimeout(() => setHidden(true), 450);
             }
             setProgress(Math.min(100, Math.round(p)));
-        }, 130);
+        }, 120);
         return () => clearInterval(tick);
-    }, []);
+    }, [show]);
 
-    if (hidden) return null;
+    if (!show || hidden) return null;
 
     return (
         <div
             className={`fixed inset-0 z-[200] bg-[#050505] flex flex-col items-center justify-center transition-opacity duration-500 ${progress >= 100 ? "opacity-0 pointer-events-none" : "opacity-100"}`}
         >
-            <div className="relative w-24 h-24 mb-7">
-                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#E8D2A6] border-r-[#E8D2A6]/30 animate-spin" />
-                <img src="/logo.png" alt="" className="absolute inset-[8px] rounded-full object-cover" />
-            </div>
-            <div className="font-display text-2xl text-white tracking-tight">
+            <div className="font-display text-3xl sm:text-4xl text-white tracking-tight mb-8">
                 YourMovie<span className="text-[#E8D2A6]">&apos;s</span>
             </div>
-            <div className="w-56 h-1.5 rounded-full bg-white/10 overflow-hidden mt-6">
+            <div className="w-56 h-1.5 rounded-full bg-white/10 overflow-hidden">
                 <div className="h-full bg-[#E8D2A6] transition-all duration-150" style={{ width: `${progress}%` }} />
             </div>
-            <div className="text-xs text-[#E8D2A6] mt-2">{progress}%</div>
+            <div className="text-xs text-[#E8D2A6] mt-3">{progress}%</div>
         </div>
     );
 }
