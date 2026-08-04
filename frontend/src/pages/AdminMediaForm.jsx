@@ -63,6 +63,7 @@ export default function AdminMediaForm() {
     const [progress, setProgress] = useState(0);
     const [dragTrailer, setDragTrailer] = useState(false);
     const [dragBunny, setDragBunny] = useState(false);
+    const [bunnyStage, setBunnyStage] = useState("");
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -127,11 +128,14 @@ export default function AdminMediaForm() {
     const uploadToBunny = async (file) => {
         setUploading("bunny");
         setProgress(0);
+        setBunnyStage("Préparation");
         try {
             const fd = new FormData();
             fd.append("title", form.title || file.name);
             const r = await api.post("/bunny/create-video", fd);
             const { videoId, libraryId, signature, expire } = r.data;
+            // Étape 1 : envoi du fichier
+            setBunnyStage("Envoi");
             await new Promise((resolve, reject) => {
                 const upload = new tus.Upload(file, {
                     endpoint: "https://video.bunnycdn.com/tusupload",
@@ -149,13 +153,27 @@ export default function AdminMediaForm() {
                 });
                 upload.start();
             });
+            // La vidéo est enregistrée dès l'envoi terminé
             setForm((f) => ({ ...f, bunny_video_id: videoId }));
-            toast.success("Vidéo ajoutée");
+            // Étape 2 : encodage (on suit l'avancement)
+            setBunnyStage("Encodage");
+            setProgress(0);
+            for (let i = 0; i < 200; i++) {
+                try {
+                    const s = await api.get(`/bunny/video-status/${videoId}`);
+                    setProgress(s.data.encodeProgress || 0);
+                    if (s.data.status >= 4) break;
+                } catch { /* on réessaie */ }
+                await new Promise((res) => setTimeout(res, 3000));
+            }
+            setBunnyStage("Prêt");
+            toast.success("Vidéo prête");
         } catch (e) {
             showError(toast, e, "Téléversement impossible");
         } finally {
             setUploading(null);
             setProgress(0);
+            setBunnyStage("");
         }
     };
 
@@ -437,7 +455,7 @@ export default function AdminMediaForm() {
                             >
                                 <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
                                 {uploading === "bunny" ? (
-                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> Envoi… {progress}%</div>
+                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {bunnyStage}{(bunnyStage === "Envoi" || bunnyStage === "Encodage") ? ` ${progress}%` : "…"}</div>
                                 ) : form.bunny_video_id ? (
                                     <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
                                 ) : (

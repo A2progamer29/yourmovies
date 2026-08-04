@@ -551,6 +551,19 @@ async def bunny_create_video(title: str = Form("video"), user: dict = Depends(re
     signature = hashlib.sha256(f"{BUNNY_LIBRARY_ID}{BUNNY_API_KEY}{expire}{video_id}".encode()).hexdigest()
     return {"videoId": video_id, "libraryId": str(BUNNY_LIBRARY_ID), "signature": signature, "expire": expire}
 
+@api_router.get("/bunny/video-status/{video_id}")
+async def bunny_video_status(video_id: str, user: dict = Depends(require_admin)):
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    r = requests.get(
+        f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_id}",
+        headers={"AccessKey": BUNNY_API_KEY}, timeout=15,
+    )
+    if not r.ok:
+        raise HTTPException(status_code=500, detail="Statut vidéo indisponible")
+    j = r.json()
+    return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0)}
+
 # ---------- Plans / Stripe ----------
 import stripe
 
