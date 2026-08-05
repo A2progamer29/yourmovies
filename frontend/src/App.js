@@ -26,13 +26,21 @@ import CagnottePage from "@/pages/CagnottePage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
 import MessagesPage from "@/pages/MessagesPage";
 import ConversationPage from "@/pages/ConversationPage";
+import AboutPage from "@/pages/AboutPage";
+import TermsPage from "@/pages/TermsPage";
+import PrivacyPage from "@/pages/PrivacyPage";
+import Footer from "@/components/Footer";
 
 function AppRouter() {
     const location = useLocation();
     if (location.hash?.includes("session_id=")) {
         return <AuthCallback />;
     }
+    const p = location.pathname;
+    const noFooter = p.startsWith("/watch/") || p.startsWith("/messages") || p.startsWith("/login")
+        || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique";
     return (
+        <>
         <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/browse" element={<BrowsePage />} />
@@ -48,6 +56,9 @@ function AppRouter() {
             <Route path="/u/:id" element={<PublicProfilePage />} />
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/messages/:id" element={<ConversationPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/cgu" element={<TermsPage />} />
+            <Route path="/politique" element={<PrivacyPage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />
@@ -56,6 +67,8 @@ function AppRouter() {
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
         </Routes>
+        {!noFooter && <Footer />}
+        </>
     );
 }
 

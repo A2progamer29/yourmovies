@@ -416,18 +416,32 @@ async def _comment_can_earn(user: dict, text: str) -> bool:
     )
     return earn
 
+async def _unique_name(base: str) -> str:
+    base = (base or "Utilisateur").strip() or "Utilisateur"
+    candidate = base
+    for _ in range(20):
+        clash = await db.users.find_one({"name": {"$regex": f"^{re.escape(candidate)}$", "$options": "i"}}, {"_id": 0, "user_id": 1})
+        if not clash:
+            return candidate
+        candidate = f"{base}{random.randint(1, 9999)}"
+    return f"{base}{uuid.uuid4().hex[:5]}"
+
 # ---------- Auth Routes ----------
 @api_router.post("/auth/register")
 async def register(inp: RegisterInput):
     existing = await db.users.find_one({"email": inp.email.lower()})
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
+    name = (inp.name or "").strip()
+    name_clash = await db.users.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}, {"_id": 0, "user_id": 1})
+    if name_clash:
+        raise HTTPException(status_code=400, detail="Ce pseudo est déjà pris.")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     is_admin = await db.users.count_documents({}) == 0  # first user becomes admin
     doc = {
         "user_id": user_id,
         "email": inp.email.lower(),
-        "name": inp.name,
+        "name": name,
         "password_hash": hash_password(inp.password),
         "picture": None,
         "is_admin": is_admin,
@@ -478,10 +492,12 @@ async def auth_google(inp: GoogleAuthInput):
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
         user_id = existing["user_id"]
-        await db.users.update_one({"user_id": user_id}, {"$set": {"name": name, "picture": picture}})
+        # ne pas écraser le pseudo choisi ; on rafraîchit seulement la photo
+        await db.users.update_one({"user_id": user_id}, {"$set": {"picture": picture}})
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         is_admin = await db.users.count_documents({}) == 0
+        name = await _unique_name(name)
         await db.users.insert_one({
             "user_id": user_id,
             "email": email,
@@ -1754,7 +1770,11 @@ async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = De
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     updates = {}
     if inp.name is not None:
-        updates["name"] = inp.name.strip()
+        new_name = inp.name.strip()
+        name_clash = await db.users.find_one({"name": {"$regex": f"^{re.escape(new_name)}$", "$options": "i"}, "user_id": {"$ne": user_id}}, {"_id": 0, "user_id": 1})
+        if name_clash:
+            raise HTTPException(status_code=400, detail="Ce pseudo est déjà pris par un autre compte.")
+        updates["name"] = new_name
     if inp.email is not None:
         new_email = inp.email.lower()
         clash = await db.users.find_one({"email": new_email, "user_id": {"$ne": user_id}}, {"_id": 0, "user_id": 1})
@@ -1828,6 +1848,33 @@ async def _delete_user_data(user_id: str):
     await db.wishboard.update_many({}, {"$pull": {"voters": user_id}})
     await db.review_rewards.delete_many({"user_id": user_id})
     await db.messages.delete_many({"$or": [{"from_id": user_id}, {"to_id": user_id}]})
+
+async def _dedupe_accounts() -> int:
+    # supprime les comptes en double (même email OU même pseudo, insensible à la casse).
+    # On garde en priorité les admins, puis le compte le plus ancien.
+    users = await db.users.find({}, {"_id": 0, "user_id": 1, "email": 1, "name": 1, "is_admin": 1, "created_at": 1}).to_list(10000)
+    users.sort(key=lambda u: (0 if u.get("is_admin") else 1, u.get("created_at") or ""))
+    seen_email, seen_name, to_delete = set(), set(), []
+    for u in users:
+        em = (u.get("email") or "").strip().lower()
+        nm = (u.get("name") or "").strip().lower()
+        if (em and em in seen_email) or (nm and nm in seen_name):
+            to_delete.append(u["user_id"])
+        else:
+            if em:
+                seen_email.add(em)
+            if nm:
+                seen_name.add(nm)
+    for uid in to_delete:
+        await _delete_user_data(uid)
+    if to_delete:
+        logger.info(f"Dédup : {len(to_delete)} compte(s) en double supprimé(s)")
+    return len(to_delete)
+
+@api_router.post("/admin/dedupe")
+async def admin_dedupe(admin: dict = Depends(require_admin)):
+    removed = await _dedupe_accounts()
+    return {"removed": removed}
 
 async def _purge_expired_blocked() -> int:
     # supprime définitivement les comptes bloqués depuis plus de BLOCK_DELETE_DAYS jours
@@ -2117,6 +2164,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     logger.info(f"Storage: {'Cloudinary configuré' if CLOUDINARY_CONFIGURED else 'AUCUN (CLOUDINARY_URL manquant)'}")
+    # nettoyage des comptes en double (même email/pseudo) au démarrage
+    try:
+        await _dedupe_accounts()
+    except Exception as e:
+        logger.warning(f"Déduplication au démarrage échouée : {e}")
     # index uniques : bloque les doublons email / user_id (courses d'inscription).
     # En try/except : si des doublons existent déjà en base, on n'empêche pas le démarrage.
     try:
