@@ -28,6 +28,7 @@ export default function AdminPage() {
     const [cagnotte, setCagnotte] = useState({ total: 0, goal: 1000 });
     const [cagnotteInput, setCagnotteInput] = useState("");
     const [premiumUser, setPremiumUser] = useState(null);
+    const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -194,6 +195,21 @@ export default function AdminPage() {
         (u.email || "").toLowerCase().includes(userQ.toLowerCase()) ||
         (u.name || "").toLowerCase().includes(userQ.toLowerCase())
     );
+    const sortedUsers = [...filteredUsers];
+    if (userSort.key) {
+        const dir = userSort.dir === "asc" ? 1 : -1;
+        sortedUsers.sort((a, b) => {
+            let va = "", vb = "";
+            if (userSort.key === "auth") { va = a.auth_provider || ""; vb = b.auth_provider || ""; }
+            else if (userSort.key === "premium") { va = a.premium ? (a.premium_plan || "zzz") : ""; vb = b.premium ? (b.premium_plan || "zzz") : ""; }
+            else if (userSort.key === "until") { va = a.premium_until || ""; vb = b.premium_until || ""; }
+            if (va < vb) return -dir;
+            if (va > vb) return dir;
+            return 0;
+        });
+    }
+    const toggleUserSort = (key) => setUserSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+    const sortArrow = (key) => (userSort.key === key ? (userSort.dir === "asc" ? "↑" : "↓") : "");
     const filteredReviews = reviews.filter((r) => {
         if (!reviewQ) return true;
         const s = reviewQ.toLowerCase();
@@ -312,13 +328,13 @@ export default function AdminPage() {
                         <div className="border border-[#262626] rounded-lg overflow-hidden">
                             <div className="grid grid-cols-12 text-xs uppercase tracking-widest text-neutral-500 px-5 py-3 border-b border-[#262626] bg-[#0a0a0a]">
                                 <div className="col-span-4">Utilisateur</div>
-                                <div className="col-span-2">Auth</div>
-                                <div className="col-span-2">Abonnement</div>
-                                <div className="col-span-2">Fin d&apos;abo</div>
+                                <button onClick={() => toggleUserSort("auth")} className="col-span-2 text-left uppercase tracking-widest hover:text-[#E8D2A6]">Auth {sortArrow("auth")}</button>
+                                <button onClick={() => toggleUserSort("premium")} className="col-span-2 text-left uppercase tracking-widest hover:text-[#E8D2A6]">Abonnement {sortArrow("premium")}</button>
+                                <button onClick={() => toggleUserSort("until")} className="col-span-2 text-left uppercase tracking-widest hover:text-[#E8D2A6]">Fin d&apos;abo {sortArrow("until")}</button>
                                 <div className="col-span-2 text-right">Actions</div>
                             </div>
-                            {filteredUsers.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun utilisateur.</div>}
-                            {filteredUsers.map((u) => (
+                            {sortedUsers.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun utilisateur.</div>}
+                            {sortedUsers.map((u) => (
                                 <div key={u.user_id} className="grid grid-cols-12 px-5 py-4 border-b border-[#1a1a1a] items-center text-sm hover:bg-white/[0.02]" data-testid={`user-row-${u.user_id}`}>
                                     <button
                                         type="button"

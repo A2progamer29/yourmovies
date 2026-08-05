@@ -73,8 +73,8 @@ export default function PublicProfilePage() {
                             )}
                         </div>
                     </div>
-                    {user && user.user_id !== id && (
-                        <Button onClick={() => navigate(`/messages/${id}`)} data-testid="send-message-btn" className="ml-auto bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold shrink-0">
+                    {user && user.user_id !== profile.user_id && (
+                        <Button onClick={() => navigate(`/messages/${profile.user_id}`)} data-testid="send-message-btn" className="ml-auto bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold shrink-0">
                             <Send size={15} className="mr-2" /> Message
                         </Button>
                     )}

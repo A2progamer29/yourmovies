@@ -1020,9 +1020,13 @@ async def users_search(q: str, user: dict = Depends(get_current_user)):
 
 @api_router.get("/users/{user_id}/public")
 async def user_public_profile(user_id: str):
+    # accepte un user_id OU un pseudo (ex: /u/Lune27)
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not u:
+        u = await db.users.find_one({"name": {"$regex": f"^{re.escape(user_id)}$", "$options": "i"}}, {"_id": 0})
+    if not u:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    user_id = u["user_id"]
     review_count = await db.reviews.count_documents({"user_id": user_id, "parent_id": None})
     reviews = await db.reviews.find({"user_id": user_id, "parent_id": None}, {"_id": 0}).sort("created_at", -1).to_list(20)
     media_ids = list({r.get("media_id") for r in reviews})
