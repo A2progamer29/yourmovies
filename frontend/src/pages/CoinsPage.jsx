@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Coins, Flame, MessageSquare, Sparkles, Crown, Check } from "lucide-react";
+import { Coins, Flame, MessageSquare, Sparkles, Crown, Check, Gift } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -31,8 +31,14 @@ function PlanCard({ plan, balance, busy, onRedeem }) {
                 <div className="mt-4 flex items-baseline gap-1.5">
                     <Coins size={18} className="text-[#E8D2A6]" />
                     <span className="font-display text-3xl text-white">{opt.coins}</span>
+                    {opt.coins_original && opt.coins_original !== opt.coins && (
+                        <span className="text-sm text-neutral-500 line-through">{opt.coins_original}</span>
+                    )}
                 </div>
-                <div className="text-xs text-neutral-500 mt-1">{opt.days} jours de Premium</div>
+                <div className="text-xs text-neutral-500 mt-1">
+                    {opt.days} jours de Premium
+                    {opt.coins_original && opt.coins_original !== opt.coins && <span className="text-[#E8D2A6]"> · -50%</span>}
+                </div>
                 <Button
                     onClick={(e) => { e.stopPropagation(); onRedeem(plan.id, opt); }}
                     disabled={!affordable || busy === bkey}
@@ -73,6 +79,7 @@ export default function CoinsPage() {
     const navigate = useNavigate();
     const [balance, setBalance] = useState(0);
     const [plans, setPlans] = useState([]);
+    const [offer, setOffer] = useState(null);
     const [busy, setBusy] = useState("");
 
     const load = async () => {
@@ -80,6 +87,7 @@ export default function CoinsPage() {
             const r = await api.get("/coins/plans");
             setBalance(r.data.balance);
             setPlans(r.data.plans);
+            setOffer(r.data.offer || null);
         } catch (e) { showError(toast, e, "Chargement impossible"); }
     };
 
@@ -152,7 +160,16 @@ export default function CoinsPage() {
 
                 <div>
                     <h2 className="font-display text-2xl mb-1">Échanger contre du Premium</h2>
-                    <p className="text-neutral-500 text-sm mb-6">Clique une carte pour changer la durée (30 → 60 → 90 jours, de plus en plus chère). Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
+                    <p className="text-neutral-500 text-sm mb-4">Clique une carte pour changer la durée (30 → 60 → 90 jours, de plus en plus chère). Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
+                    {offer?.active && (
+                        <div className="mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center gap-3">
+                            <Gift size={20} className="text-[#E8D2A6] shrink-0" />
+                            <div className="text-sm">
+                                <span className="text-white font-semibold">Offre de bienvenue : -{offer.pct}% en Freemium</span>
+                                <span className="text-neutral-400"> — pendant 24 h après ton inscription{offer.ends_at ? `, jusqu'au ${new Date(offer.ends_at).toLocaleString("fr-FR")}` : ""}.</span>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid sm:grid-cols-3 gap-4">
                         {plans.map((plan) => (
                             <PlanCard key={plan.id} plan={plan} balance={balance} busy={busy} onRedeem={redeem} />

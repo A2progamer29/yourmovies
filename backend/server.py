@@ -360,6 +360,28 @@ COIN_PLANS = {
     ]},
 }
 
+WELCOME_OFFER_HOURS = 24
+WELCOME_OFFER_PCT = 50
+
+def _welcome_offer(user: dict) -> dict:
+    # offre de bienvenue : -50% sur le coût en Freemium pendant 24h après l'inscription
+    created = user.get("created_at")
+    active, ends_at = False, None
+    if created:
+        try:
+            dt = datetime.fromisoformat(created) if isinstance(created, str) else created
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            end = dt + timedelta(hours=WELCOME_OFFER_HOURS)
+            active = datetime.now(timezone.utc) < end
+            ends_at = end.isoformat()
+        except Exception:
+            pass
+    return {"active": active, "ends_at": ends_at if active else None, "pct": WELCOME_OFFER_PCT}
+
+def _offer_price(cost: int, offer_active: bool) -> int:
+    return int(round(cost * (1 - WELCOME_OFFER_PCT / 100))) if offer_active else int(cost)
+
 def _daily_reward(streak: int) -> int:
     if streak >= 100:
         return 50
@@ -960,9 +982,15 @@ async def rewards_daily(user: dict = Depends(get_current_user)):
 
 @api_router.get("/coins/plans")
 async def coins_plans(user: dict = Depends(get_current_user)):
+    offer = _welcome_offer(user)
+    plans = []
+    for k, v in COIN_PLANS.items():
+        opts = [{"days": o["days"], "coins": _offer_price(o["coins"], offer["active"]), "coins_original": o["coins"]} for o in v["options"]]
+        plans.append({"id": k, "name": v["name"], "options": opts})
     return {
         "balance": round(float(user.get("coins", 0) or 0), 1),
-        "plans": [{"id": k, "name": v["name"], "options": v["options"]} for k, v in COIN_PLANS.items()],
+        "plans": plans,
+        "offer": offer,
     }
 
 @api_router.post("/coins/redeem")
@@ -973,7 +1001,7 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
     option = next((o for o in plan["options"] if o["days"] == inp.days), None)
     if not option:
         raise HTTPException(status_code=400, detail="Durée invalide")
-    cost = option["coins"]
+    cost = _offer_price(option["coins"], _welcome_offer(user)["active"])
     days = option["days"]
     base = datetime.now(timezone.utc)
     current = user.get("premium_until")
