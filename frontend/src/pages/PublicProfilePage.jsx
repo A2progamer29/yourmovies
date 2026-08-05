@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
+const CREATOR_ID = "user_22e47c166f77";
 
 export default function PublicProfilePage() {
     const { id } = useParams();
@@ -57,10 +58,13 @@ export default function PublicProfilePage() {
                         <div className="w-20 h-20 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-3xl font-semibold">{initial}</div>
                     )}
                     <div className="min-w-0">
-                        <h1 className="font-display text-3xl tracking-tight flex items-center gap-2">
+                        <h1 className="font-display text-3xl tracking-tight flex items-center gap-2 flex-wrap">
                             {profile.name}
                             {profile.premium && <Crown size={18} className="text-[#E8D2A6]" />}
                             {profile.is_admin && <Shield size={16} className="text-[#E8D2A6]" />}
+                            {profile.user_id === CREATOR_ID && (
+                                <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full bg-[#E8D2A6] text-black font-bold">Créateur</span>
+                            )}
                         </h1>
                         <div className="text-sm text-neutral-500 mt-1.5 flex items-center gap-4 flex-wrap">
                             <span className="flex items-center gap-1.5">

@@ -18,7 +18,7 @@ export default function Footer() {
         <footer className="border-t border-white/5 bg-[#050505] mt-20">
             <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="text-sm text-neutral-500 text-center sm:text-left">
-                    © {year} YourMovie&apos;s — Créé par <Link to="/u/Lune27" className="text-[#E8D2A6] hover:underline">Lune27</Link>
+                    © {year} YourMovie&apos;s — Créé par <Link to="/u/user_22e47c166f77" className="text-[#E8D2A6] hover:underline">Lune27</Link>
                 </div>
                 <div className="flex items-center gap-5 text-sm">
                     <Link to="/about" className="text-neutral-400 hover:text-[#E8D2A6] transition-colors">À propos</Link>
