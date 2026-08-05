@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Megaphone, MessageCircle, X } from "lucide-react";
+import { Bell, Megaphone, MessageCircle, Coins, X } from "lucide-react";
 import { api } from "@/lib/api";
 
 export default function NotificationsBell() {
@@ -80,8 +80,8 @@ export default function NotificationsBell() {
                                     onClick={() => go(it)}
                                     className={`w-full text-left px-4 py-3 flex gap-3 border-b border-[#141414] transition-colors ${it.link ? "hover:bg-white/5 cursor-pointer" : "cursor-default"} ${it.read ? "" : "bg-[#E8D2A6]/[0.05]"}`}
                                 >
-                                    <div className={`mt-0.5 shrink-0 ${it.type === "announcement" ? "text-[#E8D2A6]" : "text-neutral-400"}`}>
-                                        {it.type === "announcement" ? <Megaphone size={16} /> : <MessageCircle size={16} />}
+                                    <div className={`mt-0.5 shrink-0 ${it.type === "announcement" || it.type === "coins" ? "text-[#E8D2A6]" : "text-neutral-400"}`}>
+                                        {it.type === "announcement" ? <Megaphone size={16} /> : it.type === "coins" ? <Coins size={16} /> : <MessageCircle size={16} />}
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <div className="text-sm text-white leading-snug">{it.title}</div>

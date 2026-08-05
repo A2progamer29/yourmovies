@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
+import random
 import logging
 import uuid
 import io
@@ -179,6 +180,13 @@ class WishCreate(BaseModel):
 class WishStatus(BaseModel):
     status: Literal["pending", "approved", "refused"]
 
+class RedeemInput(BaseModel):
+    plan: Literal["basic", "standard", "premium"]
+
+class AdminCoinsInput(BaseModel):
+    amount: float = 0
+    mode: Literal["add", "remove", "set", "reset"] = "add"
+
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
@@ -273,7 +281,62 @@ def user_public_dict(user: dict) -> dict:
         "autoplay_hero": user.get("autoplay_hero", True),
         "accent_color": user.get("accent_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
+        "coins": round(float(user.get("coins", 0) or 0), 1),
+        "login_streak": int(user.get("login_streak", 0) or 0),
     }
+
+# ---------- YM Coins ----------
+def _is_premium(user: dict) -> bool:
+    pu = user.get("premium_until")
+    if not pu:
+        return False
+    try:
+        dt = datetime.fromisoformat(pu) if isinstance(pu, str) else pu
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt > datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+COIN_PLANS = {
+    "basic": {"coins": 800, "days": 30, "name": "Basic"},
+    "standard": {"coins": 2000, "days": 30, "name": "Standard"},
+    "premium": {"coins": 5000, "days": 30, "name": "Premium"},
+}
+
+def _daily_reward(streak: int) -> int:
+    if streak >= 100:
+        return 50
+    if streak >= 50:
+        return 30
+    if streak >= 25:
+        return 15
+    if streak >= 10:
+        return 7
+    if streak > 5:
+        return 5
+    return 3
+
+async def award_coins(user_id: str, amount: float, title: str, body: str = "") -> float:
+    amount = round(float(amount), 1)
+    res = await db.users.find_one_and_update(
+        {"user_id": user_id},
+        {"$inc": {"coins": amount}},
+        return_document=True,
+    )
+    new_balance = round(float((res or {}).get("coins", 0) or 0), 1) if res else 0
+    await db.notifications.insert_one({
+        "id": f"n_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "type": "coins",
+        "title": title,
+        "body": body,
+        "media_title": None,
+        "link": "/coins",
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return new_balance
 
 # ---------- Auth Routes ----------
 @api_router.post("/auth/register")
@@ -454,6 +517,8 @@ async def _recompute_rating(media_id: str):
 @api_router.post("/reviews")
 async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user)):
     review_id = f"r_{uuid.uuid4().hex[:12]}"
+    # award coins only the first time this user reviews this media (not on edits)
+    already = await db.reviews.find_one({"media_id": r.media_id, "user_id": user["user_id"], "parent_id": None}, {"_id": 0, "id": 1})
     # replace existing top-level review by same user (keep their replies intact)
     await db.reviews.delete_many({"media_id": r.media_id, "user_id": user["user_id"], "parent_id": None})
     doc = {
@@ -468,6 +533,9 @@ async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user))
     }
     await db.reviews.insert_one(doc)
     await _recompute_rating(r.media_id)
+    if not already:
+        amt = random.randint(1, 3)
+        await award_coins(user["user_id"], amt, f"+{amt} YM Coins pour ton avis", "Merci d'avoir noté un titre !")
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.post("/reviews/{parent_id}/reply")
@@ -515,6 +583,8 @@ async def reply_review(parent_id: str, r: ReplyCreate, user: dict = Depends(get_
             "read": False,
             "created_at": now,
         })
+    amt = random.randint(1, 3)
+    await award_coins(user["user_id"], amt, f"+{amt} YM Coins pour ta réponse", "Merci de participer aux discussions !")
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.patch("/reviews/{review_id}")
@@ -684,9 +754,16 @@ async def create_wish(w: WishCreate, user: dict = Depends(get_current_user)):
     # déjà demandé ? -> on ajoute un vote
     existing_wish = await db.wishboard.find_one({"imdb_id": w.imdb_id}, {"_id": 0})
     if existing_wish:
+        if existing_wish.get("status") == "approved":
+            raise HTTPException(status_code=409, detail="Ce titre a déjà été approuvé — le vote est clos.")
         await db.wishboard.update_one({"id": existing_wish["id"]}, {"$addToSet": {"voters": user["user_id"]}})
         updated = await db.wishboard.find_one({"id": existing_wish["id"]}, {"_id": 0})
         return _wish_out(updated, user["user_id"])
+    # limite : 5 demandes pour les non-premium, illimité en premium
+    if not _is_premium(user):
+        count = await db.wishboard.count_documents({"created_by": user["user_id"]})
+        if count >= 5:
+            raise HTTPException(status_code=403, detail="Limite de 5 demandes atteinte. Passe Premium pour un wishboard illimité.")
     doc = {
         "id": f"w_{uuid.uuid4().hex[:12]}",
         "imdb_id": w.imdb_id,
@@ -700,6 +777,8 @@ async def create_wish(w: WishCreate, user: dict = Depends(get_current_user)):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.wishboard.insert_one(doc)
+    amt = random.randint(1, 10) / 2  # 0.5 à 5.0
+    await award_coins(user["user_id"], amt, f"+{amt} YM Coins pour ta proposition", "Merci d'avoir enrichi le Wishboard !")
     return _wish_out(doc, user["user_id"])
 
 @api_router.post("/wishboard/{wish_id}/vote")
@@ -707,6 +786,8 @@ async def vote_wish(wish_id: str, user: dict = Depends(get_current_user)):
     doc = await db.wishboard.find_one({"id": wish_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
+    if doc.get("status") == "approved":
+        raise HTTPException(status_code=409, detail="Ce titre a été approuvé — le vote est clos.")
     if user["user_id"] in doc.get("voters", []):
         await db.wishboard.update_one({"id": wish_id}, {"$pull": {"voters": user["user_id"]}})
         voted = False
@@ -736,6 +817,129 @@ async def delete_wish(wish_id: str, admin: dict = Depends(require_admin)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+# ---------- YM Coins : gains & achat ----------
+@api_router.post("/rewards/daily")
+async def rewards_daily(user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    yesterday = (now.date() - timedelta(days=1)).isoformat()
+    last = user.get("last_reward_date")
+    if last == today:
+        return {"awarded": 0, "coins": round(float(user.get("coins", 0) or 0), 1), "streak": int(user.get("login_streak", 0) or 0), "already": True}
+    if not user.get("first_login_awarded"):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"first_login_awarded": True, "login_streak": 1, "last_reward_date": today}})
+        balance = await award_coins(user["user_id"], 10, "Bienvenue ! +10 YM Coins", "Merci d'avoir rejoint YourMovie's. Reviens chaque jour pour gagner plus.")
+        return {"awarded": 10, "coins": balance, "streak": 1, "welcome": True}
+    streak = int(user.get("login_streak", 0) or 0) + 1 if last == yesterday else 1
+    amount = _daily_reward(streak)
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"login_streak": streak, "last_reward_date": today}})
+    balance = await award_coins(user["user_id"], amount, f"+{amount} YM Coins · série de {streak} jour(s)", "Reviens demain sinon tu perds ta série !")
+    return {"awarded": amount, "coins": balance, "streak": streak}
+
+@api_router.get("/coins/plans")
+async def coins_plans(user: dict = Depends(get_current_user)):
+    return {
+        "balance": round(float(user.get("coins", 0) or 0), 1),
+        "plans": [{"id": k, **v} for k, v in COIN_PLANS.items()],
+    }
+
+@api_router.post("/coins/redeem")
+async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user)):
+    plan = COIN_PLANS.get(inp.plan)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Plan inconnu")
+    balance = float(user.get("coins", 0) or 0)
+    if balance < plan["coins"]:
+        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {plan['coins']} YM Coins (tu en as {round(balance, 1)}).")
+    base = datetime.now(timezone.utc)
+    current = user.get("premium_until")
+    if current:
+        try:
+            dt = datetime.fromisoformat(current) if isinstance(current, str) else current
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt > base:
+                base = dt
+        except Exception:
+            pass
+    until = (base + timedelta(days=plan["days"])).isoformat()
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$inc": {"coins": -plan["coins"]}, "$set": {"premium_plan": inp.plan, "premium_until": until}},
+    )
+    await db.notifications.insert_one({
+        "id": f"n_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "type": "coins",
+        "title": f"Premium {plan['name']} activé 🎉",
+        "body": f"-{plan['coins']} YM Coins · {plan['days']} jours de Premium",
+        "media_title": None,
+        "link": "/coins",
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True, "premium_until": until, "plan": inp.plan}
+
+# ---------- Profils publics & recherche d'utilisateurs ----------
+@api_router.get("/users/search")
+async def users_search(q: str, user: dict = Depends(get_current_user)):
+    q = (q or "").strip()
+    if not q:
+        return []
+    docs = await db.users.find(
+        {"name": {"$regex": re.escape(q), "$options": "i"}},
+        {"_id": 0, "user_id": 1, "name": 1, "picture": 1},
+    ).limit(10).to_list(10)
+    return [{"user_id": d["user_id"], "name": d.get("name"), "picture": d.get("picture")} for d in docs]
+
+@api_router.get("/users/{user_id}/public")
+async def user_public_profile(user_id: str):
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    review_count = await db.reviews.count_documents({"user_id": user_id, "parent_id": None})
+    reviews = await db.reviews.find({"user_id": user_id, "parent_id": None}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    media_ids = list({r.get("media_id") for r in reviews})
+    medias = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0, "id": 1, "title": 1, "poster_url": 1}).to_list(100)
+    mmap = {m["id"]: m for m in medias}
+    review_items = [{
+        "id": r["id"],
+        "media_id": r.get("media_id"),
+        "media_title": (mmap.get(r.get("media_id")) or {}).get("title"),
+        "poster_url": (mmap.get(r.get("media_id")) or {}).get("poster_url"),
+        "rating": r.get("rating"),
+        "comment": r.get("comment"),
+        "created_at": r.get("created_at"),
+    } for r in reviews]
+    return {
+        "user_id": u["user_id"],
+        "name": u.get("name"),
+        "picture": u.get("picture"),
+        "created_at": u.get("created_at"),
+        "premium": _is_premium(u),
+        "is_admin": bool(u.get("is_admin")),
+        "review_count": review_count,
+        "reviews": review_items,
+    }
+
+@api_router.post("/admin/coins/{user_id}")
+async def admin_set_coins(user_id: str, inp: AdminCoinsInput, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Not found")
+    current = float(target.get("coins", 0) or 0)
+    if inp.mode == "reset":
+        new = 0.0
+    elif inp.mode == "set":
+        new = max(0.0, float(inp.amount))
+    elif inp.mode == "remove":
+        new = max(0.0, current - float(inp.amount))
+    else:
+        new = current + float(inp.amount)
+    new = round(new, 1)
+    await db.users.update_one({"user_id": user_id}, {"$set": {"coins": new}})
+    return {"coins": new}
 
 # ---------- Favorites / Watchlist ----------
 @api_router.get("/favorites")

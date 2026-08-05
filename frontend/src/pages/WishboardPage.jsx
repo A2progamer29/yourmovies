@@ -85,6 +85,10 @@ export default function WishboardPage() {
     };
 
     const vote = async (w) => {
+        if (w.status === "approved") {
+            toast.success("🎉 Ce titre a été approuvé — il sera bientôt ajouté au catalogue !");
+            return;
+        }
         if (!user) { navigate("/login"); return; }
         try {
             const r = await api.post(`/wishboard/${w.id}/vote`);
@@ -134,14 +138,26 @@ export default function WishboardPage() {
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${st.cls}`}>{st.icon} {st.label}</span>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={() => vote(w)}
-                                        data-testid={`wishboard-vote-${w.id}`}
-                                        className={`flex flex-col items-center justify-center w-14 h-14 rounded-lg border transition-colors shrink-0 ${w.voted ? "bg-[#E8D2A6] text-black border-[#E8D2A6]" : "bg-[#111] text-white border-[#262626] hover:border-[#E8D2A6]/60"}`}
-                                    >
-                                        <ChevronUp size={18} />
-                                        <span className="text-sm font-semibold leading-none">{w.vote_count}</span>
-                                    </button>
+                                    {w.status === "approved" ? (
+                                        <button
+                                            onClick={() => vote(w)}
+                                            data-testid={`wishboard-vote-${w.id}`}
+                                            title="Approuvé — vote clos"
+                                            className="flex flex-col items-center justify-center w-14 h-14 rounded-lg border border-[#E8D2A6]/50 bg-[#E8D2A6]/10 text-[#E8D2A6] shrink-0 cursor-default"
+                                        >
+                                            <Check size={18} />
+                                            <span className="text-sm font-semibold leading-none">{w.vote_count}</span>
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => vote(w)}
+                                            data-testid={`wishboard-vote-${w.id}`}
+                                            className={`flex flex-col items-center justify-center w-14 h-14 rounded-lg border transition-colors shrink-0 ${w.voted ? "bg-[#E8D2A6] text-black border-[#E8D2A6]" : "bg-[#111] text-white border-[#262626] hover:border-[#E8D2A6]/60"}`}
+                                        >
+                                            <ChevronUp size={18} />
+                                            <span className="text-sm font-semibold leading-none">{w.vote_count}</span>
+                                        </button>
+                                    )}
                                 </div>
                             );
                         })}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +23,7 @@ export default function AdminPage() {
     const [reviews, setReviews] = useState([]);
     const [reviewQ, setReviewQ] = useState("");
     const [wishes, setWishes] = useState([]);
+    const [coinAmount, setCoinAmount] = useState({});
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -142,6 +143,17 @@ export default function AdminPage() {
             loadWishes();
         } catch (e) { showError(toast, e, "Suppression impossible"); }
     };
+    const adminCoins = async (u, mode) => {
+        const amount = Number(coinAmount[u.user_id] || 0);
+        if (mode !== "reset" && (!amount || amount <= 0)) { toast.error("Entre un montant"); return; }
+        if (mode === "reset" && !window.confirm(`Remettre à 0 les YM Coins de ${u.name} ?`)) return;
+        try {
+            const r = await api.post(`/admin/coins/${u.user_id}`, { amount, mode });
+            setUsers((list) => list.map((x) => x.user_id === u.user_id ? { ...x, coins: r.data.coins } : x));
+            toast.success(`Solde de ${u.name} : ${r.data.coins} YM Coins`);
+            setCoinAmount((m) => ({ ...m, [u.user_id]: "" }));
+        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+    };
 
     const stats = {
         total: items.length,
@@ -211,6 +223,9 @@ export default function AdminPage() {
                         </TabsTrigger>
                         <TabsTrigger value="wishboard" data-testid="admin-tab-wishboard" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <ChevronUp size={14} className="mr-2" /> Wishboard
+                        </TabsTrigger>
+                        <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <Coins size={14} className="mr-2" /> YM Coins
                         </TabsTrigger>
                         <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Megaphone size={14} className="mr-2" /> Annonces
@@ -411,6 +426,50 @@ export default function AdminPage() {
                                             <X size={13} className="mr-1" /> Refuser
                                         </Button>
                                         <Button variant="ghost" size="icon" onClick={() => deleteWish(w)} data-testid={`delete-wish-${w.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="coins" className="mt-8">
+                        <div className="mb-6 relative max-w-md">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                            <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
+                        </div>
+                        <p className="text-sm text-neutral-500 mb-6">Ajoute, retire, fixe ou remet à zéro les YM Coins de chaque utilisateur.</p>
+                        <div className="space-y-3">
+                            {filteredUsers.length === 0 && (
+                                <div className="p-6 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500 text-sm">Aucun utilisateur.</div>
+                            )}
+                            {filteredUsers.map((u) => (
+                                <div key={u.user_id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        {u.picture ? (
+                                            <img src={u.picture} alt="" className="w-8 h-8 rounded-full" />
+                                        ) : (
+                                            <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-xs font-semibold">{u.name?.[0]?.toUpperCase()}</div>
+                                        )}
+                                        <div className="min-w-0">
+                                            <div className="text-white text-sm truncate">{u.name}</div>
+                                            <div className="text-xs text-neutral-500 truncate">{u.email}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[#E8D2A6] font-semibold shrink-0 sm:w-28">
+                                        <Coins size={14} /> {u.coins ?? 0}
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <Input
+                                            type="number"
+                                            value={coinAmount[u.user_id] ?? ""}
+                                            onChange={(e) => setCoinAmount((m) => ({ ...m, [u.user_id]: e.target.value }))}
+                                            placeholder="Montant"
+                                            className="w-24 bg-[#111] border-[#262626] text-white h-9"
+                                        />
+                                        <Button variant="ghost" size="sm" onClick={() => adminCoins(u, "add")} title="Ajouter" className="text-neutral-300 hover:text-[#E8D2A6] hover:bg-white/5"><Plus size={14} /></Button>
+                                        <Button variant="ghost" size="sm" onClick={() => adminCoins(u, "remove")} title="Retirer" className="text-neutral-300 hover:text-red-400 hover:bg-white/5"><Minus size={14} /></Button>
+                                        <Button variant="ghost" size="sm" onClick={() => adminCoins(u, "set")} title="Fixer" className="text-neutral-300 hover:text-[#E8D2A6] hover:bg-white/5"><Check size={14} /></Button>
+                                        <Button variant="ghost" size="sm" onClick={() => adminCoins(u, "reset")} title="Remettre à 0" className="text-neutral-300 hover:text-red-400 hover:bg-white/5"><RotateCcw size={14} /></Button>
                                     </div>
                                 </div>
                             ))}

@@ -346,12 +346,12 @@ export default function MediaDetailPage() {
                                     return (
                                         <div key={r.id} className="p-5 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
                                             <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
+                                                <Link to={`/u/${r.user_id}`} className="flex items-center gap-2 group/user">
                                                     <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-sm font-semibold">
                                                         {r.user_name?.[0]?.toUpperCase() || "U"}
                                                     </div>
-                                                    <div className="text-white text-sm">{r.user_name}</div>
-                                                </div>
+                                                    <div className="text-white text-sm group-hover/user:text-[#E8D2A6] transition-colors">{r.user_name}</div>
+                                                </Link>
                                                 {typeof r.rating === "number" && (
                                                     <div className="flex items-center gap-1 text-[#E8D2A6] text-sm">
                                                         <Star size={12} fill="#E8D2A6" /> {r.rating.toFixed(1)}
@@ -387,12 +387,12 @@ export default function MediaDetailPage() {
                                                         const mineReply = user && rp.user_id === user.user_id;
                                                         return (
                                                             <div key={rp.id}>
-                                                                <div className="flex items-center gap-2">
+                                                                <Link to={`/u/${rp.user_id}`} className="flex items-center gap-2 group/user">
                                                                     <div className="w-6 h-6 rounded-full bg-[#262626] text-neutral-200 flex items-center justify-center text-xs font-semibold">
                                                                         {rp.user_name?.[0]?.toUpperCase() || "U"}
                                                                     </div>
-                                                                    <div className="text-neutral-200 text-sm">{rp.user_name}</div>
-                                                                </div>
+                                                                    <div className="text-neutral-200 text-sm group-hover/user:text-[#E8D2A6] transition-colors">{rp.user_name}</div>
+                                                                </Link>
                                                                 <p className="mt-1.5 ml-8 text-neutral-400 text-sm leading-relaxed">
                                                                     {rp.reply_to_name && <span className="text-[#E8D2A6]">@{rp.reply_to_name} </span>}
                                                                     {rp.comment}

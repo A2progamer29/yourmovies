@@ -20,6 +20,8 @@ import SubscriptionPage from "@/pages/SubscriptionPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import WishboardPage from "@/pages/WishboardPage";
+import CoinsPage from "@/pages/CoinsPage";
+import PublicProfilePage from "@/pages/PublicProfilePage";
 
 function AppRouter() {
     const location = useLocation();
@@ -37,6 +39,8 @@ function AppRouter() {
             <Route path="/profiles" element={<ProfilesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/wishboard" element={<WishboardPage />} />
+            <Route path="/coins" element={<CoinsPage />} />
+            <Route path="/u/:id" element={<PublicProfilePage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />

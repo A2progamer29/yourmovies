@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 
 const AuthContext = createContext(null);
@@ -60,16 +61,31 @@ export function AuthProvider({ children }) {
         });
     };
 
+    const claimDaily = useCallback(async () => {
+        try {
+            const dr = await api.post("/rewards/daily", {}, { silent: true });
+            if (dr.data?.awarded > 0) {
+                setUser((u) => (u ? { ...u, coins: dr.data.coins, login_streak: dr.data.streak } : u));
+                toast.success(
+                    dr.data.welcome
+                        ? `Bienvenue ! +${dr.data.awarded} YM Coins 🪙`
+                        : `+${dr.data.awarded} YM Coins · série de ${dr.data.streak} j 🪙`
+                );
+            }
+        } catch { /* ignore */ }
+    }, []);
+
     const checkAuth = useCallback(async () => {
         try {
             const res = await api.get("/auth/me", { silent: true });
             setUser(res.data);
+            claimDaily();
         } catch (e) {
             setUser(null);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [claimDaily]);
 
     useEffect(() => {
         if (window.location.hash?.includes("session_id=")) {
