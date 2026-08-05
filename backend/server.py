@@ -560,6 +560,16 @@ async def mark_notifications_read(user: dict = Depends(get_current_user)):
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"notif_seen_at": now}})
     return {"ok": True}
 
+@api_router.get("/admin/reviews")
+async def admin_list_reviews(admin: dict = Depends(require_admin)):
+    docs = await db.reviews.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    media_ids = list({d.get("media_id") for d in docs if d.get("media_id")})
+    medias = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0, "id": 1, "title": 1}).to_list(1000)
+    mmap = {m["id"]: m.get("title") for m in medias}
+    for d in docs:
+        d["media_title"] = mmap.get(d.get("media_id"), "—")
+    return docs
+
 @api_router.get("/announcements")
 async def list_announcements():
     return await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)

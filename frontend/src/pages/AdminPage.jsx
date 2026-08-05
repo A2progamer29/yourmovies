@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -20,6 +20,8 @@ export default function AdminPage() {
     const [announcements, setAnnouncements] = useState([]);
     const [annTitle, setAnnTitle] = useState("");
     const [annBody, setAnnBody] = useState("");
+    const [reviews, setReviews] = useState([]);
+    const [reviewQ, setReviewQ] = useState("");
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -40,12 +42,19 @@ export default function AdminPage() {
             setAnnouncements(r.data);
         } catch (e) { showError(toast, e, "Chargement des annonces impossible"); }
     };
+    const loadReviews = async () => {
+        try {
+            const r = await api.get("/admin/reviews");
+            setReviews(r.data);
+        } catch (e) { showError(toast, e, "Chargement des commentaires impossible"); }
+    };
 
     useEffect(() => {
         if (user?.is_admin) {
             loadMedia();
             loadUsers();
             loadAnnouncements();
+            loadReviews();
         }
     }, [user]);
 
@@ -102,6 +111,15 @@ export default function AdminPage() {
             loadAnnouncements();
         } catch (e) { showError(toast, e, "Suppression impossible"); }
     };
+    const deleteReviewAdmin = async (r) => {
+        const label = r.parent_id ? "cette réponse" : "cet avis et ses réponses";
+        if (!window.confirm(`Supprimer ${label} ?`)) return;
+        try {
+            await api.delete(`/reviews/${r.id}`);
+            toast.success("Commentaire supprimé");
+            loadReviews();
+        } catch (e) { showError(toast, e, "Suppression impossible"); }
+    };
 
     const stats = {
         total: items.length,
@@ -111,6 +129,7 @@ export default function AdminPage() {
         featured: items.filter((i) => i.featured).length,
         users: users.length,
         premium: users.filter((u) => u.premium).length,
+        comments: reviews.length,
     };
 
     const filteredItems = items.filter((m) => !q || m.title.toLowerCase().includes(q.toLowerCase()));
@@ -118,6 +137,13 @@ export default function AdminPage() {
         (u.email || "").toLowerCase().includes(userQ.toLowerCase()) ||
         (u.name || "").toLowerCase().includes(userQ.toLowerCase())
     );
+    const filteredReviews = reviews.filter((r) => {
+        if (!reviewQ) return true;
+        const s = reviewQ.toLowerCase();
+        return (r.comment || "").toLowerCase().includes(s) ||
+            (r.user_name || "").toLowerCase().includes(s) ||
+            (r.media_title || "").toLowerCase().includes(s);
+    });
 
     const setTab = (t) => navigate(`/admin?tab=${t}`, { replace: true });
 
@@ -132,7 +158,7 @@ export default function AdminPage() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-10">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-10">
                     {[
                         { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
                         { label: "Films", val: stats.movies, icon: <Film size={14} /> },
@@ -141,6 +167,7 @@ export default function AdminPage() {
                         { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
                         { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
                         { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
+                        { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
                     ].map((s) => (
                         <div key={s.label} className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5">{s.icon} {s.label}</div>
@@ -156,6 +183,9 @@ export default function AdminPage() {
                         </TabsTrigger>
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Users size={14} className="mr-2" /> Utilisateurs
+                        </TabsTrigger>
+                        <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <MessageSquare size={14} className="mr-2" /> Commentaires
                         </TabsTrigger>
                         <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Megaphone size={14} className="mr-2" /> Annonces
@@ -276,6 +306,48 @@ export default function AdminPage() {
                                         </Button>
                                         <Button variant="ghost" size="icon" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.user_id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
                                     </div>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="comments" className="mt-8">
+                        <div className="mb-6 relative max-w-md">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                            <Input value={reviewQ} onChange={(e) => setReviewQ(e.target.value)} placeholder="Rechercher (texte, utilisateur, titre)..." className="pl-9 bg-[#111] border-[#262626] text-white" />
+                        </div>
+
+                        <div className="space-y-3">
+                            {filteredReviews.length === 0 && (
+                                <div className="p-6 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500 text-sm">Aucun commentaire.</div>
+                            )}
+                            {filteredReviews.map((r) => (
+                                <div key={r.id} className="p-4 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center flex-wrap gap-2 text-xs">
+                                            {r.parent_id ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#262626] text-neutral-400">
+                                                    <CornerDownRight size={11} /> Réponse
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#E8D2A6]/30 text-[#E8D2A6]">
+                                                    <Star size={11} fill="currentColor" /> {typeof r.rating === "number" ? r.rating.toFixed(1) : "Avis"}
+                                                </span>
+                                            )}
+                                            <span className="text-white font-medium">{r.user_name}</span>
+                                            <span className="text-neutral-600">·</span>
+                                            <button onClick={() => navigate(`/media/${r.media_id}`)} className="text-neutral-400 hover:text-[#E8D2A6] truncate max-w-[220px]">
+                                                {r.media_title || r.media_id}
+                                            </button>
+                                            <span className="text-neutral-600">·</span>
+                                            <span className="text-neutral-600">{r.created_at ? new Date(r.created_at).toLocaleString("fr-FR") : ""}</span>
+                                        </div>
+                                        <p className="mt-2 text-sm text-neutral-300 leading-relaxed break-words">
+                                            {r.reply_to_name && <span className="text-[#E8D2A6]">@{r.reply_to_name} </span>}
+                                            {r.comment || <span className="text-neutral-600 italic">(sans texte)</span>}
+                                        </p>
+                                    </div>
+                                    <Button variant="ghost" size="icon" onClick={() => deleteReviewAdmin(r)} data-testid={`admin-delete-review-${r.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5 shrink-0"><Trash2 size={14} /></Button>
                                 </div>
                             ))}
                         </div>
