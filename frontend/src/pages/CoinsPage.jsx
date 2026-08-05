@@ -1,12 +1,67 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Coins, Flame, MessageSquare, Sparkles, Crown, Check } from "lucide-react";
+import { Coins, Flame, MessageSquare, Sparkles, Crown, Check, RotateCw } from "lucide-react";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+
+function PlanCard({ plan, balance, busy, onRedeem }) {
+    const options = plan.options || [];
+    const [idx, setIdx] = useState(0);
+    const [flipped, setFlipped] = useState(false);
+    const cur = options[idx] || { days: 0, coins: 0 };
+    const next = options[(idx + 1) % (options.length || 1)] || cur;
+
+    const flip = () => { if (options.length > 1 && !flipped) setFlipped(true); };
+    const onDone = () => { if (flipped) { setIdx((i) => (i + 1) % options.length); setFlipped(false); } };
+
+    const renderFace = (opt) => {
+        const affordable = balance >= opt.coins;
+        const bkey = `${plan.id}-${opt.days}`;
+        return (
+            <div className="p-5 rounded-2xl border border-[#E8D2A6]/40 bg-[#0a0a0a] flex flex-col h-full">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[#E8D2A6]"><Crown size={16} /> <span className="font-display text-xl">{plan.name}</span></div>
+                    <span className="text-[10px] uppercase tracking-widest text-neutral-500">{opt.days} j</span>
+                </div>
+                <div className="mt-4 flex items-baseline gap-1.5">
+                    <Coins size={18} className="text-[#E8D2A6]" />
+                    <span className="font-display text-3xl text-white">{opt.coins}</span>
+                </div>
+                <div className="text-xs text-neutral-500 mt-1">{opt.days} jours de Premium</div>
+                <div className="mt-2 flex items-center gap-1 text-[11px] text-neutral-600"><RotateCw size={11} /> Clique la carte : 30 → 60 → 90 j</div>
+                <Button
+                    onClick={(e) => { e.stopPropagation(); onRedeem(plan.id, opt); }}
+                    disabled={!affordable || busy === bkey}
+                    data-testid={`redeem-${bkey}`}
+                    className="mt-4 rounded-full font-semibold bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                    {affordable ? <><Check size={14} className="mr-1.5" /> Échanger</> : `Encore ${Math.max(0, Math.round((opt.coins - balance) * 10) / 10)}`}
+                </Button>
+            </div>
+        );
+    };
+
+    return (
+        <div style={{ perspective: "1200px" }}>
+            <motion.div
+                onClick={flip}
+                animate={{ rotateY: flipped ? 180 : 0 }}
+                transition={{ duration: flipped ? 0.5 : 0 }}
+                onAnimationComplete={onDone}
+                style={{ transformStyle: "preserve-3d" }}
+                className="relative cursor-pointer select-none"
+            >
+                <div style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}>{renderFace(cur)}</div>
+                <div className="absolute inset-0" style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden", transform: "rotateY(180deg)" }}>{renderFace(next)}</div>
+            </motion.div>
+        </div>
+    );
+}
 
 export default function CoinsPage() {
     const { user, refresh } = useAuth();
@@ -28,13 +83,13 @@ export default function CoinsPage() {
         load();
     }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const redeem = async (plan) => {
-        if (balance < plan.coins) { toast.error("Solde insuffisant"); return; }
-        if (!window.confirm(`Échanger ${plan.coins} Freemium contre ${plan.days} jours de Premium ${plan.name} ?`)) return;
-        setBusy(plan.id);
+    const redeem = async (planId, option) => {
+        if (balance < option.coins) { toast.error("Solde insuffisant"); return; }
+        if (!window.confirm(`Échanger ${option.coins} Freemium contre ${option.days} jours de Premium ?`)) return;
+        setBusy(`${planId}-${option.days}`);
         try {
-            await api.post("/coins/redeem", { plan: plan.id });
-            toast.success(`Premium ${plan.name} activé 🎉`);
+            await api.post("/coins/redeem", { plan: planId, days: option.days });
+            toast.success("Premium activé 🎉");
             await refresh();
             load();
         } catch (e) {
@@ -92,29 +147,11 @@ export default function CoinsPage() {
 
                 <div>
                     <h2 className="font-display text-2xl mb-1">Échanger contre du Premium</h2>
-                    <p className="text-neutral-500 text-sm mb-6">Débloque un plan avec tes Freemium. Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
+                    <p className="text-neutral-500 text-sm mb-6">Clique une carte pour changer la durée (30 → 60 → 90 jours, de plus en plus chère). Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
                     <div className="grid sm:grid-cols-3 gap-4">
-                        {plans.map((plan) => {
-                            const affordable = balance >= plan.coins;
-                            return (
-                                <div key={plan.id} className={`p-5 rounded-2xl border bg-[#0a0a0a] flex flex-col ${affordable ? "border-[#E8D2A6]/40" : "border-[#262626]"}`}>
-                                    <div className="flex items-center gap-2 text-[#E8D2A6]"><Crown size={16} /> <span className="font-display text-xl">{plan.name}</span></div>
-                                    <div className="mt-4 flex items-baseline gap-1.5">
-                                        <Coins size={18} className="text-[#E8D2A6]" />
-                                        <span className="font-display text-3xl text-white">{plan.coins}</span>
-                                    </div>
-                                    <div className="text-xs text-neutral-500 mt-1">{plan.days} jours de Premium</div>
-                                    <Button
-                                        onClick={() => redeem(plan)}
-                                        disabled={!affordable || busy === plan.id}
-                                        data-testid={`redeem-${plan.id}`}
-                                        className="mt-5 rounded-full font-semibold bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] disabled:opacity-40 disabled:cursor-not-allowed"
-                                    >
-                                        {affordable ? <><Check size={14} className="mr-1.5" /> Échanger</> : `Encore ${Math.max(0, Math.round((plan.coins - balance) * 10) / 10)}`}
-                                    </Button>
-                                </div>
-                            );
-                        })}
+                        {plans.map((plan) => (
+                            <PlanCard key={plan.id} plan={plan} balance={balance} busy={busy} onRedeem={redeem} />
+                        ))}
                     </div>
                 </div>
             </div>

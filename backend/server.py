@@ -182,6 +182,7 @@ class WishStatus(BaseModel):
 
 class RedeemInput(BaseModel):
     plan: Literal["basic", "standard", "premium"]
+    days: int = 30
 
 class AdminCoinsInput(BaseModel):
     amount: float = 0
@@ -299,9 +300,21 @@ def _is_premium(user: dict) -> bool:
         return False
 
 COIN_PLANS = {
-    "basic": {"coins": 800, "days": 30, "name": "Basic"},
-    "standard": {"coins": 2000, "days": 30, "name": "Standard"},
-    "premium": {"coins": 5000, "days": 30, "name": "Premium"},
+    "basic": {"name": "Basic", "options": [
+        {"days": 30, "coins": 800},
+        {"days": 60, "coins": 1500},
+        {"days": 90, "coins": 2100},
+    ]},
+    "standard": {"name": "Standard", "options": [
+        {"days": 30, "coins": 2000},
+        {"days": 60, "coins": 3800},
+        {"days": 90, "coins": 5400},
+    ]},
+    "premium": {"name": "Premium", "options": [
+        {"days": 30, "coins": 5000},
+        {"days": 60, "coins": 9500},
+        {"days": 90, "coins": 13500},
+    ]},
 }
 
 def _daily_reward(streak: int) -> int:
@@ -868,7 +881,7 @@ async def rewards_daily(user: dict = Depends(get_current_user)):
 async def coins_plans(user: dict = Depends(get_current_user)):
     return {
         "balance": round(float(user.get("coins", 0) or 0), 1),
-        "plans": [{"id": k, **v} for k, v in COIN_PLANS.items()],
+        "plans": [{"id": k, "name": v["name"], "options": v["options"]} for k, v in COIN_PLANS.items()],
     }
 
 @api_router.post("/coins/redeem")
@@ -876,9 +889,14 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
     plan = COIN_PLANS.get(inp.plan)
     if not plan:
         raise HTTPException(status_code=400, detail="Plan inconnu")
+    option = next((o for o in plan["options"] if o["days"] == inp.days), None)
+    if not option:
+        raise HTTPException(status_code=400, detail="Durée invalide")
+    cost = option["coins"]
+    days = option["days"]
     balance = float(user.get("coins", 0) or 0)
-    if balance < plan["coins"]:
-        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {plan['coins']} Freemium (tu en as {round(balance, 1)}).")
+    if balance < cost:
+        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {cost} Freemium (tu en as {round(balance, 1)}).")
     base = datetime.now(timezone.utc)
     current = user.get("premium_until")
     if current:
@@ -890,23 +908,23 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
                 base = dt
         except Exception:
             pass
-    until = (base + timedelta(days=plan["days"])).isoformat()
+    until = (base + timedelta(days=days)).isoformat()
     await db.users.update_one(
         {"user_id": user["user_id"]},
-        {"$inc": {"coins": -plan["coins"]}, "$set": {"premium_plan": inp.plan, "premium_until": until}},
+        {"$inc": {"coins": -cost}, "$set": {"premium_plan": inp.plan, "premium_until": until}},
     )
     await db.notifications.insert_one({
         "id": f"n_{uuid.uuid4().hex[:12]}",
         "user_id": user["user_id"],
         "type": "coins",
         "title": f"Premium {plan['name']} activé 🎉",
-        "body": f"-{plan['coins']} Freemium · {plan['days']} jours de Premium",
+        "body": f"-{cost} Freemium · {days} jours de Premium",
         "media_title": None,
         "link": "/coins",
         "read": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    return {"ok": True, "premium_until": until, "plan": inp.plan}
+    return {"ok": True, "premium_until": until, "plan": inp.plan, "days": days}
 
 # ---------- Profils publics & recherche d'utilisateurs ----------
 @api_router.get("/users/search")
