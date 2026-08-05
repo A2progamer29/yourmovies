@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Navigate, Link } from "react-router-dom";
-import { ChevronLeft, Shield, ShieldOff, Crown, Trash2, Save, ExternalLink, Coins, Calendar, MessageSquare } from "lucide-react";
+import { ChevronLeft, Shield, ShieldOff, Crown, Trash2, Save, ExternalLink, Coins, Calendar, MessageSquare, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -60,6 +60,12 @@ export default function AdminUserPage() {
         try { await api.post(`/admin/users/${id}/toggle-premium`); toast.success("Premium mis à jour"); load(); }
         catch (e) { showError(toast, e, "Action impossible"); }
     };
+    const toggleBlock = async () => {
+        const willBlock = !target.blocked;
+        if (willBlock && !window.confirm(`Bloquer ${target.email} ?\n\nLe compte sera automatiquement SUPPRIMÉ au bout de 15 jours s'il reste bloqué.`)) return;
+        try { await api.post(`/admin/users/${id}/toggle-block`); toast.success(willBlock ? "Compte bloqué" : "Compte débloqué"); load(); }
+        catch (e) { showError(toast, e, "Action impossible"); }
+    };
     const removeUser = async () => {
         if (id === user.user_id) { toast.error("Impossible de supprimer votre propre compte"); return; }
         if (!window.confirm(`Supprimer ${target?.email} et toutes ses données ?`)) return;
@@ -109,6 +115,16 @@ export default function AdminUserPage() {
                         </Link>
                     </div>
                 </div>
+
+                {target.blocked && (
+                    <div className="mb-6 p-4 rounded-lg border border-red-500/40 bg-red-500/10 text-sm text-red-300 flex items-start gap-2">
+                        <Ban size={16} className="shrink-0 mt-0.5" />
+                        <span>
+                            Compte <b>bloqué</b>{target.blocked_at ? ` depuis le ${new Date(target.blocked_at).toLocaleDateString("fr-FR")}` : ""}. Il ne peut plus se connecter.
+                            {target.blocked_at && <> Suppression automatique le <b>{new Date(new Date(target.blocked_at).getTime() + 15 * 86400000).toLocaleDateString("fr-FR")}</b> (15 jours).</>}
+                        </span>
+                    </div>
+                )}
 
                 {/* Infos en lecture seule */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
@@ -161,6 +177,9 @@ export default function AdminUserPage() {
                         </Button>
                         <Button variant="outline" onClick={togglePremium} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
                             <Crown size={14} className="mr-2" /> {target.premium ? "Retirer Premium" : "Donner Premium"}
+                        </Button>
+                        <Button variant="outline" onClick={toggleBlock} className={`rounded-full bg-transparent ${target.blocked ? "border-[#262626] text-white hover:bg-white/5" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`}>
+                            <Ban size={14} className="mr-2" /> {target.blocked ? "Débloquer" : "Bloquer le compte"}
                         </Button>
                         <Button variant="outline" onClick={removeUser} className="border-red-500/40 text-red-400 bg-transparent hover:bg-red-500/10 rounded-full">
                             <Trash2 size={14} className="mr-2" /> Supprimer le compte

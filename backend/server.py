@@ -7,6 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
 import random
+import asyncio
 import logging
 import uuid
 import io
@@ -229,14 +230,16 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
     session_token = request.cookies.get("session_token")
 
     if token:
+        user = None
         try:
             payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
-            user_id = payload.get("user_id")
-            user = await get_user_by_id(user_id)
-            if user:
-                return user
+            user = await get_user_by_id(payload.get("user_id"))
         except Exception:
-            pass  # fall through, try session_token
+            user = None
+        if user:
+            if user.get("blocked_at"):
+                raise HTTPException(status_code=403, detail="Votre compte est bloqué.")
+            return user
 
     if session_token:
         session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
@@ -249,6 +252,8 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
             if exp and exp > datetime.now(timezone.utc):
                 user = await get_user_by_id(session["user_id"])
                 if user:
+                    if user.get("blocked_at"):
+                        raise HTTPException(status_code=403, detail="Votre compte est bloqué.")
                     return user
 
     raise HTTPException(status_code=401, detail="Not authenticated")
@@ -296,6 +301,8 @@ def user_public_dict(user: dict) -> dict:
         "has_pin": bool(user.get("pin_hash")),
         "coins": round(float(user.get("coins", 0) or 0), 1),
         "login_streak": int(user.get("login_streak", 0) or 0),
+        "blocked": bool(user.get("blocked_at")),
+        "blocked_at": user.get("blocked_at"),
     }
 
 # ---------- Freemium ----------
@@ -419,6 +426,8 @@ async def login(inp: LoginInput):
     user = await db.users.find_one({"email": inp.email.lower()}, {"_id": 0})
     if not user or not user.get("password_hash") or not verify_password(inp.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.get("blocked_at"):
+        raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
     token = create_jwt(user["user_id"])
     return {"token": token, "user": user_public_dict(user)}
 
@@ -462,6 +471,8 @@ async def auth_google(inp: GoogleAuthInput):
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
     user = await get_user_by_id(user_id)
+    if user.get("blocked_at"):
+        raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
     token = create_jwt(user_id)
     return {"token": token, "user": user_public_dict(user)}
 
@@ -1612,6 +1623,7 @@ async def delete_profile(profile_id: str, user: dict = Depends(get_current_user)
 # ---------- Admin: Users list ----------
 @api_router.get("/admin/users")
 async def admin_list_users(user: dict = Depends(require_admin)):
+    await _purge_expired_blocked()
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
     return [user_public_dict(u) | {"created_at": u.get("created_at")} for u in users]
 
@@ -1680,10 +1692,9 @@ async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_admin
     await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": "admin"}})
     return {"premium": True}
 
-@api_router.delete("/admin/users/{user_id}")
-async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
-    if user_id == admin["user_id"]:
-        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+BLOCK_DELETE_DAYS = 15
+
+async def _delete_user_data(user_id: str):
     await db.users.delete_one({"user_id": user_id})
     await db.reviews.delete_many({"user_id": user_id})
     await db.favorites.delete_many({"user_id": user_id})
@@ -1691,6 +1702,37 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
     await db.profiles.delete_many({"user_id": user_id})
     await db.notifications.delete_many({"user_id": user_id})
     await db.wishboard.update_many({}, {"$pull": {"voters": user_id}})
+    await db.review_rewards.delete_many({"user_id": user_id})
+
+async def _purge_expired_blocked() -> int:
+    # supprime définitivement les comptes bloqués depuis plus de BLOCK_DELETE_DAYS jours
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=BLOCK_DELETE_DAYS)).isoformat()
+    expired = await db.users.find({"blocked_at": {"$type": "string", "$lte": cutoff}}, {"_id": 0, "user_id": 1}).to_list(500)
+    for u in expired:
+        await _delete_user_data(u["user_id"])
+    if expired:
+        logger.info(f"Purge auto : {len(expired)} compte(s) bloqué(s) > {BLOCK_DELETE_DAYS}j supprimé(s)")
+    return len(expired)
+
+@api_router.post("/admin/users/{user_id}/toggle-block")
+async def admin_toggle_block(user_id: str, admin: dict = Depends(require_admin)):
+    if user_id == admin["user_id"]:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas bloquer votre propre compte")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.get("blocked_at"):
+        await db.users.update_one({"user_id": user_id}, {"$unset": {"blocked_at": ""}})
+        return {"blocked": False, "blocked_at": None}
+    now = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"user_id": user_id}, {"$set": {"blocked_at": now}})
+    return {"blocked": True, "blocked_at": now, "delete_after_days": BLOCK_DELETE_DAYS}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
+    if user_id == admin["user_id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    await _delete_user_data(user_id)
     return {"ok": True}
 
 # ---------- Settings ----------
@@ -1957,6 +1999,16 @@ async def startup():
         await db.users.create_index("email", unique=True)
     except Exception as e:
         logger.warning(f"Index unique users non créé (doublons existants ?) : {e}")
+    # purge périodique des comptes bloqués depuis > 15 jours
+    asyncio.create_task(_blocked_purge_loop())
+
+async def _blocked_purge_loop():
+    while True:
+        try:
+            await _purge_expired_blocked()
+        except Exception as e:
+            logger.warning(f"Purge comptes bloqués échouée : {e}")
+        await asyncio.sleep(6 * 3600)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

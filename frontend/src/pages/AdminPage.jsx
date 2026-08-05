@@ -343,6 +343,7 @@ export default function AdminPage() {
                                             <div className="text-white flex items-center gap-1.5 group-hover/u:text-[#E8D2A6] transition-colors">
                                                 {u.name}
                                                 {u.is_admin && <Shield size={11} className="text-[#E8D2A6]" />}
+                                                {u.blocked && <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full border border-red-500/40 text-red-400">Bloqué</span>}
                                             </div>
                                             <div className="text-xs text-neutral-500 truncate group-hover/u:text-neutral-300">{u.email}</div>
                                         </div>
