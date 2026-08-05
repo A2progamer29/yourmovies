@@ -324,6 +324,9 @@ def user_public_dict(user: dict) -> dict:
         "blocked_at": user.get("blocked_at"),
         "online": _is_online(user),
         "last_seen": user.get("last_seen"),
+        "profile_public": user.get("profile_public", True),
+        "reviews_public": user.get("reviews_public", True),
+        "history_public": user.get("history_public", True),
     }
 
 # ---------- Freemium ----------
@@ -1019,40 +1022,92 @@ async def users_search(q: str, user: dict = Depends(get_current_user)):
     return [{"user_id": d["user_id"], "name": d.get("name"), "picture": d.get("picture")} for d in docs]
 
 @api_router.get("/users/{user_id}/public")
-async def user_public_profile(user_id: str):
+async def user_public_profile(user_id: str, viewer: Optional[dict] = Depends(get_optional_user)):
     # accepte un user_id OU un pseudo (ex: /u/Lune27)
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not u:
         u = await db.users.find_one({"name": {"$regex": f"^{re.escape(user_id)}$", "$options": "i"}}, {"_id": 0})
     if not u:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    user_id = u["user_id"]
-    review_count = await db.reviews.count_documents({"user_id": user_id, "parent_id": None})
-    reviews = await db.reviews.find({"user_id": user_id, "parent_id": None}, {"_id": 0}).sort("created_at", -1).to_list(20)
-    media_ids = list({r.get("media_id") for r in reviews})
-    medias = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0, "id": 1, "title": 1, "poster_url": 1}).to_list(100)
-    mmap = {m["id"]: m for m in medias}
-    review_items = [{
-        "id": r["id"],
-        "media_id": r.get("media_id"),
-        "media_title": (mmap.get(r.get("media_id")) or {}).get("title"),
-        "poster_url": (mmap.get(r.get("media_id")) or {}).get("poster_url"),
-        "rating": r.get("rating"),
-        "comment": r.get("comment"),
-        "created_at": r.get("created_at"),
-    } for r in reviews]
-    return {
-        "user_id": u["user_id"],
+    uid = u["user_id"]
+    is_self = bool(viewer and viewer["user_id"] == uid)
+    followers = await db.follows.count_documents({"following_id": uid})
+    following = await db.follows.count_documents({"follower_id": uid})
+    is_following = bool(viewer and not is_self and await db.follows.find_one({"follower_id": viewer["user_id"], "following_id": uid}))
+    base = {
+        "user_id": uid,
         "name": u.get("name"),
         "picture": u.get("picture"),
-        "bio": u.get("bio"),
-        "created_at": u.get("created_at"),
         "premium": _is_premium(u),
         "online": _is_online(u),
-        "last_seen": u.get("last_seen"),
+        "created_at": u.get("created_at"),
+        "followers": followers,
+        "following": following,
+        "is_following": is_following,
+        "is_self": is_self,
+    }
+    # profil privé : on masque le contenu aux visiteurs (le propriétaire voit tout)
+    if not u.get("profile_public", True) and not is_self:
+        return {**base, "private": True}
+
+    reviews_ok = u.get("reviews_public", True) or is_self
+    history_ok = u.get("history_public", True) or is_self
+
+    review_count = await db.reviews.count_documents({"user_id": uid, "parent_id": None})
+    review_items = []
+    if reviews_ok:
+        reviews = await db.reviews.find({"user_id": uid, "parent_id": None}, {"_id": 0}).sort("created_at", -1).to_list(20)
+        rmids = list({r.get("media_id") for r in reviews})
+        rmedias = await db.media.find({"id": {"$in": rmids}}, {"_id": 0, "id": 1, "title": 1, "poster_url": 1}).to_list(100)
+        rmap = {m["id"]: m for m in rmedias}
+        review_items = [{
+            "id": r["id"], "media_id": r.get("media_id"),
+            "media_title": (rmap.get(r.get("media_id")) or {}).get("title"),
+            "poster_url": (rmap.get(r.get("media_id")) or {}).get("poster_url"),
+            "rating": r.get("rating"), "comment": r.get("comment"), "created_at": r.get("created_at"),
+        } for r in reviews]
+
+    # top 10 des derniers titres regardés (dédup par média)
+    watched = []
+    if history_ok:
+        progress = await db.watch_progress.find({"user_id": uid}, {"_id": 0}).sort("updated_at", -1).to_list(60)
+        ordered_ids = []
+        for p in progress:
+            mid = p.get("media_id")
+            if mid and mid not in ordered_ids:
+                ordered_ids.append(mid)
+            if len(ordered_ids) >= 10:
+                break
+        wmedias = await db.media.find({"id": {"$in": ordered_ids}}, {"_id": 0, "id": 1, "title": 1, "poster_url": 1, "type": 1}).to_list(10)
+        wmap = {m["id"]: m for m in wmedias}
+        watched = [{"id": mid, "title": wmap[mid].get("title"), "poster_url": wmap[mid].get("poster_url"), "type": wmap[mid].get("type")} for mid in ordered_ids if mid in wmap]
+
+    return {
+        **base,
+        "bio": u.get("bio"),
         "review_count": review_count,
         "reviews": review_items,
+        "reviews_hidden": not reviews_ok,
+        "watched": watched,
+        "history_hidden": not history_ok,
     }
+
+@api_router.post("/users/{user_id}/follow")
+async def toggle_follow(user_id: str, viewer: dict = Depends(get_current_user)):
+    if user_id == viewer["user_id"]:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous suivre vous-même.")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    existing = await db.follows.find_one({"follower_id": viewer["user_id"], "following_id": user_id})
+    if existing:
+        await db.follows.delete_one({"follower_id": viewer["user_id"], "following_id": user_id})
+        following = False
+    else:
+        await db.follows.insert_one({"follower_id": viewer["user_id"], "following_id": user_id, "created_at": datetime.now(timezone.utc).isoformat()})
+        following = True
+    count = await db.follows.count_documents({"following_id": user_id})
+    return {"is_following": following, "followers": count}
 
 @api_router.post("/presence/ping")
 async def presence_ping(user: dict = Depends(get_current_user)):
@@ -1853,6 +1908,7 @@ async def _delete_user_data(user_id: str):
     await db.wishboard.update_many({}, {"$pull": {"voters": user_id}})
     await db.review_rewards.delete_many({"user_id": user_id})
     await db.messages.delete_many({"$or": [{"from_id": user_id}, {"to_id": user_id}]})
+    await db.follows.delete_many({"$or": [{"follower_id": user_id}, {"following_id": user_id}]})
 
 async def _dedupe_accounts() -> int:
     # supprime les comptes en double (même email OU même pseudo, insensible à la casse).
@@ -1920,6 +1976,9 @@ class SettingsInput(BaseModel):
     preferred_quality: Optional[str] = None
     autoplay_hero: Optional[bool] = None
     accent_color: Optional[str] = None
+    profile_public: Optional[bool] = None
+    reviews_public: Optional[bool] = None
+    history_public: Optional[bool] = None
 
 class PinInput(BaseModel):
     pin: str  # 4-6 digits
@@ -1929,7 +1988,11 @@ class PinInput(BaseModel):
 async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_user)):
     upd = {}
     if inp.name is not None:
-        upd["name"] = inp.name.strip()
+        new_name = inp.name.strip()
+        clash = await db.users.find_one({"name": {"$regex": f"^{re.escape(new_name)}$", "$options": "i"}, "user_id": {"$ne": user["user_id"]}}, {"_id": 0, "user_id": 1})
+        if clash:
+            raise HTTPException(status_code=400, detail="Ce pseudo est déjà pris.")
+        upd["name"] = new_name
     if inp.bio is not None:
         upd["bio"] = inp.bio.strip()
     if inp.picture is not None:
@@ -1938,6 +2001,12 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
         upd["preferred_quality"] = inp.preferred_quality
     if inp.autoplay_hero is not None:
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
+    if inp.profile_public is not None:
+        upd["profile_public"] = bool(inp.profile_public)
+    if inp.reviews_public is not None:
+        upd["reviews_public"] = bool(inp.reviews_public)
+    if inp.history_public is not None:
+        upd["history_public"] = bool(inp.history_public)
     if inp.accent_color is not None:
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Personnalisation de couleur réservée aux abonnés Premium")

@@ -48,6 +48,9 @@ export default function SettingsPage() {
                 preferred_quality: user.preferred_quality || "auto",
                 autoplay_hero: user.autoplay_hero !== false,
                 accent_color: user.accent_color || "#E8D2A6",
+                profile_public: user.profile_public !== false,
+                reviews_public: user.reviews_public !== false,
+                history_public: user.history_public !== false,
             });
         }
     }, [user]);
@@ -64,6 +67,9 @@ export default function SettingsPage() {
                 picture: form.picture || null,
                 preferred_quality: form.preferred_quality,
                 autoplay_hero: form.autoplay_hero,
+                profile_public: form.profile_public,
+                reviews_public: form.reviews_public,
+                history_public: form.history_public,
             };
             if (user.premium) {
                 payload.accent_color = form.accent_color;
@@ -215,6 +221,27 @@ export default function SettingsPage() {
                             <Label className="text-neutral-300">Description / bio</Label>
                             <Textarea data-testid="settings-bio" value={form.bio || ""} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Parlez de vous, de vos genres préférés..." className="bg-[#111] border-[#262626] text-white mt-1.5 min-h-[100px]" />
                             <div className="text-xs text-neutral-500 mt-1">{(form.bio || "").length}/500 caractères</div>
+                        </div>
+
+                        <div className="pt-4 border-t border-[#262626]">
+                            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Confidentialité du profil</div>
+                            {[
+                                { key: "profile_public", title: "Profil public", desc: "Si désactivé, votre profil est privé : les autres ne voient rien." },
+                                { key: "history_public", title: "Historique visible", desc: "Affiche votre top 10 des derniers visionnages sur votre profil." },
+                                { key: "reviews_public", title: "Avis visibles", desc: "Affiche vos avis publiés sur votre profil." },
+                            ].map((row) => (
+                                <div key={row.key} className="flex items-center justify-between gap-3 p-3 rounded-md border border-[#262626] bg-[#111] mb-2">
+                                    <div className="min-w-0">
+                                        <div className="text-white text-sm">{row.title}</div>
+                                        <div className="text-xs text-neutral-500">{row.desc}</div>
+                                    </div>
+                                    <Switch
+                                        checked={form[row.key] !== false}
+                                        onCheckedChange={(v) => setForm({ ...form, [row.key]: v })}
+                                        data-testid={`toggle-${row.key}`}
+                                    />
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
