@@ -84,6 +84,13 @@ export default function PublicProfilePage() {
                     )}
                 </div>
 
+                {profile.bio && (
+                    <div className="mb-10 p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                        <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">À propos</div>
+                        <p className="text-neutral-300 leading-relaxed whitespace-pre-wrap break-words">{profile.bio}</p>
+                    </div>
+                )}
+
                 <h2 className="font-display text-2xl mb-4">Avis récents</h2>
                 {profile.reviews?.length === 0 ? (
                     <div className="text-neutral-500 text-sm">Aucun avis publié.</div>

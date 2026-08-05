@@ -1045,6 +1045,7 @@ async def user_public_profile(user_id: str):
         "user_id": u["user_id"],
         "name": u.get("name"),
         "picture": u.get("picture"),
+        "bio": u.get("bio"),
         "created_at": u.get("created_at"),
         "premium": _is_premium(u),
         "online": _is_online(u),
