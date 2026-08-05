@@ -36,7 +36,7 @@ function fallbackQualities(media) {
 export default function WatchPage() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, activeProfile } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const [media, setMedia] = useState(null);
     const [resumeAt, setResumeAt] = useState(0);
@@ -236,7 +236,9 @@ export default function WatchPage() {
                     {partyOpen && partyCode && (
                         <WatchParty
                             code={partyCode}
-                            currentUserId={user?.user_id}
+                            currentUserId={activeProfile ? `${user?.user_id}:${activeProfile.id}` : user?.user_id}
+                            profileId={activeProfile?.id}
+                            profileName={activeProfile?.name}
                             videoRef={videoElRef}
                             onClose={closeParty}
                             token={token}

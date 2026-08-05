@@ -24,9 +24,41 @@ function applyAccent(color) {
     }
 }
 
+function readActiveProfile() {
+    try {
+        const id = localStorage.getItem("ym_profile_id");
+        if (!id) return null;
+        return {
+            id,
+            name: localStorage.getItem("ym_profile_name") || "",
+            emoji: localStorage.getItem("ym_profile_emoji") || "🎬",
+            color: localStorage.getItem("ym_profile_color") || "#E8D2A6",
+        };
+    } catch { return null; }
+}
+
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [activeProfile, setActiveProfileState] = useState(readActiveProfile);
+
+    const selectProfile = (p) => {
+        if (!p) {
+            ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+            setActiveProfileState(null);
+            return;
+        }
+        localStorage.setItem("ym_profile_id", p.id);
+        localStorage.setItem("ym_profile_name", p.name || "");
+        localStorage.setItem("ym_profile_emoji", p.avatar_emoji || p.emoji || "🎬");
+        localStorage.setItem("ym_profile_color", p.avatar_color || p.color || "#E8D2A6");
+        setActiveProfileState({
+            id: p.id,
+            name: p.name || "",
+            emoji: p.avatar_emoji || p.emoji || "🎬",
+            color: p.avatar_color || p.color || "#E8D2A6",
+        });
+    };
 
     const checkAuth = useCallback(async () => {
         try {
@@ -84,11 +116,13 @@ export function AuthProvider({ children }) {
             // ignore logout errors
         }
         localStorage.removeItem("ym_token");
+        ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+        setActiveProfileState(null);
         setUser(null);
     };
 
     return (
-        <AuthContext.Provider value={{ user, setUser, loading, login, register, loginWithGoogle, logout, refresh: checkAuth }}>
+        <AuthContext.Provider value={{ user, setUser, loading, login, register, loginWithGoogle, logout, refresh: checkAuth, activeProfile, selectProfile }}>
             {children}
         </AuthContext.Provider>
     );

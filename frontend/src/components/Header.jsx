@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Search, User, LogOut, Settings, Heart, Crown, Sliders, X } from "lucide-react";
+import { Search, User, Users, LogOut, Settings, Heart, Crown, Sliders, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import NotificationsBell from "@/components/NotificationsBell";
 import {
@@ -24,7 +24,7 @@ const links = [
 ];
 
 export default function Header() {
-    const { user, logout } = useAuth();
+    const { user, logout, activeProfile, selectProfile } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
     const [searchOpen, setSearchOpen] = useState(false);
@@ -112,14 +112,18 @@ export default function Header() {
                                     data-testid="header-user-menu"
                                     className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#262626] hover:border-[#E8D2A6]/50 transition-colors focus-ring"
                                 >
-                                    {user.picture ? (
+                                    {activeProfile ? (
+                                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-sm" style={{ background: activeProfile.color }}>
+                                            {activeProfile.emoji}
+                                        </div>
+                                    ) : user.picture ? (
                                         <img src={user.picture} alt={user.name} className="w-6 h-6 rounded-full" />
                                     ) : (
                                         <div className="w-6 h-6 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-xs font-semibold">
                                             {user.name?.[0]?.toUpperCase() || "U"}
                                         </div>
                                     )}
-                                    <span className="text-sm text-white hidden sm:block">{user.name}</span>
+                                    <span className="text-sm text-white hidden sm:block">{activeProfile ? activeProfile.name : user.name}</span>
                                     {user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </button>
                             </DropdownMenuTrigger>
@@ -127,6 +131,11 @@ export default function Header() {
                                 <DropdownMenuLabel className="text-neutral-400">
                                     {user.email}
                                 </DropdownMenuLabel>
+                                {activeProfile && (
+                                    <div className="px-2 pb-1 text-xs text-[#E8D2A6] flex items-center gap-1.5">
+                                        <span>{activeProfile.emoji}</span> Profil actif : {activeProfile.name}
+                                    </div>
+                                )}
                                 <DropdownMenuSeparator className="bg-[#262626]" />
                                 <DropdownMenuItem
                                     onClick={() => navigate("/profile")}
@@ -154,8 +163,17 @@ export default function Header() {
                                     data-testid="menu-profiles"
                                     className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
                                 >
-                                    <User size={14} className="mr-2" /> Profils
+                                    <Users size={14} className="mr-2" /> Changer de profil
                                 </DropdownMenuItem>
+                                {activeProfile && (
+                                    <DropdownMenuItem
+                                        onClick={() => { selectProfile(null); navigate("/"); }}
+                                        data-testid="menu-profile-general"
+                                        className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
+                                    >
+                                        <User size={14} className="mr-2" /> Profil général (compte)
+                                    </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                     onClick={() => navigate("/settings")}
                                     data-testid="menu-settings"

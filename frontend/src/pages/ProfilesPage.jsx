@@ -17,7 +17,7 @@ const COLORS = ["#E8D2A6", "#8AB4F8", "#F28B82", "#81C995", "#C58AF9", "#FDD663"
 const EMOJIS = ["🎬", "🍿", "👑", "⭐", "🎭", "🚀", "🦄", "🐱", "🎨", "🎧"];
 
 export default function ProfilesPage() {
-    const { user, loading } = useAuth();
+    const { user, loading, selectProfile } = useAuth();
     const navigate = useNavigate();
     const [profiles, setProfiles] = useState([]);
     const [open, setOpen] = useState(false);
@@ -112,8 +112,7 @@ export default function ProfilesPage() {
         } catch (e) { showError(toast, e, "PIN incorrect"); }
     };
     const confirmSelect = (p) => {
-        localStorage.setItem("ym_profile_id", p.id);
-        localStorage.setItem("ym_profile_name", p.name);
+        selectProfile(p);
         toast.success(`Profil actif : ${p.name}`);
         navigate("/");
     };

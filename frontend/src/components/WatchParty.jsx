@@ -14,22 +14,25 @@ import { toast } from "sonner";
  *   onClose: () => void
  *   token?: string (JWT to authenticate)
  */
-export default function WatchParty({ code, currentUserId, videoRef, onClose, token }) {
+export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, onClose, token }) {
     const [participants, setParticipants] = useState([]);
-    const [hostId, setHostId] = useState(null);
+    const [isHost, setIsHost] = useState(false);
     const [messages, setMessages] = useState([]);
     const [text, setText] = useState("");
     const [connected, setConnected] = useState(false);
     const wsRef = useRef(null);
     const listRef = useRef(null);
 
-    const isHost = hostId && currentUserId && hostId === currentUserId;
-
     useEffect(() => {
         const backend = process.env.REACT_APP_BACKEND_URL;
         const wsProto = backend.startsWith("https") ? "wss" : "ws";
         const wsBase = backend.replace(/^https?:\/\//, "");
-        const url = `${wsProto}://${wsBase}/api/party/${code}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        const params = new URLSearchParams();
+        if (token) params.set("token", token);
+        if (profileId) params.set("profile", profileId);
+        if (profileName) params.set("name", profileName);
+        const qs = params.toString();
+        const url = `${wsProto}://${wsBase}/api/party/${code}/ws${qs ? `?${qs}` : ""}`;
         const ws = new WebSocket(url);
         wsRef.current = ws;
 
@@ -41,8 +44,8 @@ export default function WatchParty({ code, currentUserId, videoRef, onClose, tok
             let data;
             try { data = JSON.parse(ev.data); } catch { return; }
             if (data.type === "hello") {
-                setHostId(data.host_id);
-                if (data.state && videoRef?.current && data.host_id !== currentUserId) {
+                setIsHost(!!data.you?.is_host);
+                if (data.state && videoRef?.current && !data.you?.is_host) {
                     applyState(data.state);
                 }
             } else if (data.type === "participants") {
@@ -131,8 +134,8 @@ export default function WatchParty({ code, currentUserId, videoRef, onClose, tok
                 <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2">Participants ({participants.length})</div>
                 <div className="flex flex-wrap gap-2">
                     {participants.map((p) => (
-                        <div key={p.user_id} className={`text-xs px-2.5 py-1 rounded-full border ${p.user_id === hostId ? "border-[#E8D2A6]/50 text-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] text-neutral-300"}`}>
-                            {p.user_id === hostId && <Crown size={10} className="inline mr-1" />}
+                        <div key={p.user_id} className={`text-xs px-2.5 py-1 rounded-full border ${p.is_host ? "border-[#E8D2A6]/50 text-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] text-neutral-300"}`}>
+                            {p.is_host && <Crown size={10} className="inline mr-1" />}
                             {p.name}
                         </div>
                     ))}

@@ -10,12 +10,17 @@ export const api = axios.create({
     withCredentials: true,
 });
 
-// Inject JWT token if present
+// Inject JWT token + active profile if present
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem("ym_token");
     if (token) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${token}`;
+    }
+    const profileId = localStorage.getItem("ym_profile_id");
+    if (profileId) {
+        config.headers = config.headers || {};
+        config.headers["X-Profile-Id"] = profileId;
     }
     return config;
 });

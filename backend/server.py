@@ -243,6 +243,10 @@ async def get_optional_user(request: Request, authorization: Optional[str] = Hea
     except HTTPException:
         return None
 
+async def current_profile_id(x_profile_id: Optional[str] = Header(None, alias="X-Profile-Id")) -> Optional[str]:
+    # profil actif (multi-profil premium) ; None = niveau compte / profil général
+    return x_profile_id or None
+
 def user_public_dict(user: dict) -> dict:
     premium_until = user.get("premium_until")
     premium_active = False
@@ -735,8 +739,8 @@ async def delete_wish(wish_id: str, admin: dict = Depends(require_admin)):
 
 # ---------- Favorites / Watchlist ----------
 @api_router.get("/favorites")
-async def list_favorites(user: dict = Depends(get_current_user)):
-    favs = await db.favorites.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
+async def list_favorites(user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    favs = await db.favorites.find({"user_id": user["user_id"], "profile_id": profile_id}, {"_id": 0}).to_list(500)
     media_ids = [f["media_id"] for f in favs]
     docs = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0}).to_list(500)
     ordered = {d["id"]: d for d in docs}
@@ -750,13 +754,15 @@ async def list_favorites(user: dict = Depends(get_current_user)):
     return result
 
 @api_router.post("/favorites/{media_id}")
-async def toggle_favorite(media_id: str, list_type: str = Query("favorite"), user: dict = Depends(get_current_user)):
-    existing = await db.favorites.find_one({"user_id": user["user_id"], "media_id": media_id, "list_type": list_type})
+async def toggle_favorite(media_id: str, list_type: str = Query("favorite"), user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    q = {"user_id": user["user_id"], "media_id": media_id, "list_type": list_type, "profile_id": profile_id}
+    existing = await db.favorites.find_one(q)
     if existing:
-        await db.favorites.delete_one({"user_id": user["user_id"], "media_id": media_id, "list_type": list_type})
+        await db.favorites.delete_one(q)
         return {"active": False}
     await db.favorites.insert_one({
         "user_id": user["user_id"],
+        "profile_id": profile_id,
         "media_id": media_id,
         "list_type": list_type,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -764,9 +770,9 @@ async def toggle_favorite(media_id: str, list_type: str = Query("favorite"), use
     return {"active": True}
 
 @api_router.get("/favorites/status/{media_id}")
-async def favorite_status(media_id: str, user: dict = Depends(get_current_user)):
-    fav = await db.favorites.find_one({"user_id": user["user_id"], "media_id": media_id, "list_type": "favorite"})
-    watch = await db.favorites.find_one({"user_id": user["user_id"], "media_id": media_id, "list_type": "watchlist"})
+async def favorite_status(media_id: str, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    fav = await db.favorites.find_one({"user_id": user["user_id"], "media_id": media_id, "list_type": "favorite", "profile_id": profile_id})
+    watch = await db.favorites.find_one({"user_id": user["user_id"], "media_id": media_id, "list_type": "watchlist", "profile_id": profile_id})
     return {"favorite": bool(fav), "watchlist": bool(watch)}
 
 # ---------- Upload / File ----------
@@ -1042,11 +1048,12 @@ class WatchProgressInput(BaseModel):
     duration_seconds: Optional[float] = None
 
 @api_router.post("/watch-progress")
-async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user)):
+async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
     await db.watch_progress.update_one(
-        {"user_id": user["user_id"], "media_id": inp.media_id},
+        {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id},
         {"$set": {
             "user_id": user["user_id"],
+            "profile_id": profile_id,
             "media_id": inp.media_id,
             "position_seconds": inp.position_seconds,
             "duration_seconds": inp.duration_seconds,
@@ -1057,8 +1064,8 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
     return {"ok": True}
 
 @api_router.get("/watch-progress")
-async def list_progress(user: dict = Depends(get_current_user)):
-    docs = await db.watch_progress.find({"user_id": user["user_id"]}, {"_id": 0}).sort("updated_at", -1).to_list(50)
+async def list_progress(user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    docs = await db.watch_progress.find({"user_id": user["user_id"], "profile_id": profile_id}, {"_id": 0}).sort("updated_at", -1).to_list(50)
     media_ids = [d["media_id"] for d in docs]
     media_docs = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0}).to_list(50)
     media_map = {m["id"]: m for m in media_docs}
@@ -1415,11 +1422,14 @@ async def get_party(code: str):
         "media_id": party.media_id,
         "host_id": party.host_id,
         "state": party.state,
-        "participants": [{"user_id": c["user_id"], "name": c["name"]} for c in party.connections],
+        "participants": _party_participants(party),
     }
 
+def _party_participants(party: "Party") -> list:
+    return [{"user_id": c["user_id"], "name": c["name"], "is_host": c.get("account_id") == party.host_id} for c in party.connections]
+
 @app.websocket("/api/party/{code}/ws")
-async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None):
+async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None, profile: Optional[str] = None, name: Optional[str] = None):
     code = code.upper()
     party = PARTIES.get(code)
     if not party:
@@ -1439,7 +1449,12 @@ async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None)
         user = {"user_id": f"anon_{uuid.uuid4().hex[:6]}", "name": "Invité"}
 
     await websocket.accept()
-    conn = {"ws": websocket, "user_id": user["user_id"], "name": user.get("name", "Invité")}
+    # identité côté profil : distingue les participants d'un même compte,
+    # tout en gardant la détection d'hôte par compte (account_id)
+    account_id = user["user_id"]
+    display_name = (name or "").strip() or user.get("name", "Invité")
+    conn_id = f"{account_id}:{profile}" if profile else account_id
+    conn = {"ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name}
     party.connections.append(conn)
 
     # Send initial state + participant list
@@ -1449,11 +1464,11 @@ async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None)
         "media_id": party.media_id,
         "host_id": party.host_id,
         "state": party.state,
-        "you": {"user_id": conn["user_id"], "name": conn["name"]},
+        "you": {"user_id": conn["user_id"], "name": conn["name"], "is_host": account_id == party.host_id},
     })
     await party.broadcast({
         "type": "participants",
-        "participants": [{"user_id": c["user_id"], "name": c["name"]} for c in party.connections],
+        "participants": _party_participants(party),
     })
 
     try:
@@ -1461,8 +1476,8 @@ async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None)
             data = await websocket.receive_json()
             t = data.get("type")
             if t == "sync":
-                # Only host controls playback
-                if conn["user_id"] == party.host_id:
+                # Only host controls playback (comparaison par compte)
+                if conn["account_id"] == party.host_id:
                     party.state = {
                         "position_seconds": float(data.get("position_seconds", 0)),
                         "playing": bool(data.get("playing", False)),
@@ -1488,7 +1503,7 @@ async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None)
             party.connections.remove(conn)
         await party.broadcast({
             "type": "participants",
-            "participants": [{"user_id": c["user_id"], "name": c["name"]} for c in party.connections],
+            "participants": _party_participants(party),
         })
         if not party.connections:
             PARTIES.pop(party.code, None)
