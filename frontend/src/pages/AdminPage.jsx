@@ -161,6 +161,16 @@ export default function AdminPage() {
             toast.success("Cagnotte mise à jour");
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
+    const resetCagnotte = async () => {
+        if (!window.confirm("⚠️ Réinitialiser la cagnotte à 0 € ?\n\nLe total affiché publiquement sera remis à zéro.")) return;
+        if (!window.confirm("Es-tu VRAIMENT sûr ? Cette action est irréversible.\n\nConfirme une seconde fois pour réinitialiser à 0 €.")) return;
+        try {
+            const r = await api.post("/admin/cagnotte", { total: 0 });
+            setCagnotte(r.data);
+            setCagnotteInput(String(r.data.total));
+            toast.success("Cagnotte réinitialisée à 0 €");
+        } catch (e) { showError(toast, e, "Réinitialisation impossible"); }
+    };
     const adminCoins = async (u, mode) => {
         const amount = Number(coinAmount[u.user_id] || 0);
         if (mode !== "reset" && (!amount || amount <= 0)) { toast.error("Entre un montant"); return; }
@@ -519,6 +529,12 @@ export default function AdminPage() {
                                 <Button onClick={saveCagnotte} data-testid="save-cagnotte" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">Enregistrer</Button>
                             </div>
                             <div className="text-xs text-neutral-600 mt-4">Total actuel : <span className="text-[#E8D2A6]">{cagnotte.total?.toLocaleString("fr-FR")} €</span></div>
+                            <div className="mt-5 pt-4 border-t border-[#1a1a1a]">
+                                <Button onClick={resetCagnotte} data-testid="reset-cagnotte" variant="outline" className="border-red-500/40 text-red-400 bg-transparent hover:bg-red-500/10 rounded-full">
+                                    <RotateCcw size={14} className="mr-2" /> Réinitialiser la cagnotte à 0 €
+                                </Button>
+                                <p className="text-[11px] text-neutral-600 mt-2">Demande une double confirmation.</p>
+                            </div>
                         </div>
                     </TabsContent>
 

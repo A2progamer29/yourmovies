@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Coins, Flame, MessageSquare, Sparkles, Crown, Check, RotateCw } from "lucide-react";
+import { Coins, Flame, MessageSquare, Sparkles, Crown, Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -33,7 +33,6 @@ function PlanCard({ plan, balance, busy, onRedeem }) {
                     <span className="font-display text-3xl text-white">{opt.coins}</span>
                 </div>
                 <div className="text-xs text-neutral-500 mt-1">{opt.days} jours de Premium</div>
-                <div className="mt-2 flex items-center gap-1 text-[11px] text-neutral-600"><RotateCw size={11} /> Clique la carte : 30 → 60 → 90 j</div>
                 <Button
                     onClick={(e) => { e.stopPropagation(); onRedeem(plan.id, opt); }}
                     disabled={!affordable || busy === bkey}
@@ -50,8 +49,14 @@ function PlanCard({ plan, balance, busy, onRedeem }) {
         <div style={{ perspective: "1200px" }}>
             <motion.div
                 onClick={flip}
-                animate={{ rotateY: flipped ? 180 : 0 }}
-                transition={{ duration: flipped ? 0.5 : 0 }}
+                animate={flipped
+                    ? { rotateY: 180, y: [0, -60, -60, 14, 0], scale: [1, 1.06, 1.06, 0.97, 1] }
+                    : { rotateY: 0, y: 0, scale: 1 }}
+                transition={flipped ? {
+                    rotateY: { duration: 0.75, ease: "easeInOut" },
+                    y: { duration: 0.75, times: [0, 0.25, 0.55, 0.85, 1], ease: ["easeOut", "linear", "easeIn", "easeOut"] },
+                    scale: { duration: 0.75, times: [0, 0.25, 0.55, 0.85, 1], ease: ["easeOut", "linear", "easeIn", "easeOut"] },
+                } : { duration: 0 }}
                 onAnimationComplete={onDone}
                 style={{ transformStyle: "preserve-3d" }}
                 className="relative cursor-pointer select-none"
