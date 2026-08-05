@@ -29,3 +29,5 @@ services:
         value: vz-37df92f2-4c9.b-cdn.net
       - key: BUNNY_API_KEY
         sync: false
+      - key: OMDB_API_KEY
+        sync: false

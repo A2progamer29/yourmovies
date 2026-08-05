@@ -19,6 +19,7 @@ import PaymentSuccess from "@/pages/PaymentSuccess";
 import SubscriptionPage from "@/pages/SubscriptionPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
+import WishboardPage from "@/pages/WishboardPage";
 
 function AppRouter() {
     const location = useLocation();
@@ -35,6 +36,7 @@ function AppRouter() {
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/profiles" element={<ProfilesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/wishboard" element={<WishboardPage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />

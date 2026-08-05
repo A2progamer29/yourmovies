@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import logging
 import uuid
 import io
@@ -53,6 +54,9 @@ BUNNY_LIBRARY_ID = os.environ.get("BUNNY_LIBRARY_ID")
 BUNNY_API_KEY = os.environ.get("BUNNY_API_KEY")
 BUNNY_CDN_HOST = os.environ.get("BUNNY_CDN_HOST")
 BUNNY_CONFIGURED = bool(BUNNY_LIBRARY_ID and BUNNY_API_KEY)
+
+# OMDb (données IMDb) — clé gratuite sur https://www.omdbapi.com/apikey.aspx
+OMDB_API_KEY = os.environ.get("OMDB_API_KEY")
 
 # ---------- Models ----------
 class UserPublic(BaseModel):
@@ -164,6 +168,16 @@ class ReviewEdit(BaseModel):
 class AnnouncementCreate(BaseModel):
     title: str
     body: str = ""
+
+class WishCreate(BaseModel):
+    imdb_id: str
+    title: str
+    year: Optional[str] = None
+    type: Optional[str] = None
+    poster_url: Optional[str] = None
+
+class WishStatus(BaseModel):
+    status: Literal["pending", "approved", "refused"]
 
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
@@ -592,6 +606,124 @@ async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(requi
 @api_router.delete("/announcements/{announcement_id}")
 async def delete_announcement(announcement_id: str, admin: dict = Depends(require_admin)):
     res = await db.announcements.delete_one({"id": announcement_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+# ---------- Wishboard (demandes de titres votées) ----------
+def _wish_out(doc: dict, user_id: Optional[str]) -> dict:
+    voters = doc.get("voters", [])
+    return {
+        "id": doc.get("id"),
+        "imdb_id": doc.get("imdb_id"),
+        "title": doc.get("title"),
+        "year": doc.get("year"),
+        "type": doc.get("type"),
+        "poster_url": doc.get("poster_url"),
+        "status": doc.get("status", "pending"),
+        "vote_count": len(voters),
+        "voted": bool(user_id and user_id in voters),
+        "created_at": doc.get("created_at"),
+    }
+
+@api_router.get("/imdb/search")
+async def imdb_search(q: str, user: dict = Depends(get_current_user)):
+    q = (q or "").strip()
+    if not q:
+        return []
+    if not OMDB_API_KEY:
+        raise HTTPException(status_code=503, detail="Recherche IMDb non configurée (clé OMDb manquante).")
+    try:
+        r = requests.get("https://www.omdbapi.com/", params={"apikey": OMDB_API_KEY, "s": q}, timeout=15)
+        data = r.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Service IMDb indisponible.")
+    if data.get("Response") == "False":
+        return []
+    results = []
+    for it in data.get("Search", [])[:10]:
+        poster = it.get("Poster")
+        results.append({
+            "imdb_id": it.get("imdbID"),
+            "title": it.get("Title"),
+            "year": it.get("Year"),
+            "type": it.get("Type"),
+            "poster_url": poster if poster and poster != "N/A" else None,
+        })
+    return results
+
+@api_router.get("/wishboard")
+async def list_wishboard(status: Optional[str] = None, user: Optional[dict] = Depends(get_optional_user)):
+    query = {"status": status} if status else {"status": {"$ne": "refused"}}
+    docs = await db.wishboard.find(query, {"_id": 0}).to_list(500)
+    uid = user["user_id"] if user else None
+    out = [_wish_out(d, uid) for d in docs]
+    out.sort(key=lambda x: (x["vote_count"], x["created_at"] or ""), reverse=True)
+    return out
+
+@api_router.post("/wishboard")
+async def create_wish(w: WishCreate, user: dict = Depends(get_current_user)):
+    title = (w.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titre manquant")
+    # déjà disponible dans le catalogue ?
+    existing = await db.media.find_one(
+        {"title": {"$regex": f"^{re.escape(title)}$", "$options": "i"}}, {"_id": 0, "id": 1}
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Ce titre est déjà disponible sur le site.")
+    # déjà demandé ? -> on ajoute un vote
+    existing_wish = await db.wishboard.find_one({"imdb_id": w.imdb_id}, {"_id": 0})
+    if existing_wish:
+        await db.wishboard.update_one({"id": existing_wish["id"]}, {"$addToSet": {"voters": user["user_id"]}})
+        updated = await db.wishboard.find_one({"id": existing_wish["id"]}, {"_id": 0})
+        return _wish_out(updated, user["user_id"])
+    doc = {
+        "id": f"w_{uuid.uuid4().hex[:12]}",
+        "imdb_id": w.imdb_id,
+        "title": title,
+        "year": w.year,
+        "type": w.type,
+        "poster_url": w.poster_url,
+        "status": "pending",
+        "voters": [user["user_id"]],
+        "created_by": user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.wishboard.insert_one(doc)
+    return _wish_out(doc, user["user_id"])
+
+@api_router.post("/wishboard/{wish_id}/vote")
+async def vote_wish(wish_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.wishboard.find_one({"id": wish_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user["user_id"] in doc.get("voters", []):
+        await db.wishboard.update_one({"id": wish_id}, {"$pull": {"voters": user["user_id"]}})
+        voted = False
+    else:
+        await db.wishboard.update_one({"id": wish_id}, {"$addToSet": {"voters": user["user_id"]}})
+        voted = True
+    updated = await db.wishboard.find_one({"id": wish_id}, {"_id": 0})
+    return {"voted": voted, "vote_count": len(updated.get("voters", []))}
+
+@api_router.get("/admin/wishboard")
+async def admin_list_wishboard(admin: dict = Depends(require_admin)):
+    docs = await db.wishboard.find({}, {"_id": 0}).to_list(1000)
+    out = [_wish_out(d, None) for d in docs]
+    out.sort(key=lambda x: x["vote_count"], reverse=True)
+    return out
+
+@api_router.patch("/wishboard/{wish_id}/status")
+async def set_wish_status(wish_id: str, s: WishStatus, admin: dict = Depends(require_admin)):
+    res = await db.wishboard.update_one({"id": wish_id}, {"$set": {"status": s.status}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True, "status": s.status}
+
+@api_router.delete("/wishboard/{wish_id}")
+async def delete_wish(wish_id: str, admin: dict = Depends(require_admin)):
+    res = await db.wishboard.delete_one({"id": wish_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
@@ -1127,6 +1259,7 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
     await db.watch_progress.delete_many({"user_id": user_id})
     await db.profiles.delete_many({"user_id": user_id})
     await db.notifications.delete_many({"user_id": user_id})
+    await db.wishboard.update_many({}, {"$pull": {"voters": user_id}})
     return {"ok": True}
 
 # ---------- Settings ----------

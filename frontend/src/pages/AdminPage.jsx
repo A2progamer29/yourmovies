@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -22,6 +22,7 @@ export default function AdminPage() {
     const [annBody, setAnnBody] = useState("");
     const [reviews, setReviews] = useState([]);
     const [reviewQ, setReviewQ] = useState("");
+    const [wishes, setWishes] = useState([]);
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -48,6 +49,12 @@ export default function AdminPage() {
             setReviews(r.data);
         } catch (e) { showError(toast, e, "Chargement des commentaires impossible"); }
     };
+    const loadWishes = async () => {
+        try {
+            const r = await api.get("/admin/wishboard");
+            setWishes(r.data);
+        } catch (e) { showError(toast, e, "Chargement du wishboard impossible"); }
+    };
 
     useEffect(() => {
         if (user?.is_admin) {
@@ -55,6 +62,7 @@ export default function AdminPage() {
             loadUsers();
             loadAnnouncements();
             loadReviews();
+            loadWishes();
         }
     }, [user]);
 
@@ -118,6 +126,20 @@ export default function AdminPage() {
             await api.delete(`/reviews/${r.id}`);
             toast.success("Commentaire supprimé");
             loadReviews();
+        } catch (e) { showError(toast, e, "Suppression impossible"); }
+    };
+    const setWishStatus = async (w, status) => {
+        try {
+            await api.patch(`/wishboard/${w.id}/status`, { status });
+            setWishes((list) => list.map((it) => it.id === w.id ? { ...it, status } : it));
+        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+    };
+    const deleteWish = async (w) => {
+        if (!window.confirm(`Supprimer « ${w.title} » du wishboard ?`)) return;
+        try {
+            await api.delete(`/wishboard/${w.id}`);
+            toast.success("Proposition supprimée");
+            loadWishes();
         } catch (e) { showError(toast, e, "Suppression impossible"); }
     };
 
@@ -186,6 +208,9 @@ export default function AdminPage() {
                         </TabsTrigger>
                         <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <MessageSquare size={14} className="mr-2" /> Commentaires
+                        </TabsTrigger>
+                        <TabsTrigger value="wishboard" data-testid="admin-tab-wishboard" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <ChevronUp size={14} className="mr-2" /> Wishboard
                         </TabsTrigger>
                         <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Megaphone size={14} className="mr-2" /> Annonces
@@ -348,6 +373,45 @@ export default function AdminPage() {
                                         </p>
                                     </div>
                                     <Button variant="ghost" size="icon" onClick={() => deleteReviewAdmin(r)} data-testid={`admin-delete-review-${r.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5 shrink-0"><Trash2 size={14} /></Button>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="wishboard" className="mt-8">
+                        <p className="text-sm text-neutral-500 mb-6">Propositions des utilisateurs, triées par nombre de votes. Approuvez, laissez en attente ou refusez.</p>
+                        <div className="space-y-3">
+                            {wishes.length === 0 && (
+                                <div className="p-6 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500 text-sm">Aucune proposition.</div>
+                            )}
+                            {wishes.map((w) => (
+                                <div key={w.id} className="flex items-center gap-4 p-3 sm:p-4 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
+                                    <div className="flex flex-col items-center justify-center w-12 shrink-0 text-[#E8D2A6]">
+                                        <ChevronUp size={16} />
+                                        <span className="text-sm font-semibold leading-none">{w.vote_count}</span>
+                                    </div>
+                                    {w.poster_url
+                                        ? <img src={w.poster_url} alt="" className="w-10 h-[60px] object-cover rounded bg-[#111] shrink-0" />
+                                        : <div className="w-10 h-[60px] rounded bg-[#111] shrink-0" />}
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-white text-sm font-medium truncate">{w.title}</div>
+                                        <div className="text-xs text-neutral-500 mt-0.5">
+                                            {w.year || "—"}{w.type ? ` · ${w.type}` : ""}
+                                            {w.imdb_id && <> · <a href={`https://www.imdb.com/title/${w.imdb_id}`} target="_blank" rel="noopener noreferrer" className="text-neutral-400 hover:text-[#E8D2A6]">IMDb</a></>}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "approved")} className={w.status === "approved" ? "text-black bg-[#E8D2A6] hover:bg-[#D4BB8B]" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}>
+                                            <Check size={13} className="mr-1" /> Approuver
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "pending")} className={w.status === "pending" ? "text-white bg-white/10" : "text-neutral-400 hover:text-white hover:bg-white/5"}>
+                                            <Clock size={13} className="mr-1" /> En attente
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "refused")} className={w.status === "refused" ? "text-red-400 bg-red-500/10" : "text-neutral-400 hover:text-red-400 hover:bg-white/5"}>
+                                            <X size={13} className="mr-1" /> Refuser
+                                        </Button>
+                                        <Button variant="ghost" size="icon" onClick={() => deleteWish(w)} data-testid={`delete-wish-${w.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                    </div>
                                 </div>
                             ))}
                         </div>

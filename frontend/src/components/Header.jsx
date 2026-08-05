@@ -19,6 +19,7 @@ const links = [
     { to: "/browse?type=movie", label: "Films" },
     { to: "/browse?type=series", label: "Séries" },
     { to: "/browse?type=anime", label: "Animes" },
+    { to: "/wishboard", label: "Wishboard" },
     { to: "/pricing", label: "Premium" },
 ];
 
