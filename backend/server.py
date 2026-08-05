@@ -9,9 +9,12 @@ import random
 import logging
 import uuid
 import io
+import secrets
 import requests
 import bcrypt
 import jwt as pyjwt
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Literal
@@ -23,7 +26,9 @@ load_dotenv(ROOT_DIR / '.env')
 # ---------- Config ----------
 MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
-JWT_SECRET = os.environ.get('JWT_SECRET', 'change-me')
+JWT_SECRET = os.environ.get('JWT_SECRET') or secrets.token_urlsafe(48)
+if not os.environ.get('JWT_SECRET'):
+    logging.warning("JWT_SECRET absent : secret éphémère généré (les tokens seront invalidés au redémarrage). Définir JWT_SECRET en production.")
 JWT_ALGO = 'HS256'
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
@@ -78,7 +83,7 @@ class UserPublic(BaseModel):
 
 class RegisterInput(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=6)
     name: str
 
 class LoginInput(BaseModel):
@@ -394,7 +399,11 @@ async def register(inp: RegisterInput):
         "auth_provider": "jwt",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.users.insert_one(doc)
+    try:
+        await db.users.insert_one(doc)
+    except DuplicateKeyError:
+        # course entre deux inscriptions simultanées sur le même email
+        raise HTTPException(status_code=400, detail="Email already registered")
     token = create_jwt(user_id)
     return {"token": token, "user": user_public_dict(doc)}
 
@@ -497,7 +506,7 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
     if type:
         query["type"] = type
     if q:
-        query["title"] = {"$regex": q, "$options": "i"}
+        query["title"] = {"$regex": re.escape(q), "$options": "i"}
     if featured is not None:
         query["featured"] = featured
     docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
@@ -555,8 +564,6 @@ async def _recompute_rating(media_id: str):
 @api_router.post("/reviews")
 async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user)):
     review_id = f"r_{uuid.uuid4().hex[:12]}"
-    # award coins only the first time this user reviews this media (not on edits)
-    already = await db.reviews.find_one({"media_id": r.media_id, "user_id": user["user_id"], "parent_id": None}, {"_id": 0, "id": 1})
     # replace existing top-level review by same user (keep their replies intact)
     await db.reviews.delete_many({"media_id": r.media_id, "user_id": user["user_id"], "parent_id": None})
     doc = {
@@ -572,9 +579,12 @@ async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user))
     await db.reviews.insert_one(doc)
     await _recompute_rating(r.media_id)
     can_earn = await _comment_can_earn(user, r.comment)
-    if not already and can_earn:
+    # récompense une seule fois par média, même après suppression de l'avis (anti-farm)
+    rewarded = await db.review_rewards.find_one({"user_id": user["user_id"], "media_id": r.media_id})
+    if not rewarded and can_earn:
         amt = random.randint(1, 3)
         await award_coins(user["user_id"], amt, f"+{amt} Freemium pour ton avis", "Merci d'avoir noté un titre !")
+        await db.review_rewards.insert_one({"user_id": user["user_id"], "media_id": r.media_id})
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.post("/reviews/{parent_id}/reply")
@@ -865,15 +875,28 @@ async def rewards_daily(user: dict = Depends(get_current_user)):
     today = now.date().isoformat()
     yesterday = (now.date() - timedelta(days=1)).isoformat()
     last = user.get("last_reward_date")
+    already_resp = {"awarded": 0, "coins": round(float(user.get("coins", 0) or 0), 1), "streak": int(user.get("login_streak", 0) or 0), "already": True}
     if last == today:
-        return {"awarded": 0, "coins": round(float(user.get("coins", 0) or 0), 1), "streak": int(user.get("login_streak", 0) or 0), "already": True}
-    if not user.get("first_login_awarded"):
-        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"first_login_awarded": True, "login_streak": 1, "last_reward_date": today}})
+        return already_resp
+    welcome = not user.get("first_login_awarded")
+    if welcome:
+        streak = 1
+        amount = 10
+        set_fields = {"first_login_awarded": True, "login_streak": 1, "last_reward_date": today}
+    else:
+        streak = int(user.get("login_streak", 0) or 0) + 1 if last == yesterday else 1
+        amount = _daily_reward(streak)
+        set_fields = {"login_streak": streak, "last_reward_date": today}
+    # garde atomique : un seul claim par jour même en cas de requêtes concurrentes
+    guard = await db.users.update_one(
+        {"user_id": user["user_id"], "last_reward_date": {"$ne": today}},
+        {"$set": set_fields},
+    )
+    if guard.matched_count == 0:
+        return already_resp
+    if welcome:
         balance = await award_coins(user["user_id"], 10, "Bienvenue ! +10 Freemium", "Merci d'avoir rejoint YourMovie's. Reviens chaque jour pour gagner plus.")
         return {"awarded": 10, "coins": balance, "streak": 1, "welcome": True}
-    streak = int(user.get("login_streak", 0) or 0) + 1 if last == yesterday else 1
-    amount = _daily_reward(streak)
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"login_streak": streak, "last_reward_date": today}})
     balance = await award_coins(user["user_id"], amount, f"+{amount} Freemium · série de {streak} jour(s)", "Reviens demain sinon tu perds ta série !")
     return {"awarded": amount, "coins": balance, "streak": streak}
 
@@ -894,9 +917,6 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=400, detail="Durée invalide")
     cost = option["coins"]
     days = option["days"]
-    balance = float(user.get("coins", 0) or 0)
-    if balance < cost:
-        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {cost} Freemium (tu en as {round(balance, 1)}).")
     base = datetime.now(timezone.utc)
     current = user.get("premium_until")
     if current:
@@ -909,10 +929,15 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
         except Exception:
             pass
     until = (base + timedelta(days=days)).isoformat()
-    await db.users.update_one(
-        {"user_id": user["user_id"]},
+    # débit atomique : la condition coins >= cost et le décrément sont indissociables (anti-TOCTOU)
+    res = await db.users.find_one_and_update(
+        {"user_id": user["user_id"], "coins": {"$gte": cost}},
         {"$inc": {"coins": -cost}, "$set": {"premium_plan": inp.plan, "premium_until": until}},
+        return_document=ReturnDocument.AFTER,
     )
+    if res is None:
+        balance = float(user.get("coins", 0) or 0)
+        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {cost} Freemium (tu en as {round(balance, 1)}).")
     await db.notifications.insert_one({
         "id": f"n_{uuid.uuid4().hex[:12]}",
         "user_id": user["user_id"],
@@ -963,7 +988,6 @@ async def user_public_profile(user_id: str):
         "picture": u.get("picture"),
         "created_at": u.get("created_at"),
         "premium": _is_premium(u),
-        "is_admin": bool(u.get("is_admin")),
         "review_count": review_count,
         "reviews": review_items,
     }
@@ -1258,10 +1282,13 @@ async def _on_payment_paid(session_id: str, subscription_id: Optional[str] = Non
         await _apply_paid_subscription(session_id, subscription_id=subscription_id or tx.get("stripe_subscription_id"))
 
 @api_router.get("/payments/status/{session_id}")
-async def get_payment_status(session_id: str):
+async def get_payment_status(session_id: str, user: dict = Depends(get_current_user)):
     record = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not record:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    # seul le propriétaire de la transaction (ou un admin) peut consulter son statut
+    if record.get("user_id") != user["user_id"] and not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Accès refusé")
     if record.get("payment_status") != "paid":
         try:
             s = stripe.checkout.Session.retrieve(session_id)
@@ -1562,8 +1589,8 @@ async def update_profile(profile_id: str, inp: ProfileInput, user: dict = Depend
 @api_router.delete("/profiles/{profile_id}")
 async def delete_profile(profile_id: str, user: dict = Depends(get_current_user)):
     await db.profiles.delete_one({"id": profile_id, "user_id": user["user_id"]})
-    await db.favorites.delete_many({"profile_id": profile_id})
-    await db.watch_progress.delete_many({"profile_id": profile_id})
+    await db.favorites.delete_many({"profile_id": profile_id, "user_id": user["user_id"]})
+    await db.watch_progress.delete_many({"profile_id": profile_id, "user_id": user["user_id"]})
     return {"ok": True}
 
 # ---------- Admin: Users list ----------
@@ -1755,7 +1782,7 @@ async def create_party(inp: PartyCreateInput, user: dict = Depends(get_current_u
     return {"code": code, "media_id": inp.media_id}
 
 @api_router.get("/party/{code}")
-async def get_party(code: str):
+async def get_party(code: str, user: dict = Depends(get_current_user)):
     party = PARTIES.get(code.upper())
     if not party:
         raise HTTPException(status_code=404, detail="Salon introuvable")
@@ -1858,10 +1885,14 @@ async def root():
 # ---------- Wire ----------
 app.include_router(api_router)
 
+# CORS : jamais de credentials avec un wildcard. Si CORS_ORIGINS n'est pas défini
+# (ou vaut '*'), on autorise '*' mais sans credentials pour éviter le fail-open.
+_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '*').split(',') if o.strip()]
+_cors_credentials = _cors_origins != ['*']
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_cors_credentials,
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1869,6 +1900,13 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     logger.info(f"Storage: {'Cloudinary configuré' if CLOUDINARY_CONFIGURED else 'AUCUN (CLOUDINARY_URL manquant)'}")
+    # index uniques : bloque les doublons email / user_id (courses d'inscription).
+    # En try/except : si des doublons existent déjà en base, on n'empêche pas le démarrage.
+    try:
+        await db.users.create_index("user_id", unique=True)
+        await db.users.create_index("email", unique=True)
+    except Exception as e:
+        logger.warning(f"Index unique users non créé (doublons existants ?) : {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
