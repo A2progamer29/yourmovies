@@ -128,6 +128,16 @@ export default function CoinsPage() {
                 <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-2 flex items-center gap-2"><Coins size={14} /> Freemium</div>
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">Ta monnaie YourMovie's</h1>
 
+                {offer?.active && (
+                    <div className="mb-8 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-gradient-to-r from-[#E8D2A6]/15 to-[#0a0a0a] flex items-center gap-4">
+                        <Gift size={28} className="text-[#E8D2A6] shrink-0" />
+                        <div>
+                            <div className="font-display text-xl text-white">Offre de bienvenue : -{offer.pct}% 🎉</div>
+                            <div className="text-sm text-neutral-300">Tous les plans Premium sont à <span className="text-[#E8D2A6]">moitié prix en Freemium</span> pendant 24 h après ton inscription{offer.ends_at ? ` — jusqu'au ${new Date(offer.ends_at).toLocaleString("fr-FR")}` : ""}.</div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="grid sm:grid-cols-2 gap-4 mb-12">
                     <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a]">
                         <div className="text-xs uppercase tracking-widest text-neutral-400 mb-1">Solde</div>
