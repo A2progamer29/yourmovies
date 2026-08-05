@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import Response as FastAPIResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
@@ -758,7 +759,7 @@ async def imdb_search(q: str, user: dict = Depends(get_current_user)):
     if not OMDB_API_KEY:
         raise HTTPException(status_code=503, detail="Recherche IMDb non configurée (clé OMDb manquante).")
     try:
-        r = requests.get("https://www.omdbapi.com/", params={"apikey": OMDB_API_KEY, "s": q}, timeout=15)
+        r = await run_in_threadpool(lambda: requests.get("https://www.omdbapi.com/", params={"apikey": OMDB_API_KEY, "s": q}, timeout=15))
         data = r.json()
     except Exception:
         raise HTTPException(status_code=502, detail="Service IMDb indisponible.")
@@ -1104,11 +1105,11 @@ async def bunny_create_video(title: str = Form("video"), user: dict = Depends(re
     if not BUNNY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
     import hashlib, time
-    r = requests.post(
+    r = await run_in_threadpool(lambda: requests.post(
         f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos",
         headers={"AccessKey": BUNNY_API_KEY, "Content-Type": "application/json"},
         json={"title": title}, timeout=30,
-    )
+    ))
     if not r.ok:
         logger.error(f"Bunny create video failed: {r.status_code} {r.text[:200]}")
         raise HTTPException(status_code=500, detail="Création vidéo Bunny impossible")
@@ -1121,10 +1122,10 @@ async def bunny_create_video(title: str = Form("video"), user: dict = Depends(re
 async def bunny_video_status(video_id: str):
     if not BUNNY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
-    r = requests.get(
+    r = await run_in_threadpool(lambda: requests.get(
         f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_id}",
         headers={"AccessKey": BUNNY_API_KEY}, timeout=15,
-    )
+    ))
     if not r.ok:
         raise HTTPException(status_code=500, detail="Statut vidéo indisponible")
     j = r.json()
@@ -1212,7 +1213,7 @@ async def create_checkout(req: CheckoutRequest, user: dict = Depends(get_current
         raise HTTPException(status_code=400, detail=f"Plan inconnu : {req.lookup_key}")
     try:
         unit_amount = int(round(amount * 100))
-        session = stripe.checkout.Session.create(
+        session = await run_in_threadpool(lambda: stripe.checkout.Session.create(
             line_items=[{
                 "price_data": {
                     "currency": currency,
@@ -1226,7 +1227,7 @@ async def create_checkout(req: CheckoutRequest, user: dict = Depends(get_current
             success_url=f"{req.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{req.origin_url}/pricing",
             metadata={"user_id": user["user_id"], "lookup_key": req.lookup_key, "kind": "subscription"},
-        )
+        ))
         await db.payment_transactions.insert_one({
             "session_id": session.id,
             "user_id": user["user_id"],
@@ -1291,7 +1292,7 @@ async def get_payment_status(session_id: str, user: dict = Depends(get_current_u
         raise HTTPException(status_code=403, detail="Accès refusé")
     if record.get("payment_status") != "paid":
         try:
-            s = stripe.checkout.Session.retrieve(session_id)
+            s = await run_in_threadpool(lambda: stripe.checkout.Session.retrieve(session_id))
             if s.payment_status == "paid" or s.status == "complete":
                 await db.payment_transactions.update_one(
                     {"session_id": session_id, "payment_status": {"$ne": "paid"}},
@@ -1379,7 +1380,7 @@ async def contribute_cagnotte(inp: ContributeInput, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Montant minimum : 1 €.")
     try:
         unit_amount = int(round(amount * 100))
-        session = stripe.checkout.Session.create(
+        session = await run_in_threadpool(lambda: stripe.checkout.Session.create(
             line_items=[{
                 "price_data": {
                     "currency": "eur",
@@ -1392,7 +1393,7 @@ async def contribute_cagnotte(inp: ContributeInput, user: dict = Depends(get_cur
             success_url=f"{inp.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{inp.origin_url}/cagnotte",
             metadata={"user_id": user["user_id"], "kind": "donation"},
-        )
+        ))
         await db.payment_transactions.insert_one({
             "session_id": session.id,
             "user_id": user["user_id"],
@@ -1494,7 +1495,7 @@ async def current_subscription(user: dict = Depends(get_current_user)):
     }
     if sub_id:
         try:
-            sub = stripe.Subscription.retrieve(sub_id)
+            sub = await run_in_threadpool(lambda: stripe.Subscription.retrieve(sub_id))
             result["cancel_at_period_end"] = bool(sub.cancel_at_period_end)
             if sub.current_period_end:
                 result["next_billing_date"] = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc).isoformat()
@@ -1513,7 +1514,7 @@ async def cancel_subscription(user: dict = Depends(get_current_user)):
     if not sub_id:
         raise HTTPException(status_code=400, detail="No active subscription")
     try:
-        sub = stripe.Subscription.modify(sub_id, cancel_at_period_end=True)
+        sub = await run_in_threadpool(lambda: stripe.Subscription.modify(sub_id, cancel_at_period_end=True))
         return {"ok": True, "cancel_at_period_end": bool(sub.cancel_at_period_end)}
     except Exception as e:
         logger.error(f"Cancel subscription failed: {e}")
@@ -1525,7 +1526,7 @@ async def resume_subscription(user: dict = Depends(get_current_user)):
     if not sub_id:
         raise HTTPException(status_code=400, detail="No active subscription")
     try:
-        stripe.Subscription.modify(sub_id, cancel_at_period_end=False)
+        await run_in_threadpool(lambda: stripe.Subscription.modify(sub_id, cancel_at_period_end=False))
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Resume failed")
