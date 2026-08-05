@@ -233,7 +233,7 @@ export default function MediaDetailPage() {
             </section>
 
             <div className="max-w-7xl mx-auto px-6 py-12 grid lg:grid-cols-3 gap-12">
-                <div className="lg:col-span-2 space-y-12">
+                <div className="lg:col-span-2 space-y-12 order-2 lg:order-1">
                     {/* Trailer */}
                     {media.trailer_youtube_id && (
                         <div>
@@ -286,146 +286,9 @@ export default function MediaDetailPage() {
                         </div>
                     )}
 
-                    {/* Reviews */}
-                    <div>
-                        <h2 className="font-display text-2xl mb-4">Avis & Notes</h2>
-                        {user ? (
-                            <div ref={formRef} className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
-                                <div className="flex items-center gap-3 mb-3">
-                                    <label className="text-sm text-neutral-400">Ma note :</label>
-                                    <input
-                                        data-testid="review-rating-input"
-                                        type="number"
-                                        min="0"
-                                        max="10"
-                                        step="0.5"
-                                        value={ratingInput}
-                                        onChange={(e) => setRatingInput(e.target.value)}
-                                        className="w-20 bg-[#111] border border-[#262626] text-white rounded-md px-3 py-1.5 focus:outline-none focus:border-[#E8D2A6]"
-                                    />
-                                    <span className="text-neutral-500 text-sm">/ 10</span>
-                                </div>
-                                <Textarea
-                                    data-testid="review-comment-input"
-                                    value={commentInput}
-                                    onChange={(e) => setCommentInput(e.target.value)}
-                                    placeholder="Écrivez votre avis..."
-                                    className="bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
-                                />
-                                <div className="mt-3 flex items-center justify-end gap-3">
-                                    {editingReview && (
-                                        <button
-                                            onClick={() => { setEditingReview(false); setCommentInput(""); setRatingInput(7); }}
-                                            className="text-sm text-neutral-400 hover:text-white"
-                                        >
-                                            Annuler
-                                        </button>
-                                    )}
-                                    <Button
-                                        onClick={submitReview}
-                                        data-testid="submit-review-btn"
-                                        className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold"
-                                    >
-                                        {editingReview ? "Mettre à jour" : "Publier"}
-                                    </Button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="p-5 rounded-lg border border-[#262626] text-neutral-400 mb-6">
-                                <Link to="/login" className="text-[#E8D2A6] hover:underline">Connectez-vous</Link> pour laisser un avis.
-                            </div>
-                        )}
-
-                        {topReviews.length === 0 ? (
-                            <div className="text-neutral-500 text-sm">Aucun avis pour le moment. Soyez le premier.</div>
-                        ) : (
-                            <div className="space-y-4">
-                                {topReviews.map((r) => {
-                                    const mine = user && r.user_id === user.user_id;
-                                    const replies = repliesByParent[r.id] || [];
-                                    return (
-                                        <div key={r.id} className="p-5 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
-                                            <div className="flex items-center justify-between">
-                                                <Link to={`/u/${r.user_id}`} className="flex items-center gap-2 group/user">
-                                                    <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-sm font-semibold">
-                                                        {r.user_name?.[0]?.toUpperCase() || "U"}
-                                                    </div>
-                                                    <div className="text-white text-sm group-hover/user:text-[#E8D2A6] transition-colors">{r.user_name}</div>
-                                                </Link>
-                                                {typeof r.rating === "number" && (
-                                                    <div className="flex items-center gap-1 text-[#E8D2A6] text-sm">
-                                                        <Star size={12} fill="#E8D2A6" /> {r.rating.toFixed(1)}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            {r.comment && <p className="mt-3 text-neutral-300 text-sm leading-relaxed">{r.comment}</p>}
-
-                                            {user && (
-                                                <div className="mt-3 flex items-center gap-4 text-xs">
-                                                    {mine ? (
-                                                        <>
-                                                            <button onClick={() => startEditReview(r)} className="flex items-center gap-1 text-neutral-500 hover:text-white">
-                                                                <Pencil size={12} /> Modifier
-                                                            </button>
-                                                            <button onClick={() => deleteReview(r.id)} className="flex items-center gap-1 text-neutral-500 hover:text-red-400">
-                                                                <Trash2 size={12} /> Supprimer
-                                                            </button>
-                                                        </>
-                                                    ) : (
-                                                        <button onClick={() => { setReplyTo(replyTo === r.id ? null : r.id); setReplyInput(""); }} className="flex items-center gap-1 text-neutral-500 hover:text-[#E8D2A6]">
-                                                            <Reply size={12} /> Répondre
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {replyTo === r.id && renderReplyForm(r.id)}
-
-                                            {replies.length > 0 && (
-                                                <div className="mt-4 space-y-3 pl-4 border-l border-[#1a1a1a]">
-                                                    {replies.map((rp) => {
-                                                        const mineReply = user && rp.user_id === user.user_id;
-                                                        return (
-                                                            <div key={rp.id}>
-                                                                <Link to={`/u/${rp.user_id}`} className="flex items-center gap-2 group/user">
-                                                                    <div className="w-6 h-6 rounded-full bg-[#262626] text-neutral-200 flex items-center justify-center text-xs font-semibold">
-                                                                        {rp.user_name?.[0]?.toUpperCase() || "U"}
-                                                                    </div>
-                                                                    <div className="text-neutral-200 text-sm group-hover/user:text-[#E8D2A6] transition-colors">{rp.user_name}</div>
-                                                                </Link>
-                                                                <p className="mt-1.5 ml-8 text-neutral-400 text-sm leading-relaxed">
-                                                                    {rp.reply_to_name && <span className="text-[#E8D2A6]">@{rp.reply_to_name} </span>}
-                                                                    {rp.comment}
-                                                                </p>
-                                                                {user && (
-                                                                    <div className="mt-1 ml-8 flex items-center gap-4 text-xs">
-                                                                        {!mineReply && (
-                                                                            <button onClick={() => { setReplyTo(replyTo === rp.id ? null : rp.id); setReplyInput(""); }} className="flex items-center gap-1 text-neutral-600 hover:text-[#E8D2A6]">
-                                                                                <Reply size={11} /> Répondre
-                                                                            </button>
-                                                                        )}
-                                                                        {mineReply && (
-                                                                            <button onClick={() => deleteReview(rp.id)} className="flex items-center gap-1 text-neutral-600 hover:text-red-400">
-                                                                                <Trash2 size={11} /> Supprimer
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                {replyTo === rp.id && <div className="ml-8">{renderReplyForm(rp.id)}</div>}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
                 </div>
 
-                <aside className="space-y-8">
+                <aside className="space-y-8 order-1 lg:order-2">
                     <Button
                         onClick={() => navigate(`/watch/${media.id}`)}
                         data-testid="watch-btn-aside"
@@ -468,6 +331,143 @@ export default function MediaDetailPage() {
                     </div>
                 </section>
             )}
+
+            <section className="max-w-3xl mx-auto px-6 pb-24" data-testid="reviews-section">
+                <h2 className="font-display text-2xl mb-4">Avis & Notes</h2>
+                {user ? (
+                    <div ref={formRef} className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
+                        <div className="flex items-center gap-3 mb-3">
+                            <label className="text-sm text-neutral-400">Ma note :</label>
+                            <input
+                                data-testid="review-rating-input"
+                                type="number"
+                                min="0"
+                                max="10"
+                                step="0.5"
+                                value={ratingInput}
+                                onChange={(e) => setRatingInput(e.target.value)}
+                                className="w-20 bg-[#111] border border-[#262626] text-white rounded-md px-3 py-1.5 focus:outline-none focus:border-[#E8D2A6]"
+                            />
+                            <span className="text-neutral-500 text-sm">/ 10</span>
+                        </div>
+                        <Textarea
+                            data-testid="review-comment-input"
+                            value={commentInput}
+                            onChange={(e) => setCommentInput(e.target.value)}
+                            placeholder="Écrivez votre avis..."
+                            className="bg-[#111] border-[#262626] text-white placeholder:text-neutral-600 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]"
+                        />
+                        <div className="mt-3 flex items-center justify-end gap-3">
+                            {editingReview && (
+                                <button
+                                    onClick={() => { setEditingReview(false); setCommentInput(""); setRatingInput(7); }}
+                                    className="text-sm text-neutral-400 hover:text-white"
+                                >
+                                    Annuler
+                                </button>
+                            )}
+                            <Button
+                                onClick={submitReview}
+                                data-testid="submit-review-btn"
+                                className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold"
+                            >
+                                {editingReview ? "Mettre à jour" : "Publier"}
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="p-5 rounded-lg border border-[#262626] text-neutral-400 mb-6">
+                        <Link to="/login" className="text-[#E8D2A6] hover:underline">Connectez-vous</Link> pour laisser un avis.
+                    </div>
+                )}
+
+                {topReviews.length === 0 ? (
+                    <div className="text-neutral-500 text-sm">Aucun avis pour le moment. Soyez le premier.</div>
+                ) : (
+                    <div className="space-y-4">
+                        {topReviews.map((r) => {
+                            const mine = user && r.user_id === user.user_id;
+                            const replies = repliesByParent[r.id] || [];
+                            return (
+                                <div key={r.id} className="p-5 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a]">
+                                    <div className="flex items-center justify-between">
+                                        <Link to={`/u/${r.user_id}`} className="flex items-center gap-2 group/user">
+                                            <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-sm font-semibold">
+                                                {r.user_name?.[0]?.toUpperCase() || "U"}
+                                            </div>
+                                            <div className="text-white text-sm group-hover/user:text-[#E8D2A6] transition-colors">{r.user_name}</div>
+                                        </Link>
+                                        {typeof r.rating === "number" && (
+                                            <div className="flex items-center gap-1 text-[#E8D2A6] text-sm">
+                                                <Star size={12} fill="#E8D2A6" /> {r.rating.toFixed(1)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {r.comment && <p className="mt-3 text-neutral-300 text-sm leading-relaxed">{r.comment}</p>}
+
+                                    {user && (
+                                        <div className="mt-3 flex items-center gap-4 text-xs">
+                                            {mine ? (
+                                                <>
+                                                    <button onClick={() => startEditReview(r)} className="flex items-center gap-1 text-neutral-500 hover:text-white">
+                                                        <Pencil size={12} /> Modifier
+                                                    </button>
+                                                    <button onClick={() => deleteReview(r.id)} className="flex items-center gap-1 text-neutral-500 hover:text-red-400">
+                                                        <Trash2 size={12} /> Supprimer
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button onClick={() => { setReplyTo(replyTo === r.id ? null : r.id); setReplyInput(""); }} className="flex items-center gap-1 text-neutral-500 hover:text-[#E8D2A6]">
+                                                    <Reply size={12} /> Répondre
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {replyTo === r.id && renderReplyForm(r.id)}
+
+                                    {replies.length > 0 && (
+                                        <div className="mt-4 space-y-3 pl-4 border-l border-[#1a1a1a]">
+                                            {replies.map((rp) => {
+                                                const mineReply = user && rp.user_id === user.user_id;
+                                                return (
+                                                    <div key={rp.id}>
+                                                        <Link to={`/u/${rp.user_id}`} className="flex items-center gap-2 group/user">
+                                                            <div className="w-6 h-6 rounded-full bg-[#262626] text-neutral-200 flex items-center justify-center text-xs font-semibold">
+                                                                {rp.user_name?.[0]?.toUpperCase() || "U"}
+                                                            </div>
+                                                            <div className="text-neutral-200 text-sm group-hover/user:text-[#E8D2A6] transition-colors">{rp.user_name}</div>
+                                                        </Link>
+                                                        <p className="mt-1.5 ml-8 text-neutral-400 text-sm leading-relaxed">
+                                                            {rp.reply_to_name && <span className="text-[#E8D2A6]">@{rp.reply_to_name} </span>}
+                                                            {rp.comment}
+                                                        </p>
+                                                        {user && (
+                                                            <div className="mt-1 ml-8 flex items-center gap-4 text-xs">
+                                                                {!mineReply && (
+                                                                    <button onClick={() => { setReplyTo(replyTo === rp.id ? null : rp.id); setReplyInput(""); }} className="flex items-center gap-1 text-neutral-600 hover:text-[#E8D2A6]">
+                                                                        <Reply size={11} /> Répondre
+                                                                    </button>
+                                                                )}
+                                                                {mineReply && (
+                                                                    <button onClick={() => deleteReview(rp.id)} className="flex items-center gap-1 text-neutral-600 hover:text-red-400">
+                                                                        <Trash2 size={11} /> Supprimer
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        {replyTo === rp.id && <div className="ml-8">{renderReplyForm(rp.id)}</div>}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </section>
         </div>
     );
 }
