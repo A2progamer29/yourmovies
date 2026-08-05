@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useFavorites } from "@/context/FavoritesContext";
 import { describeError, showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,6 +20,7 @@ export default function MediaDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { setStatus: setFavStatus } = useFavorites();
     const [media, setMedia] = useState(null);
     const [reviews, setReviews] = useState([]);
     const [similar, setSimilar] = useState([]);
@@ -55,6 +57,7 @@ export default function MediaDetailPage() {
         if (!user) { navigate("/login"); return; }
         const r = await api.post(`/favorites/${id}?list_type=${list_type}`);
         setStatus((s) => ({ ...s, [list_type]: r.data.active }));
+        setFavStatus(id, list_type, r.data.active);
         toast.success(r.data.active ? "Ajouté" : "Retiré");
     };
 

@@ -5,14 +5,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useFavorites } from "@/context/FavoritesContext";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 
 export default function MediaCard({ media, size = "md" }) {
     const { user } = useAuth();
+    const { favIds, watchIds, setStatus } = useFavorites();
     const navigate = useNavigate();
-    const [fav, setFav] = useState(null);
-    const [watch, setWatch] = useState(null);
+    const fav = favIds.has(media.id);
+    const watch = watchIds.has(media.id);
     const [busy, setBusy] = useState(false);
     const [burst, setBurst] = useState(0);
     const [isTouch] = useState(() =>
@@ -36,7 +38,7 @@ export default function MediaCard({ media, size = "md" }) {
         try {
             const r = await api.post(`/favorites/${media.id}?list_type=${list_type}`);
             const active = r.data.active;
-            if (list_type === "favorite") setFav(active); else setWatch(active);
+            setStatus(media.id, list_type, active);
             return active;
         } catch {
             toast.error("Action impossible");
@@ -123,12 +125,12 @@ export default function MediaCard({ media, size = "md" }) {
                         <motion.div
                             key={burst}
                             initial={{ scale: 0, opacity: 0 }}
-                            animate={{ scale: [0, 1.25, 1], opacity: [0, 1, 0] }}
-                            transition={{ duration: 0.7, times: [0, 0.4, 1] }}
+                            animate={{ scale: [0, 1.15, 1], opacity: [0, 1, 0] }}
+                            transition={{ duration: 0.4, times: [0, 0.45, 1] }}
                             onAnimationComplete={() => setBurst(0)}
                             className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
                         >
-                            <Heart size={72} fill="#E8D2A6" className="text-[#E8D2A6] drop-shadow-[0_2px_12px_rgba(0,0,0,0.65)]" />
+                            <Heart size={64} fill="#E8D2A6" className="text-[#E8D2A6] drop-shadow-[0_2px_12px_rgba(0,0,0,0.65)]" />
                         </motion.div>
                     )}
                 </AnimatePresence>

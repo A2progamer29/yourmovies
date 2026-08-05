@@ -3,6 +3,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
+import { FavoritesProvider } from "@/context/FavoritesContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Splash from "@/components/Splash";
 import HomePage from "@/pages/HomePage";
@@ -79,8 +80,10 @@ function App() {
             <BrowserRouter>
                 <ErrorBoundary>
                     <AuthProvider>
-                        <AppRouter />
-                        <Toaster theme="dark" richColors position="top-right" />
+                        <FavoritesProvider>
+                            <AppRouter />
+                            <Toaster theme="dark" richColors position="top-right" />
+                        </FavoritesProvider>
                     </AuthProvider>
                 </ErrorBoundary>
             </BrowserRouter>
