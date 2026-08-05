@@ -201,6 +201,11 @@ class AdminUserUpdate(BaseModel):
     password: Optional[str] = Field(default=None, min_length=6)
     bio: Optional[str] = None
 
+class AdminPremiumInput(BaseModel):
+    plan: Optional[Literal["basic", "standard", "premium"]] = None
+    days: int = 3650
+    remove: bool = False
+
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
@@ -1798,6 +1803,18 @@ async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_admin
     until = (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat()
     await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": "admin"}})
     return {"premium": True}
+
+@api_router.post("/admin/users/{user_id}/premium")
+async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Not found")
+    if inp.remove or not inp.plan:
+        await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": None, "premium_plan": None}})
+        return {"premium": False}
+    until = (datetime.now(timezone.utc) + timedelta(days=max(1, inp.days))).isoformat()
+    await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": inp.plan}})
+    return {"premium": True, "plan": inp.plan, "premium_until": until}
 
 BLOCK_DELETE_DAYS = 15
 

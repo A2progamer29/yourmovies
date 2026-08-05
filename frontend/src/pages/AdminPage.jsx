@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
+import GivePremiumDialog from "@/components/GivePremiumDialog";
 import { showError } from "@/lib/errors";
 
 export default function AdminPage() {
@@ -26,6 +27,7 @@ export default function AdminPage() {
     const [coinAmount, setCoinAmount] = useState({});
     const [cagnotte, setCagnotte] = useState({ total: 0, goal: 1000 });
     const [cagnotteInput, setCagnotteInput] = useState("");
+    const [premiumUser, setPremiumUser] = useState(null);
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -91,13 +93,6 @@ export default function AdminPage() {
         try {
             await api.post(`/admin/users/${u.user_id}/toggle-admin`);
             toast.success("Rôle mis à jour");
-            loadUsers();
-        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
-    };
-    const togglePremium = async (u) => {
-        try {
-            await api.post(`/admin/users/${u.user_id}/toggle-premium`);
-            toast.success("Premium mis à jour");
             loadUsers();
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
@@ -376,12 +371,12 @@ export default function AdminPage() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => togglePremium(u)}
+                                            onClick={() => setPremiumUser(u)}
                                             data-testid={`toggle-premium-${u.user_id}`}
                                             className={u.premium ? "text-[#E8D2A6] hover:bg-white/5" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}
                                         >
                                             <Crown size={12} className="mr-1" />
-                                            {u.premium ? "Retirer Premium" : "Premium"}
+                                            {u.premium ? "Premium" : "Premium"}
                                         </Button>
                                         <Button variant="ghost" size="icon" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.user_id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
                                     </div>
@@ -601,6 +596,8 @@ export default function AdminPage() {
                     </TabsContent>
                 </Tabs>
             </div>
+
+            <GivePremiumDialog user={premiumUser} open={!!premiumUser} onOpenChange={(v) => !v && setPremiumUser(null)} onDone={loadUsers} />
         </div>
     );
 }

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import GivePremiumDialog from "@/components/GivePremiumDialog";
 import Header from "@/components/Header";
 
 export default function AdminUserPage() {
@@ -19,6 +20,7 @@ export default function AdminUserPage() {
     const [notFound, setNotFound] = useState(false);
     const [form, setForm] = useState({ name: "", email: "", bio: "", password: "" });
     const [saving, setSaving] = useState(false);
+    const [premiumOpen, setPremiumOpen] = useState(false);
 
     const load = async () => {
         try {
@@ -54,10 +56,6 @@ export default function AdminUserPage() {
 
     const toggleAdmin = async () => {
         try { await api.post(`/admin/users/${id}/toggle-admin`); toast.success("Rôle mis à jour"); load(); }
-        catch (e) { showError(toast, e, "Action impossible"); }
-    };
-    const togglePremium = async () => {
-        try { await api.post(`/admin/users/${id}/toggle-premium`); toast.success("Premium mis à jour"); load(); }
         catch (e) { showError(toast, e, "Action impossible"); }
     };
     const toggleBlock = async () => {
@@ -181,8 +179,8 @@ export default function AdminUserPage() {
                         <Button variant="outline" onClick={toggleAdmin} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
                             {target.is_admin ? <><ShieldOff size={14} className="mr-2" /> Retirer admin</> : <><Shield size={14} className="mr-2" /> Rendre admin</>}
                         </Button>
-                        <Button variant="outline" onClick={togglePremium} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
-                            <Crown size={14} className="mr-2" /> {target.premium ? "Retirer Premium" : "Donner Premium"}
+                        <Button variant="outline" onClick={() => setPremiumOpen(true)} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
+                            <Crown size={14} className="mr-2" /> {target.premium ? "Gérer le Premium" : "Donner un Premium"}
                         </Button>
                         <Button variant="outline" onClick={toggleBlock} className={`rounded-full bg-transparent ${target.blocked ? "border-[#262626] text-white hover:bg-white/5" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`}>
                             <Ban size={14} className="mr-2" /> {target.blocked ? "Débloquer" : "Bloquer le compte"}
@@ -193,6 +191,8 @@ export default function AdminUserPage() {
                     </div>
                 </div>
             </div>
+
+            <GivePremiumDialog user={target} open={premiumOpen} onOpenChange={setPremiumOpen} onDone={load} />
         </div>
     );
 }
