@@ -63,7 +63,7 @@ export default function PublicProfilePage() {
                             {profile.premium && <Crown size={18} className="text-[#E8D2A6]" />}
                             {profile.is_admin && <Shield size={16} className="text-[#E8D2A6]" />}
                             {profile.user_id === CREATOR_ID && (
-                                <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full bg-[#E8D2A6] text-black font-bold">Créateur</span>
+                                <span className="text-[10px] leading-none uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[#E8D2A6] text-black font-bold">Créateur</span>
                             )}
                         </h1>
                         <div className="text-sm text-neutral-500 mt-1.5 flex items-center gap-4 flex-wrap">
