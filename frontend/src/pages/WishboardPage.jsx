@@ -25,6 +25,7 @@ export default function WishboardPage() {
     const [q, setQ] = useState("");
     const [results, setResults] = useState([]);
     const [searching, setSearching] = useState(false);
+    const [searchError, setSearchError] = useState("");
     const [adding, setAdding] = useState(false);
     const timer = useRef(null);
 
@@ -41,15 +42,16 @@ export default function WishboardPage() {
         if (!modalOpen) return;
         if (timer.current) clearTimeout(timer.current);
         const query = q.trim();
-        if (!query) { setResults([]); return; }
+        if (!query) { setResults([]); setSearchError(""); return; }
         timer.current = setTimeout(async () => {
             setSearching(true);
+            setSearchError("");
             try {
                 const r = await api.get(`/imdb/search?q=${encodeURIComponent(query)}`, { silent: true });
                 setResults(r.data || []);
             } catch (e) {
                 setResults([]);
-                showError(toast, e, "Recherche IMDb indisponible");
+                setSearchError(e?.response?.data?.detail || "Recherche IMDb indisponible.");
             } finally {
                 setSearching(false);
             }
@@ -165,6 +167,11 @@ export default function WishboardPage() {
                         <div className="max-h-[60vh] overflow-y-auto">
                             {searching ? (
                                 <div className="px-4 py-10 text-center text-sm text-neutral-500">Recherche…</div>
+                            ) : searchError ? (
+                                <div className="px-4 py-8 text-center text-sm text-red-400">
+                                    {searchError}
+                                    <div className="text-xs text-neutral-500 mt-2">Vérifiez la clé <code className="text-neutral-400">OMDB_API_KEY</code> sur Render (et son activation par email).</div>
+                                </div>
                             ) : results.length === 0 ? (
                                 <div className="px-4 py-10 text-center text-sm text-neutral-500">
                                     {q.trim() ? "Aucun résultat IMDb" : "Tapez un titre pour rechercher sur IMDb"}

@@ -639,7 +639,12 @@ async def imdb_search(q: str, user: dict = Depends(get_current_user)):
     except Exception:
         raise HTTPException(status_code=502, detail="Service IMDb indisponible.")
     if data.get("Response") == "False":
-        return []
+        err = (data.get("Error") or "").lower()
+        # "Movie not found!" / "Too many results." = pas de résultat exploitable -> liste vide
+        if "not found" in err or "too many" in err:
+            return []
+        # clé invalide, non activée, quota atteint... -> on remonte le message
+        raise HTTPException(status_code=502, detail=f"IMDb (OMDb) : {data.get('Error', 'clé invalide ou inactive')}")
     results = []
     for it in data.get("Search", [])[:10]:
         poster = it.get("Poster")
