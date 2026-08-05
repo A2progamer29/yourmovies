@@ -1354,12 +1354,21 @@ class ContributeInput(BaseModel):
     amount: float
     origin_url: str
 
+def _refund_pct(total: float, goal: float) -> float:
+    # remboursement équitable si l'objectif n'est pas atteint : croît avec le manque à gagner,
+    # plafonné à 10 % (coût absolu max ~2,5 % de l'objectif -> l'organisateur reste rentable).
+    if goal <= 0 or total >= goal:
+        return 0.0
+    return round(min(10.0, 10.0 * (goal - total) / goal), 1)
+
 async def _get_cagnotte() -> dict:
     doc = await db.cagnotte.find_one({"id": "main"}, {"_id": 0})
     if not doc:
         doc = {"id": "main", "total": 0.0, "goal": CAGNOTTE_GOAL}
         await db.cagnotte.insert_one(doc)
-    return {"total": round(float(doc.get("total", 0) or 0), 2), "goal": float(doc.get("goal", CAGNOTTE_GOAL) or CAGNOTTE_GOAL)}
+    total = round(float(doc.get("total", 0) or 0), 2)
+    goal = float(doc.get("goal", CAGNOTTE_GOAL) or CAGNOTTE_GOAL)
+    return {"total": total, "goal": goal, "reached": total >= goal, "refund_pct": _refund_pct(total, goal)}
 
 @api_router.get("/cagnotte")
 async def get_cagnotte():

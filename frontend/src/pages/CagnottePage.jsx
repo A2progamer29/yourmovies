@@ -14,7 +14,7 @@ const PRESETS = [5, 10, 20, 50];
 export default function CagnottePage() {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [data, setData] = useState({ total: 0, goal: 1000 });
+    const [data, setData] = useState({ total: 0, goal: 1000, reached: false, refund_pct: 0 });
     const [amount, setAmount] = useState("10");
     const [busy, setBusy] = useState(false);
 
@@ -61,6 +61,14 @@ export default function CagnottePage() {
                         <div className="h-full bg-[#E8D2A6] transition-all duration-500" style={{ width: `${pct}%` }} />
                     </div>
                     <div className="text-xs text-[#E8D2A6] mt-2">{pct}% de l'objectif atteint</div>
+                    {data.reached ? (
+                        <div className="mt-3 text-sm text-emerald-400">🎉 Objectif atteint — aucun remboursement.</div>
+                    ) : (
+                        <div className="mt-3 flex items-center justify-between gap-3 pt-3 border-t border-white/10">
+                            <span className="text-sm text-neutral-400">Remboursement estimé si clôture maintenant</span>
+                            <span className="font-display text-2xl text-[#E8D2A6]" data-testid="refund-pct">{data.refund_pct}%</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] mb-8">
@@ -96,7 +104,9 @@ export default function CagnottePage() {
 
                 <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] flex gap-3 text-sm text-neutral-400">
                     <Info size={16} className="text-[#E8D2A6] shrink-0 mt-0.5" />
-                    <p>Si l'objectif de {data.goal.toLocaleString("fr-FR")} € n'est pas atteint, une petite partie des contributions pourra être remboursée aux participants. Le suivi et les éventuels remboursements sont gérés manuellement.</p>
+                    <p>
+                        Si l'objectif de {data.goal.toLocaleString("fr-FR")} € n'est pas atteint, <span className="text-[#E8D2A6]">{data.refund_pct}%</span> de chaque contribution est remboursé. Ce taux est calculé automatiquement : plus l'objectif est loin, plus il est élevé (plafonné à 10 %). Les remboursements sont gérés manuellement.
+                    </p>
                 </div>
             </div>
         </div>
