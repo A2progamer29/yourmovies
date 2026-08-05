@@ -14,16 +14,19 @@ export default function ConversationPage() {
     const navigate = useNavigate();
     const [other, setOther] = useState(null);
     const [messages, setMessages] = useState([]);
+    const [otherTyping, setOtherTyping] = useState(false);
     const [text, setText] = useState("");
     const [sending, setSending] = useState(false);
     const [notFound, setNotFound] = useState(false);
     const listRef = useRef(null);
+    const lastTypingRef = useRef(0);
 
     const load = useCallback(async () => {
         try {
             const r = await api.get(`/messages/${id}`, { silent: true });
             setOther(r.data.other);
             setMessages(r.data.messages || []);
+            setOtherTyping(!!r.data.other_typing);
         } catch (e) {
             if (e?.response?.status === 404) setNotFound(true);
         }
@@ -32,13 +35,22 @@ export default function ConversationPage() {
     useEffect(() => {
         if (!user) return;
         load();
-        const t = setInterval(load, 4000);
+        const t = setInterval(load, 2500);
         return () => clearInterval(t);
     }, [user, load]);
 
     useEffect(() => {
         if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-    }, [messages]);
+    }, [messages, otherTyping]);
+
+    const onType = (e) => {
+        setText(e.target.value);
+        const now = Date.now();
+        if (now - lastTypingRef.current > 2000) {
+            lastTypingRef.current = now;
+            api.post(`/messages/${id}/typing`, {}, { silent: true }).catch(() => { });
+        }
+    };
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
@@ -107,12 +119,25 @@ export default function ConversationPage() {
                             );
                         })
                     )}
+                    {otherTyping && (
+                        <div className="flex justify-start" data-testid="typing-indicator">
+                            <div className="bg-[#1a1a1a] rounded-2xl px-4 py-3 flex items-center gap-1.5">
+                                {[0, 150, 300].map((d) => (
+                                    <span key={d} className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
+
+                {otherTyping && other && (
+                    <div className="text-xs text-neutral-500 mt-1 ml-1">{other.name} est en train d'écrire…</div>
+                )}
 
                 <div className="mt-4 flex gap-2 pt-3">
                     <input
                         value={text}
-                        onChange={(e) => setText(e.target.value)}
+                        onChange={onType}
                         onKeyDown={(e) => e.key === "Enter" && send()}
                         data-testid="message-input"
                         placeholder="Écrire un message…"

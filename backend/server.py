@@ -1037,6 +1037,10 @@ async def presence_ping(user: dict = Depends(get_current_user)):
 class MessageInput(BaseModel):
     text: str
 
+# état de frappe éphémère en mémoire : (from_id, to_id) -> timestamp d'expiration
+TYPING: dict = {}
+TYPING_TTL = 5  # secondes
+
 @api_router.post("/messages/{other_id}")
 async def send_message(other_id: str, inp: MessageInput, user: dict = Depends(get_current_user)):
     if other_id == user["user_id"]:
@@ -1072,10 +1076,18 @@ async def get_conversation(other_id: str, user: dict = Depends(get_current_user)
     ).sort("created_at", 1).to_list(500)
     # marque comme lus les messages reçus de cet utilisateur
     await db.messages.update_many({"from_id": other_id, "to_id": uid, "read": False}, {"$set": {"read": True}})
+    now_ts = datetime.now(timezone.utc).timestamp()
+    other_typing = TYPING.get((other_id, uid), 0) > now_ts
     return {
         "other": {"user_id": other["user_id"], "name": other.get("name"), "picture": other.get("picture"), "online": _is_online(other)},
         "messages": msgs,
+        "other_typing": other_typing,
     }
+
+@api_router.post("/messages/{other_id}/typing")
+async def typing_signal(other_id: str, user: dict = Depends(get_current_user)):
+    TYPING[(user["user_id"], other_id)] = datetime.now(timezone.utc).timestamp() + TYPING_TTL
+    return {"ok": True}
 
 @api_router.get("/conversations")
 async def list_conversations(user: dict = Depends(get_current_user)):

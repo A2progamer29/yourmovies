@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PiggyBank, Heart, Info } from "lucide-react";
+import { PiggyBank, Heart, Info, Gift, Lock, Check, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,14 @@ import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 
 const PRESETS = [5, 10, 20, 50];
+
+const TIERS = [
+    { amount: 100, title: "Plans offerts", desc: "L'organisateur s'engage à offrir 10 plans Standard et 5 plans Basic." },
+    { amount: 300, title: "Giveaway Discord", desc: "Un giveaway de 50 € est organisé sur le Discord." },
+    { amount: 500, title: "Premium à vie à gagner", desc: "Chance de gagner aléatoirement le plan Premium à vie + 50 € en giveaway." },
+    { amount: 700, title: "Gros lot", desc: "100 € en giveaway + 5 plans Premium à vie." },
+    { amount: 1000, title: "Récompense finale", desc: "Une récompense de 250 € max à choisir (carte cadeau, etc.)." },
+];
 
 export default function CagnottePage() {
     const { user } = useAuth();
@@ -69,6 +77,37 @@ export default function CagnottePage() {
                             <span className="font-display text-2xl text-[#E8D2A6]" data-testid="refund-pct">{data.refund_pct}%</span>
                         </div>
                     )}
+                </div>
+
+                <div className="mb-8">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Trophy size={18} className="text-[#E8D2A6]" />
+                        <h2 className="font-display text-2xl">Paliers de récompenses</h2>
+                    </div>
+                    <div className="space-y-2.5">
+                        {TIERS.map((tier) => {
+                            const reached = data.total >= tier.amount;
+                            return (
+                                <div key={tier.amount} className={`flex items-start gap-4 p-4 rounded-lg border ${reached ? "border-[#E8D2A6]/40 bg-gradient-to-br from-[#171208] to-[#0a0a0a]" : "border-[#262626] bg-[#0a0a0a]"}`}>
+                                    <div className={`flex flex-col items-center justify-center w-16 shrink-0 ${reached ? "text-[#E8D2A6]" : "text-neutral-600"}`}>
+                                        {reached ? <Check size={18} /> : <Lock size={16} />}
+                                        <span className="font-display text-lg mt-0.5">{tier.amount}€</span>
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className={`font-medium flex items-center gap-1.5 ${reached ? "text-white" : "text-neutral-300"}`}>
+                                            <Gift size={14} className={reached ? "text-[#E8D2A6]" : "text-neutral-600"} /> {tier.title}
+                                            {reached && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[#E8D2A6] text-black font-bold">Débloqué</span>}
+                                        </div>
+                                        <div className="text-sm text-neutral-400 mt-1 leading-relaxed">{tier.desc}</div>
+                                        {!reached && (
+                                            <div className="text-xs text-neutral-600 mt-1.5">Encore {(tier.amount - data.total).toLocaleString("fr-FR")} € pour débloquer</div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <p className="text-[11px] text-neutral-600 mt-3">Récompenses et giveaways gérés manuellement par l'organisateur sur le Discord.</p>
                 </div>
 
                 <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] mb-8">
