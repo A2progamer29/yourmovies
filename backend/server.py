@@ -194,6 +194,12 @@ class AdminCoinsInput(BaseModel):
     amount: float = 0
     mode: Literal["add", "remove", "set", "reset"] = "add"
 
+class AdminUserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = Field(default=None, min_length=6)
+    bio: Optional[str] = None
+
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
@@ -1608,6 +1614,40 @@ async def delete_profile(profile_id: str, user: dict = Depends(get_current_user)
 async def admin_list_users(user: dict = Depends(require_admin)):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
     return [user_public_dict(u) | {"created_at": u.get("created_at")} for u in users]
+
+@api_router.get("/admin/users/{user_id}")
+async def admin_get_user(user_id: str, admin: dict = Depends(require_admin)):
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    review_count = await db.reviews.count_documents({"user_id": user_id, "parent_id": None})
+    return user_public_dict(u) | {"created_at": u.get("created_at"), "review_count": review_count}
+
+@api_router.patch("/admin/users/{user_id}")
+async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    updates = {}
+    if inp.name is not None:
+        updates["name"] = inp.name.strip()
+    if inp.email is not None:
+        new_email = inp.email.lower()
+        clash = await db.users.find_one({"email": new_email, "user_id": {"$ne": user_id}}, {"_id": 0, "user_id": 1})
+        if clash:
+            raise HTTPException(status_code=400, detail="Cet email est déjà utilisé par un autre compte.")
+        updates["email"] = new_email
+    if inp.bio is not None:
+        updates["bio"] = inp.bio
+    if inp.password:
+        updates["password_hash"] = hash_password(inp.password)
+    if updates:
+        try:
+            await db.users.update_one({"user_id": user_id}, {"$set": updates})
+        except DuplicateKeyError:
+            raise HTTPException(status_code=400, detail="Cet email est déjà utilisé par un autre compte.")
+    updated = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    return user_public_dict(updated) | {"created_at": updated.get("created_at")}
 
 @api_router.post("/admin/users/{user_id}/toggle-admin")
 async def admin_toggle_admin(user_id: str, admin: dict = Depends(require_admin)):

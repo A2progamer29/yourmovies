@@ -325,7 +325,13 @@ export default function AdminPage() {
                             {filteredUsers.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun utilisateur.</div>}
                             {filteredUsers.map((u) => (
                                 <div key={u.user_id} className="grid grid-cols-12 px-5 py-4 border-b border-[#1a1a1a] items-center text-sm hover:bg-white/[0.02]" data-testid={`user-row-${u.user_id}`}>
-                                    <div className="col-span-4 flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(`/admin/users/${u.user_id}`)}
+                                        data-testid={`open-user-${u.user_id}`}
+                                        title="Ouvrir la fiche admin"
+                                        className="col-span-4 flex items-center gap-3 text-left group/u"
+                                    >
                                         {u.picture ? (
                                             <img src={u.picture} alt="" className="w-8 h-8 rounded-full" />
                                         ) : (
@@ -333,14 +339,14 @@ export default function AdminPage() {
                                                 {u.name?.[0]?.toUpperCase()}
                                             </div>
                                         )}
-                                        <div>
-                                            <div className="text-white flex items-center gap-1.5">
+                                        <div className="min-w-0">
+                                            <div className="text-white flex items-center gap-1.5 group-hover/u:text-[#E8D2A6] transition-colors">
                                                 {u.name}
                                                 {u.is_admin && <Shield size={11} className="text-[#E8D2A6]" />}
                                             </div>
-                                            <div className="text-xs text-neutral-500">{u.email}</div>
+                                            <div className="text-xs text-neutral-500 truncate group-hover/u:text-neutral-300">{u.email}</div>
                                         </div>
-                                    </div>
+                                    </button>
                                     <div className="col-span-2 text-neutral-400 capitalize">{u.auth_provider}</div>
                                     <div className="col-span-2">
                                         {u.premium ? (

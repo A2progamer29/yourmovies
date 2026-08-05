@@ -13,6 +13,7 @@ import LoginPage from "@/pages/LoginPage";
 import ProfilePage from "@/pages/ProfilePage";
 import AdminPage from "@/pages/AdminPage";
 import AdminMediaForm from "@/pages/AdminMediaForm";
+import AdminUserPage from "@/pages/AdminUserPage";
 import AuthCallback from "@/pages/AuthCallback";
 import PricingPage from "@/pages/PricingPage";
 import PaymentSuccess from "@/pages/PaymentSuccess";
@@ -47,6 +48,7 @@ function AppRouter() {
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />
             <Route path="/admin/media/:id/edit" element={<AdminMediaForm />} />
+            <Route path="/admin/users/:id" element={<AdminUserPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
         </Routes>
