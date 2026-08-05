@@ -273,6 +273,20 @@ async def current_profile_id(x_profile_id: Optional[str] = Header(None, alias="X
     # profil actif (multi-profil premium) ; None = niveau compte / profil général
     return x_profile_id or None
 
+ONLINE_WINDOW_SECONDS = 120
+
+def _is_online(user: dict) -> bool:
+    ls = user.get("last_seen")
+    if not ls:
+        return False
+    try:
+        dt = datetime.fromisoformat(ls) if isinstance(ls, str) else ls
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds() < ONLINE_WINDOW_SECONDS
+    except Exception:
+        return False
+
 def user_public_dict(user: dict) -> dict:
     premium_until = user.get("premium_until")
     premium_active = False
@@ -303,6 +317,8 @@ def user_public_dict(user: dict) -> dict:
         "login_streak": int(user.get("login_streak", 0) or 0),
         "blocked": bool(user.get("blocked_at")),
         "blocked_at": user.get("blocked_at"),
+        "online": _is_online(user),
+        "last_seen": user.get("last_seen"),
     }
 
 # ---------- Freemium ----------
@@ -1006,9 +1022,88 @@ async def user_public_profile(user_id: str):
         "picture": u.get("picture"),
         "created_at": u.get("created_at"),
         "premium": _is_premium(u),
+        "online": _is_online(u),
+        "last_seen": u.get("last_seen"),
         "review_count": review_count,
         "reviews": review_items,
     }
+
+@api_router.post("/presence/ping")
+async def presence_ping(user: dict = Depends(get_current_user)):
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"last_seen": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True}
+
+# ---------- Messagerie privée ----------
+class MessageInput(BaseModel):
+    text: str
+
+@api_router.post("/messages/{other_id}")
+async def send_message(other_id: str, inp: MessageInput, user: dict = Depends(get_current_user)):
+    if other_id == user["user_id"]:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous écrire à vous-même.")
+    text = (inp.text or "").strip()[:2000]
+    if not text:
+        raise HTTPException(status_code=400, detail="Message vide")
+    other = await db.users.find_one({"user_id": other_id}, {"_id": 0, "user_id": 1, "blocked_at": 1})
+    if not other:
+        raise HTTPException(status_code=404, detail="Destinataire introuvable")
+    if other.get("blocked_at"):
+        raise HTTPException(status_code=400, detail="Ce compte est bloqué.")
+    doc = {
+        "id": f"m_{uuid.uuid4().hex[:12]}",
+        "from_id": user["user_id"],
+        "to_id": other_id,
+        "text": text,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.messages.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api_router.get("/messages/{other_id}")
+async def get_conversation(other_id: str, user: dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    other = await db.users.find_one({"user_id": other_id}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "last_seen": 1})
+    if not other:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    msgs = await db.messages.find(
+        {"$or": [{"from_id": uid, "to_id": other_id}, {"from_id": other_id, "to_id": uid}]},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(500)
+    # marque comme lus les messages reçus de cet utilisateur
+    await db.messages.update_many({"from_id": other_id, "to_id": uid, "read": False}, {"$set": {"read": True}})
+    return {
+        "other": {"user_id": other["user_id"], "name": other.get("name"), "picture": other.get("picture"), "online": _is_online(other)},
+        "messages": msgs,
+    }
+
+@api_router.get("/conversations")
+async def list_conversations(user: dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    msgs = await db.messages.find(
+        {"$or": [{"from_id": uid}, {"to_id": uid}]}, {"_id": 0},
+    ).sort("created_at", -1).to_list(1000)
+    convos = {}
+    for m in msgs:
+        partner = m["to_id"] if m["from_id"] == uid else m["from_id"]
+        if partner not in convos:
+            convos[partner] = {"partner_id": partner, "last_text": m["text"], "last_at": m["created_at"], "unread": 0}
+        if m["from_id"] == partner and not m.get("read"):
+            convos[partner]["unread"] += 1
+    partner_ids = list(convos.keys())
+    users = await db.users.find({"user_id": {"$in": partner_ids}}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "last_seen": 1}).to_list(500)
+    umap = {u["user_id"]: u for u in users}
+    out = []
+    for pid, c in convos.items():
+        pu = umap.get(pid, {})
+        out.append({**c, "name": pu.get("name", "Utilisateur"), "picture": pu.get("picture"), "online": _is_online(pu)})
+    out.sort(key=lambda x: x["last_at"], reverse=True)
+    return out
+
+@api_router.get("/messages/unread/count")
+async def unread_messages_count(user: dict = Depends(get_current_user)):
+    n = await db.messages.count_documents({"to_id": user["user_id"], "read": False})
+    return {"count": n}
 
 @api_router.post("/admin/coins/{user_id}")
 async def admin_set_coins(user_id: str, inp: AdminCoinsInput, admin: dict = Depends(require_admin)):
@@ -1703,6 +1798,7 @@ async def _delete_user_data(user_id: str):
     await db.notifications.delete_many({"user_id": user_id})
     await db.wishboard.update_many({}, {"$pull": {"voters": user_id}})
     await db.review_rewards.delete_many({"user_id": user_id})
+    await db.messages.delete_many({"$or": [{"from_id": user_id}, {"to_id": user_id}]})
 
 async def _purge_expired_blocked() -> int:
     # supprime définitivement les comptes bloqués depuis plus de BLOCK_DELETE_DAYS jours

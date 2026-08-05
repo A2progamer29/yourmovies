@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
+import PreRollAd from "@/components/PreRollAd";
 
 const PLAN_MAX_QUALITY = {
     null: "720p",
@@ -45,6 +46,7 @@ export default function WatchPage() {
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
     const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress}
+    const [adDone, setAdDone] = useState(false);
 
     useEffect(() => {
         const vid = media?.bunny_video_id;
@@ -132,6 +134,8 @@ export default function WatchPage() {
     const qualities = fallbackQualities(media);
     const userMaxQuality = "4k";
     const runAds = !user?.premium;
+    const hasVideo = !!(media.bunny_video_id || qualities.length > 0);
+    const showAd = runAds && !partyOpen && !adDone && hasVideo;
     const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
 
     return (
@@ -177,7 +181,11 @@ export default function WatchPage() {
 
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
-                        {media.bunny_video_id ? (
+                        {showAd ? (
+                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                                <PreRollAd onDone={() => setAdDone(true)} />
+                            </div>
+                        ) : media.bunny_video_id ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <iframe
                                     data-testid="bunny-player"
@@ -216,7 +224,7 @@ export default function WatchPage() {
                                 onProgress={saveProgress}
                                 startAt={resumeAt}
                                 userMaxQuality={userMaxQuality}
-                                runAds={runAds && !partyOpen}
+                                runAds={false}
                                 preferredQuality={user?.preferred_quality}
                                 videoRefOut={videoElRef}
                             />

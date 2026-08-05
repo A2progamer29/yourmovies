@@ -24,6 +24,8 @@ import WishboardPage from "@/pages/WishboardPage";
 import CoinsPage from "@/pages/CoinsPage";
 import CagnottePage from "@/pages/CagnottePage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
+import MessagesPage from "@/pages/MessagesPage";
+import ConversationPage from "@/pages/ConversationPage";
 
 function AppRouter() {
     const location = useLocation();
@@ -44,6 +46,8 @@ function AppRouter() {
             <Route path="/coins" element={<CoinsPage />} />
             <Route path="/cagnotte" element={<CagnottePage />} />
             <Route path="/u/:id" element={<PublicProfilePage />} />
+            <Route path="/messages" element={<MessagesPage />} />
+            <Route path="/messages/:id" element={<ConversationPage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />

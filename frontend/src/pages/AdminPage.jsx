@@ -341,6 +341,7 @@ export default function AdminPage() {
                                         )}
                                         <div className="min-w-0">
                                             <div className="text-white flex items-center gap-1.5 group-hover/u:text-[#E8D2A6] transition-colors">
+                                                <span className={`w-2 h-2 rounded-full shrink-0 ${u.online ? "bg-emerald-400" : "bg-neutral-700"}`} title={u.online ? "En ligne" : "Hors ligne"} />
                                                 {u.name}
                                                 {u.is_admin && <Shield size={11} className="text-[#E8D2A6]" />}
                                                 {u.blocked && <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full border border-red-500/40 text-red-400">Bloqué</span>}

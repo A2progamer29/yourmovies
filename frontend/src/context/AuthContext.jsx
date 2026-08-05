@@ -104,6 +104,15 @@ export function AuthProvider({ children }) {
         }
     }, [user]);
 
+    // Heartbeat de présence : signale que l'utilisateur est en ligne (toutes les 60 s)
+    useEffect(() => {
+        if (!user) return;
+        const ping = () => api.post("/presence/ping", {}, { silent: true }).catch(() => { });
+        ping();
+        const t = setInterval(ping, 60000);
+        return () => clearInterval(t);
+    }, [user]);
+
     const login = async (email, password) => {
         const res = await api.post("/auth/login", { email, password });
         localStorage.setItem("ym_token", res.data.token);

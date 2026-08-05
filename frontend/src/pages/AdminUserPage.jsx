@@ -110,9 +110,15 @@ export default function AdminUserPage() {
                             {target.premium && <Crown size={16} className="text-[#E8D2A6]" />}
                             {target.is_admin && <Shield size={15} className="text-[#E8D2A6]" />}
                         </h1>
-                        <Link to={`/u/${id}`} className="text-xs text-neutral-500 hover:text-[#E8D2A6] flex items-center gap-1 mt-1">
-                            Voir le profil public <ExternalLink size={11} />
-                        </Link>
+                        <div className="flex items-center gap-3 mt-1">
+                            <span className="text-xs flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${target.online ? "bg-emerald-400" : "bg-neutral-600"}`} />
+                                <span className={target.online ? "text-emerald-400" : "text-neutral-500"}>{target.online ? "En ligne" : "Hors ligne"}</span>
+                            </span>
+                            <Link to={`/u/${id}`} className="text-xs text-neutral-500 hover:text-[#E8D2A6] flex items-center gap-1">
+                                Profil public <ExternalLink size={11} />
+                            </Link>
+                        </div>
                     </div>
                 </div>
 

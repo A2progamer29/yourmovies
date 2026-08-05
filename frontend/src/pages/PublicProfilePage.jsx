@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Star, Crown, Shield, Calendar, MessageSquare } from "lucide-react";
+import { Star, Crown, Shield, Calendar, MessageSquare, Send } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
@@ -9,6 +11,7 @@ const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 export default function PublicProfilePage() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [profile, setProfile] = useState(null);
     const [notFound, setNotFound] = useState(false);
 
@@ -53,19 +56,28 @@ export default function PublicProfilePage() {
                     ) : (
                         <div className="w-20 h-20 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-3xl font-semibold">{initial}</div>
                     )}
-                    <div>
+                    <div className="min-w-0">
                         <h1 className="font-display text-3xl tracking-tight flex items-center gap-2">
                             {profile.name}
                             {profile.premium && <Crown size={18} className="text-[#E8D2A6]" />}
                             {profile.is_admin && <Shield size={16} className="text-[#E8D2A6]" />}
                         </h1>
                         <div className="text-sm text-neutral-500 mt-1.5 flex items-center gap-4 flex-wrap">
+                            <span className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${profile.online ? "bg-emerald-400" : "bg-neutral-600"}`} />
+                                <span className={profile.online ? "text-emerald-400" : "text-neutral-500"}>{profile.online ? "En ligne" : "Hors ligne"}</span>
+                            </span>
                             <span className="flex items-center gap-1.5"><MessageSquare size={13} /> {profile.review_count} avis</span>
                             {profile.created_at && (
                                 <span className="flex items-center gap-1.5"><Calendar size={13} /> Membre depuis {new Date(profile.created_at).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>
                             )}
                         </div>
                     </div>
+                    {user && user.user_id !== id && (
+                        <Button onClick={() => navigate(`/messages/${id}`)} data-testid="send-message-btn" className="ml-auto bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold shrink-0">
+                            <Send size={15} className="mr-2" /> Message
+                        </Button>
+                    )}
                 </div>
 
                 <h2 className="font-display text-2xl mb-4">Avis récents</h2>
