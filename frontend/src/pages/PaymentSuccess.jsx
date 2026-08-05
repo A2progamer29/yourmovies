@@ -11,7 +11,9 @@ export default function PaymentSuccess() {
     const navigate = useNavigate();
     const { refresh } = useAuth();
     const [status, setStatus] = useState("polling"); // polling | paid | failed | timeout
+    const [kind, setKind] = useState("subscription");
     const sessionId = searchParams.get("session_id");
+    const isDonation = kind === "donation";
 
     useEffect(() => {
         if (!sessionId) {
@@ -24,6 +26,7 @@ export default function PaymentSuccess() {
             attempts += 1;
             try {
                 const r = await api.get(`/payments/status/${sessionId}`);
+                if (r.data.kind) setKind(r.data.kind);
                 if (r.data.payment_status === "paid") {
                     clearInterval(interval);
                     setStatus("paid");
@@ -58,10 +61,10 @@ export default function PaymentSuccess() {
                 {status === "paid" && (
                     <>
                         <CheckCircle2 size={48} className="mx-auto text-emerald-400 mb-6" />
-                        <h1 className="font-display text-4xl mb-3">Bienvenue !</h1>
-                        <p className="text-neutral-400 mb-8">Votre abonnement est actif. Profitez de YourMovie&apos;s sans publicité.</p>
-                        <Button onClick={() => navigate("/")} data-testid="go-home-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
-                            Explorer le catalogue
+                        <h1 className="font-display text-4xl mb-3">{isDonation ? "Merci ! 🙏" : "Bienvenue !"}</h1>
+                        <p className="text-neutral-400 mb-8">{isDonation ? "Ta contribution a bien été prise en compte dans la cagnotte." : "Votre abonnement est actif. Profitez de YourMovie's sans publicité."}</p>
+                        <Button onClick={() => navigate(isDonation ? "/cagnotte" : "/")} data-testid="go-home-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
+                            {isDonation ? "Voir la cagnotte" : "Explorer le catalogue"}
                         </Button>
                     </>
                 )}

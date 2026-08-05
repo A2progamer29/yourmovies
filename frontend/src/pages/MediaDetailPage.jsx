@@ -200,7 +200,7 @@ export default function MediaDetailPage() {
                                 </div>
                             )}
                             <p className="mt-6 text-lg text-neutral-300 leading-relaxed">{media.description}</p>
-                            <div className="mt-7 flex flex-wrap items-center gap-3">
+                            <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
                                 <Button
                                     onClick={() => navigate(`/watch/${media.id}`)}
                                     data-testid="watch-btn"

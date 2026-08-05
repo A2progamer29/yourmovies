@@ -30,7 +30,7 @@ export default function CoinsPage() {
 
     const redeem = async (plan) => {
         if (balance < plan.coins) { toast.error("Solde insuffisant"); return; }
-        if (!window.confirm(`Échanger ${plan.coins} YM Coins contre ${plan.days} jours de Premium ${plan.name} ?`)) return;
+        if (!window.confirm(`Échanger ${plan.coins} Freemium contre ${plan.days} jours de Premium ${plan.name} ?`)) return;
         setBusy(plan.id);
         try {
             await api.post("/coins/redeem", { plan: plan.id });
@@ -57,7 +57,7 @@ export default function CoinsPage() {
             <Header />
 
             <div className="max-w-4xl mx-auto px-6 py-12">
-                <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-2 flex items-center gap-2"><Coins size={14} /> YM Coins</div>
+                <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-2 flex items-center gap-2"><Coins size={14} /> Freemium</div>
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">Ta monnaie YourMovie's</h1>
 
                 <div className="grid sm:grid-cols-2 gap-4 mb-12">
@@ -66,7 +66,7 @@ export default function CoinsPage() {
                         <div className="flex items-center gap-2">
                             <Coins size={28} className="text-[#E8D2A6]" />
                             <span className="font-display text-5xl text-white" data-testid="coins-balance">{balance}</span>
-                            <span className="text-neutral-400 mb-1 self-end">YM Coins</span>
+                            <span className="text-neutral-400 mb-1 self-end">Freemium</span>
                         </div>
                     </div>
                     <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] flex items-center gap-4">
@@ -92,7 +92,7 @@ export default function CoinsPage() {
 
                 <div>
                     <h2 className="font-display text-2xl mb-1">Échanger contre du Premium</h2>
-                    <p className="text-neutral-500 text-sm mb-6">Débloque un plan avec tes YM Coins. Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
+                    <p className="text-neutral-500 text-sm mb-6">Débloque un plan avec tes Freemium. Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
                     <div className="grid sm:grid-cols-3 gap-4">
                         {plans.map((plan) => {
                             const affordable = balance >= plan.coins;

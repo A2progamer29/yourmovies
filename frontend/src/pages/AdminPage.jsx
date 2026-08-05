@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -24,6 +24,8 @@ export default function AdminPage() {
     const [reviewQ, setReviewQ] = useState("");
     const [wishes, setWishes] = useState([]);
     const [coinAmount, setCoinAmount] = useState({});
+    const [cagnotte, setCagnotte] = useState({ total: 0, goal: 1000 });
+    const [cagnotteInput, setCagnotteInput] = useState("");
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
@@ -56,6 +58,13 @@ export default function AdminPage() {
             setWishes(r.data);
         } catch (e) { showError(toast, e, "Chargement du wishboard impossible"); }
     };
+    const loadCagnotte = async () => {
+        try {
+            const r = await api.get("/cagnotte");
+            setCagnotte(r.data);
+            setCagnotteInput(String(r.data.total));
+        } catch (e) { showError(toast, e, "Chargement de la cagnotte impossible"); }
+    };
 
     useEffect(() => {
         if (user?.is_admin) {
@@ -64,6 +73,7 @@ export default function AdminPage() {
             loadAnnouncements();
             loadReviews();
             loadWishes();
+            loadCagnotte();
         }
     }, [user]);
 
@@ -143,14 +153,22 @@ export default function AdminPage() {
             loadWishes();
         } catch (e) { showError(toast, e, "Suppression impossible"); }
     };
+    const saveCagnotte = async () => {
+        try {
+            const r = await api.post("/admin/cagnotte", { total: Number(cagnotteInput) });
+            setCagnotte(r.data);
+            setCagnotteInput(String(r.data.total));
+            toast.success("Cagnotte mise à jour");
+        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+    };
     const adminCoins = async (u, mode) => {
         const amount = Number(coinAmount[u.user_id] || 0);
         if (mode !== "reset" && (!amount || amount <= 0)) { toast.error("Entre un montant"); return; }
-        if (mode === "reset" && !window.confirm(`Remettre à 0 les YM Coins de ${u.name} ?`)) return;
+        if (mode === "reset" && !window.confirm(`Remettre à 0 les Freemium de ${u.name} ?`)) return;
         try {
             const r = await api.post(`/admin/coins/${u.user_id}`, { amount, mode });
             setUsers((list) => list.map((x) => x.user_id === u.user_id ? { ...x, coins: r.data.coins } : x));
-            toast.success(`Solde de ${u.name} : ${r.data.coins} YM Coins`);
+            toast.success(`Solde de ${u.name} : ${r.data.coins} Freemium`);
             setCoinAmount((m) => ({ ...m, [u.user_id]: "" }));
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
@@ -225,7 +243,10 @@ export default function AdminPage() {
                             <ChevronUp size={14} className="mr-2" /> Wishboard
                         </TabsTrigger>
                         <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Coins size={14} className="mr-2" /> YM Coins
+                            <Coins size={14} className="mr-2" /> Freemium
+                        </TabsTrigger>
+                        <TabsTrigger value="cagnotte" data-testid="admin-tab-cagnotte" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                            <PiggyBank size={14} className="mr-2" /> Cagnotte
                         </TabsTrigger>
                         <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Megaphone size={14} className="mr-2" /> Annonces
@@ -437,7 +458,7 @@ export default function AdminPage() {
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
                         </div>
-                        <p className="text-sm text-neutral-500 mb-6">Ajoute, retire, fixe ou remet à zéro les YM Coins de chaque utilisateur.</p>
+                        <p className="text-sm text-neutral-500 mb-6">Ajoute, retire, fixe ou remet à zéro les Freemium de chaque utilisateur.</p>
                         <div className="space-y-3">
                             {filteredUsers.length === 0 && (
                                 <div className="p-6 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500 text-sm">Aucun utilisateur.</div>
@@ -473,6 +494,31 @@ export default function AdminPage() {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="cagnotte" className="mt-8">
+                        <div className="max-w-md p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
+                            <div className="flex items-center gap-2 mb-4">
+                                <PiggyBank size={18} className="text-[#E8D2A6]" />
+                                <h3 className="text-white font-medium">Total de la cagnotte</h3>
+                            </div>
+                            <div className="text-sm text-neutral-500 mb-4">Objectif fixe : {cagnotte.goal?.toLocaleString("fr-FR")} €. Modifie le montant total affiché publiquement.</div>
+                            <label className="text-xs text-neutral-400">Total (€)</label>
+                            <div className="flex items-center gap-3 mt-1.5">
+                                <div className="relative flex-1">
+                                    <Input
+                                        type="number"
+                                        value={cagnotteInput}
+                                        onChange={(e) => setCagnotteInput(e.target.value)}
+                                        data-testid="cagnotte-total-input"
+                                        className="bg-[#111] border-[#262626] text-white pr-8"
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500">€</span>
+                                </div>
+                                <Button onClick={saveCagnotte} data-testid="save-cagnotte" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">Enregistrer</Button>
+                            </div>
+                            <div className="text-xs text-neutral-600 mt-4">Total actuel : <span className="text-[#E8D2A6]">{cagnotte.total?.toLocaleString("fr-FR")} €</span></div>
                         </div>
                     </TabsContent>
 

@@ -21,6 +21,7 @@ import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import WishboardPage from "@/pages/WishboardPage";
 import CoinsPage from "@/pages/CoinsPage";
+import CagnottePage from "@/pages/CagnottePage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
 
 function AppRouter() {
@@ -40,6 +41,7 @@ function AppRouter() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/wishboard" element={<WishboardPage />} />
             <Route path="/coins" element={<CoinsPage />} />
+            <Route path="/cagnotte" element={<CagnottePage />} />
             <Route path="/u/:id" element={<PublicProfilePage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />

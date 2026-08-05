@@ -285,7 +285,7 @@ def user_public_dict(user: dict) -> dict:
         "login_streak": int(user.get("login_streak", 0) or 0),
     }
 
-# ---------- YM Coins ----------
+# ---------- Freemium ----------
 def _is_premium(user: dict) -> bool:
     pu = user.get("premium_until")
     if not pu:
@@ -337,6 +337,31 @@ async def award_coins(user_id: str, amount: float, title: str, body: str = "") -
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return new_balance
+
+COMMENT_COOLDOWN_SECONDS = 60
+
+async def _comment_can_earn(user: dict, text: str) -> bool:
+    # anti-spam : pas de gain si < 60 s depuis le dernier commentaire, ni si texte identique au précédent.
+    now = datetime.now(timezone.utc)
+    earn = True
+    last_at = user.get("last_comment_at")
+    if last_at:
+        try:
+            dt = datetime.fromisoformat(last_at)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if (now - dt).total_seconds() < COMMENT_COOLDOWN_SECONDS:
+                earn = False
+        except Exception:
+            pass
+    norm = (text or "").strip().lower()
+    if norm and norm == (user.get("last_comment_text") or "").strip().lower():
+        earn = False
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"last_comment_at": now.isoformat(), "last_comment_text": text or ""}},
+    )
+    return earn
 
 # ---------- Auth Routes ----------
 @api_router.post("/auth/register")
@@ -533,9 +558,10 @@ async def create_review(r: ReviewCreate, user: dict = Depends(get_current_user))
     }
     await db.reviews.insert_one(doc)
     await _recompute_rating(r.media_id)
-    if not already:
+    can_earn = await _comment_can_earn(user, r.comment)
+    if not already and can_earn:
         amt = random.randint(1, 3)
-        await award_coins(user["user_id"], amt, f"+{amt} YM Coins pour ton avis", "Merci d'avoir noté un titre !")
+        await award_coins(user["user_id"], amt, f"+{amt} Freemium pour ton avis", "Merci d'avoir noté un titre !")
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.post("/reviews/{parent_id}/reply")
@@ -583,8 +609,9 @@ async def reply_review(parent_id: str, r: ReplyCreate, user: dict = Depends(get_
             "read": False,
             "created_at": now,
         })
-    amt = random.randint(1, 3)
-    await award_coins(user["user_id"], amt, f"+{amt} YM Coins pour ta réponse", "Merci de participer aux discussions !")
+    if await _comment_can_earn(user, comment):
+        amt = random.randint(1, 3)
+        await award_coins(user["user_id"], amt, f"+{amt} Freemium pour ta réponse", "Merci de participer aux discussions !")
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.patch("/reviews/{review_id}")
@@ -778,7 +805,7 @@ async def create_wish(w: WishCreate, user: dict = Depends(get_current_user)):
     }
     await db.wishboard.insert_one(doc)
     amt = random.randint(1, 10) / 2  # 0.5 à 5.0
-    await award_coins(user["user_id"], amt, f"+{amt} YM Coins pour ta proposition", "Merci d'avoir enrichi le Wishboard !")
+    await award_coins(user["user_id"], amt, f"+{amt} Freemium pour ta proposition", "Merci d'avoir enrichi le Wishboard !")
     return _wish_out(doc, user["user_id"])
 
 @api_router.post("/wishboard/{wish_id}/vote")
@@ -818,7 +845,7 @@ async def delete_wish(wish_id: str, admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
-# ---------- YM Coins : gains & achat ----------
+# ---------- Freemium : gains & achat ----------
 @api_router.post("/rewards/daily")
 async def rewards_daily(user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
@@ -829,12 +856,12 @@ async def rewards_daily(user: dict = Depends(get_current_user)):
         return {"awarded": 0, "coins": round(float(user.get("coins", 0) or 0), 1), "streak": int(user.get("login_streak", 0) or 0), "already": True}
     if not user.get("first_login_awarded"):
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"first_login_awarded": True, "login_streak": 1, "last_reward_date": today}})
-        balance = await award_coins(user["user_id"], 10, "Bienvenue ! +10 YM Coins", "Merci d'avoir rejoint YourMovie's. Reviens chaque jour pour gagner plus.")
+        balance = await award_coins(user["user_id"], 10, "Bienvenue ! +10 Freemium", "Merci d'avoir rejoint YourMovie's. Reviens chaque jour pour gagner plus.")
         return {"awarded": 10, "coins": balance, "streak": 1, "welcome": True}
     streak = int(user.get("login_streak", 0) or 0) + 1 if last == yesterday else 1
     amount = _daily_reward(streak)
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"login_streak": streak, "last_reward_date": today}})
-    balance = await award_coins(user["user_id"], amount, f"+{amount} YM Coins · série de {streak} jour(s)", "Reviens demain sinon tu perds ta série !")
+    balance = await award_coins(user["user_id"], amount, f"+{amount} Freemium · série de {streak} jour(s)", "Reviens demain sinon tu perds ta série !")
     return {"awarded": amount, "coins": balance, "streak": streak}
 
 @api_router.get("/coins/plans")
@@ -851,7 +878,7 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=400, detail="Plan inconnu")
     balance = float(user.get("coins", 0) or 0)
     if balance < plan["coins"]:
-        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {plan['coins']} YM Coins (tu en as {round(balance, 1)}).")
+        raise HTTPException(status_code=400, detail=f"Solde insuffisant : il te faut {plan['coins']} Freemium (tu en as {round(balance, 1)}).")
     base = datetime.now(timezone.utc)
     current = user.get("premium_until")
     if current:
@@ -873,7 +900,7 @@ async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user))
         "user_id": user["user_id"],
         "type": "coins",
         "title": f"Premium {plan['name']} activé 🎉",
-        "body": f"-{plan['coins']} YM Coins · {plan['days']} jours de Premium",
+        "body": f"-{plan['coins']} Freemium · {plan['days']} jours de Premium",
         "media_title": None,
         "link": "/coins",
         "read": False,
@@ -1064,8 +1091,10 @@ async def bunny_video_status(video_id: str):
 # ---------- Plans / Stripe ----------
 import stripe
 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY") or "sk_test_emergent"
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY") or ""
+stripe.api_key = STRIPE_SECRET_KEY or "sk_test_emergent"
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_CONFIGURED = STRIPE_SECRET_KEY.startswith("sk_")
 
 PLANS = [
     {
@@ -1123,37 +1152,46 @@ class CheckoutRequest(BaseModel):
     lookup_key: str
     origin_url: str
 
+def _plan_price_from_lookup(lookup_key: str):
+    plan_id = lookup_key.replace("ym_", "").rsplit("_", 1)[0]  # basic/standard/premium
+    interval = "yearly" if lookup_key.endswith("_yearly") else "monthly"
+    plan = next((p for p in PLANS if p["id"] == plan_id), None)
+    if not plan:
+        return None, plan_id, interval, 0, "eur"
+    price = plan["prices"].get(interval, {})
+    return plan, plan_id, interval, float(price.get("amount", 0) or 0), price.get("currency", "eur")
+
 @api_router.post("/payments/checkout")
 async def create_checkout(req: CheckoutRequest, user: dict = Depends(get_current_user)):
+    if not STRIPE_CONFIGURED:
+        raise HTTPException(status_code=503, detail="Paiement indisponible : Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante).")
+    plan, plan_id, interval, amount, currency = _plan_price_from_lookup(req.lookup_key)
+    if not plan or amount <= 0:
+        raise HTTPException(status_code=400, detail=f"Plan inconnu : {req.lookup_key}")
     try:
-        prices = stripe.Price.list(lookup_keys=[req.lookup_key], active=True, limit=1).data
-        if not prices:
-            raise HTTPException(status_code=400, detail=f"Price not found: {req.lookup_key}")
-        price = prices[0]
-        kwargs = dict(
-            line_items=[{"price": price.id, "quantity": 1}],
-            mode="subscription" if price.recurring else "payment",
+        unit_amount = int(round(amount * 100))
+        session = stripe.checkout.Session.create(
+            line_items=[{
+                "price_data": {
+                    "currency": currency,
+                    "unit_amount": unit_amount,
+                    "product_data": {"name": f"YourMovie's {plan['name']} ({'annuel' if interval == 'yearly' else 'mensuel'})"},
+                    "recurring": {"interval": "year" if interval == "yearly" else "month"},
+                },
+                "quantity": 1,
+            }],
+            mode="subscription",
             success_url=f"{req.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{req.origin_url}/pricing",
-            metadata={"user_id": user["user_id"], "lookup_key": req.lookup_key},
+            metadata={"user_id": user["user_id"], "lookup_key": req.lookup_key, "kind": "subscription"},
         )
-        # Digital subscription, US-based sandbox → SMP eligible
-        try:
-            session = stripe.checkout.Session.create(**kwargs, managed_payments={"enabled": True})
-        except stripe.error.InvalidRequestError as e:
-            msg = (getattr(e, "user_message", "") or "").lower()
-            if "managed payments" in msg or "ineligible" in msg:
-                session = stripe.checkout.Session.create(
-                    **kwargs, automatic_tax={"enabled": True}, billing_address_collection="required",
-                )
-            else:
-                raise
         await db.payment_transactions.insert_one({
             "session_id": session.id,
             "user_id": user["user_id"],
             "lookup_key": req.lookup_key,
-            "amount": (price.unit_amount or 0),
-            "currency": price.currency,
+            "kind": "subscription",
+            "amount": unit_amount,
+            "currency": currency,
             "status": "initiated",
             "payment_status": "pending",
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -1162,6 +1200,9 @@ async def create_checkout(req: CheckoutRequest, user: dict = Depends(get_current
         return {"checkout_url": session.url, "session_id": session.id}
     except HTTPException:
         raise
+    except stripe.error.StripeError as e:
+        logger.error(f"Checkout failed: {e}")
+        raise HTTPException(status_code=400, detail=(getattr(e, "user_message", "") or "Échec de l'initialisation du paiement."))
     except Exception as e:
         logger.error(f"Checkout failed: {e}")
         raise HTTPException(status_code=500, detail="Payment initialization failed")
@@ -1186,6 +1227,18 @@ async def _apply_paid_subscription(session_id: str, user_id: Optional[str] = Non
         "stripe_subscription_id": subscription_id,
     }})
 
+async def _on_payment_paid(session_id: str, subscription_id: Optional[str] = None):
+    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not tx:
+        return
+    if tx.get("kind") == "donation":
+        if not tx.get("credited"):
+            await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"credited": True}})
+            amount_eur = round((tx.get("amount") or 0) / 100, 2)
+            await db.cagnotte.update_one({"id": "main"}, {"$inc": {"total": amount_eur}}, upsert=True)
+    else:
+        await _apply_paid_subscription(session_id, subscription_id=subscription_id or tx.get("stripe_subscription_id"))
+
 @api_router.get("/payments/status/{session_id}")
 async def get_payment_status(session_id: str):
     record = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
@@ -1205,11 +1258,11 @@ async def get_payment_status(session_id: str):
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }},
                 )
-                await _apply_paid_subscription(session_id, subscription_id=s.subscription)
+                await _on_payment_paid(session_id, subscription_id=s.subscription)
                 record = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
         except stripe.error.StripeError:
             pass
-    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"]}
+    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"], "kind": record.get("kind", "subscription")}
 
 @api_router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
@@ -1232,11 +1285,11 @@ async def stripe_webhook(request: Request):
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
-        await _apply_paid_subscription(obj["id"], subscription_id=obj.get("subscription"))
+        await _on_payment_paid(obj["id"], subscription_id=obj.get("subscription"))
     elif t == "checkout.session.async_payment_succeeded":
         await db.payment_transactions.update_one({"session_id": obj["id"]},
             {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}})
-        await _apply_paid_subscription(obj["id"])
+        await _on_payment_paid(obj["id"])
     elif t == "checkout.session.async_payment_failed":
         await db.payment_transactions.update_one({"session_id": obj["id"]},
             {"$set": {"status": "failed", "payment_status": "failed", "updated_at": datetime.now(timezone.utc).isoformat()}})
@@ -1244,6 +1297,73 @@ async def stripe_webhook(request: Request):
         await db.payment_transactions.update_one({"session_id": obj["id"]},
             {"$set": {"status": "expired", "payment_status": "expired", "updated_at": datetime.now(timezone.utc).isoformat()}})
     return {"status": "ok"}
+
+# ---------- Cagnotte ----------
+CAGNOTTE_GOAL = 1000.0
+
+class CagnotteSetInput(BaseModel):
+    total: float
+
+class ContributeInput(BaseModel):
+    amount: float
+    origin_url: str
+
+async def _get_cagnotte() -> dict:
+    doc = await db.cagnotte.find_one({"id": "main"}, {"_id": 0})
+    if not doc:
+        doc = {"id": "main", "total": 0.0, "goal": CAGNOTTE_GOAL}
+        await db.cagnotte.insert_one(doc)
+    return {"total": round(float(doc.get("total", 0) or 0), 2), "goal": float(doc.get("goal", CAGNOTTE_GOAL) or CAGNOTTE_GOAL)}
+
+@api_router.get("/cagnotte")
+async def get_cagnotte():
+    return await _get_cagnotte()
+
+@api_router.post("/admin/cagnotte")
+async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_admin)):
+    total = max(0.0, round(float(inp.total), 2))
+    await db.cagnotte.update_one({"id": "main"}, {"$set": {"total": total, "goal": CAGNOTTE_GOAL}}, upsert=True)
+    return await _get_cagnotte()
+
+@api_router.post("/cagnotte/contribute")
+async def contribute_cagnotte(inp: ContributeInput, user: dict = Depends(get_current_user)):
+    if not STRIPE_CONFIGURED:
+        raise HTTPException(status_code=503, detail="Contributions indisponibles : Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante).")
+    amount = round(float(inp.amount), 2)
+    if amount < 1:
+        raise HTTPException(status_code=400, detail="Montant minimum : 1 €.")
+    try:
+        unit_amount = int(round(amount * 100))
+        session = stripe.checkout.Session.create(
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "unit_amount": unit_amount,
+                    "product_data": {"name": "Contribution à la cagnotte YourMovie's"},
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{inp.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{inp.origin_url}/cagnotte",
+            metadata={"user_id": user["user_id"], "kind": "donation"},
+        )
+        await db.payment_transactions.insert_one({
+            "session_id": session.id,
+            "user_id": user["user_id"],
+            "kind": "donation",
+            "amount": unit_amount,
+            "currency": "eur",
+            "status": "initiated",
+            "payment_status": "pending",
+            "credited": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"checkout_url": session.url, "session_id": session.id}
+    except stripe.error.StripeError as e:
+        logger.error(f"Donation checkout failed: {e}")
+        raise HTTPException(status_code=400, detail=(getattr(e, "user_message", "") or "Échec de l'initialisation du paiement."))
 
 # ---------- Watch Progress ----------
 class WatchProgressInput(BaseModel):

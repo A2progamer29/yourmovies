@@ -68,8 +68,8 @@ export function AuthProvider({ children }) {
                 setUser((u) => (u ? { ...u, coins: dr.data.coins, login_streak: dr.data.streak } : u));
                 toast.success(
                     dr.data.welcome
-                        ? `Bienvenue ! +${dr.data.awarded} YM Coins 🪙`
-                        : `+${dr.data.awarded} YM Coins · série de ${dr.data.streak} j 🪙`
+                        ? `Bienvenue ! +${dr.data.awarded} Freemium 🪙`
+                        : `+${dr.data.awarded} Freemium · série de ${dr.data.streak} j 🪙`
                 );
             }
         } catch { /* ignore */ }

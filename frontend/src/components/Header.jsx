@@ -20,7 +20,8 @@ const links = [
     { to: "/browse?type=series", label: "Séries" },
     { to: "/browse?type=anime", label: "Animes" },
     { to: "/wishboard", label: "Wishboard" },
-    { to: "/coins", label: "YM Coins" },
+    { to: "/coins", label: "Freemium" },
+    { to: "/cagnotte", label: "Cagnotte" },
     { to: "/pricing", label: "Premium" },
 ];
 
@@ -164,7 +165,7 @@ export default function Header() {
                                     data-testid="menu-coins"
                                     className="focus:bg-white/5 focus:text-[#E8D2A6] cursor-pointer"
                                 >
-                                    <Coins size={14} className="mr-2" /> YM Coins
+                                    <Coins size={14} className="mr-2" /> Freemium
                                     {typeof user.coins === "number" && <span className="ml-auto text-[#E8D2A6] font-semibold">{user.coins}</span>}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
