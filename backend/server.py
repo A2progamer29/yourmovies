@@ -1467,6 +1467,10 @@ PLANS = [
 async def list_plans():
     return PLANS
 
+@api_router.get("/premium/offer")
+async def premium_offer(user: dict = Depends(get_current_user)):
+    return _welcome_offer(user)
+
 class CheckoutRequest(BaseModel):
     lookup_key: str
     origin_url: str
