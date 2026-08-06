@@ -14,12 +14,12 @@ function TopTenItem({ media, rank }) {
         >
             <div className="flex items-end">
                 <span
-                    className="font-display leading-[0.8] text-[80px] sm:text-[128px]"
-                    style={{ color: "transparent", WebkitTextFillColor: "transparent", WebkitTextStroke: "2px #E8D2A6" }}
+                    className="font-display leading-[0.72] text-[104px] sm:text-[148px] shrink-0"
+                    style={{ color: "transparent", WebkitTextFillColor: "transparent", WebkitTextStroke: "2.5px #E8D2A6" }}
                 >
                     {rank}
                 </span>
-                <div className="relative w-28 sm:w-36 -ml-3 sm:-ml-5 shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
+                <div className="relative z-10 w-28 sm:w-36 -ml-2 sm:-ml-3 shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
                         <Film size={22} className="text-[#E8D2A6]/70" />
                         <span className="text-xs text-neutral-300 font-medium line-clamp-3 leading-snug">{media.title}</span>
