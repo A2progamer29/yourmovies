@@ -1,15 +1,23 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Play, Info, Sparkles, Crown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Play, Info, Sparkles, Crown, ChevronLeft, ChevronRight, Search, ArrowRight, Tag } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import MediaCarousel from "@/components/MediaCarousel";
+import TopTenCarousel from "@/components/TopTenCarousel";
 
 const HERO_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const AUTO_ROTATE_MS = 7000;
+
+function seasonTitle(month) {
+    if (month <= 1 || month === 11) return "Tendances de l'hiver";
+    if (month <= 4) return "Tendances du printemps";
+    if (month <= 7) return "Tendances de l'été";
+    return "Tendances de l'automne";
+}
 
 export default function HomePage() {
     const navigate = useNavigate();
@@ -20,6 +28,8 @@ export default function HomePage() {
     const [series, setSeries] = useState([]);
     const [animes, setAnimes] = useState([]);
     const [latest, setLatest] = useState([]);
+    const [trending, setTrending] = useState([]);
+    const [genres, setGenres] = useState([]);
     const [continueWatching, setContinueWatching] = useState([]);
     const rotateTimer = useRef(null);
     const [paused, setPaused] = useState(false);
@@ -28,7 +38,7 @@ export default function HomePage() {
         (async () => {
             try {
                 const [all, mv, sr, an, feat] = await Promise.all([
-                    api.get("/media?limit=30"),
+                    api.get("/media?limit=40"),
                     api.get("/media?type=movie&limit=20"),
                     api.get("/media?type=series&limit=20"),
                     api.get("/media?type=anime&limit=20"),
@@ -42,6 +52,8 @@ export default function HomePage() {
                 feats.sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
                 setFeatured(feats);
             } catch (e) { }
+            try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
+            try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
             if (user) {
                 try {
                     const cw = await api.get("/watch-progress");
@@ -64,6 +76,11 @@ export default function HomePage() {
     const heroTrailerActive = user?.premium && user?.autoplay_hero !== false;
     const showTrailerVideo = heroTrailerActive && current?.trailer_video_url;
     const showTrailerAutoplay = heroTrailerActive && !current?.trailer_video_url && current?.trailer_youtube_id;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const seasonCandidates = latest.filter((m) => m.year === currentYear);
+    const seasonItems = (seasonCandidates.length >= 6 ? seasonCandidates : latest).slice(0, 15);
 
     return (
         <div className="min-h-screen bg-[#050505] relative">
@@ -286,10 +303,63 @@ export default function HomePage() {
                 </section>
             ) : (
                 <>
-                    <MediaCarousel title="Nouveautés" items={latest} seeAllHref="/browse" testId="carousel-latest" />
+                    <TopTenCarousel items={trending} />
+
+                    <section className="max-w-7xl mx-auto px-6 mt-16">
+                        <Link
+                            to="/wishboard"
+                            data-testid="wishboard-cta"
+                            className="group block rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] via-[#0f0b04] to-[#0a0a0a] hover:border-[#E8D2A6]/60 transition-colors p-8 sm:p-10"
+                        >
+                            <div className="flex items-center justify-between gap-6 flex-wrap">
+                                <div className="flex items-center gap-5">
+                                    <div className="w-14 h-14 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center shrink-0">
+                                        <Search size={24} />
+                                    </div>
+                                    <div>
+                                        <div className="font-display text-2xl sm:text-3xl tracking-tight text-white">Vous ne trouvez pas votre bonheur ?</div>
+                                        <div className="text-neutral-400 mt-1">Faites une demande dans le Wishboard — on ajoute vos titres préférés.</div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 text-[#E8D2A6] font-semibold text-lg shrink-0">
+                                    Aller au Wishboard <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                                </div>
+                            </div>
+                        </Link>
+                    </section>
+
                     {movies.length > 0 && <MediaCarousel title="Films" items={movies} seeAllHref="/browse?type=movie" testId="carousel-movies" />}
                     {series.length > 0 && <MediaCarousel title="Séries" items={series} seeAllHref="/browse?type=series" testId="carousel-series" />}
+
+                    {genres.length > 0 && (
+                        <section className="max-w-7xl mx-auto px-6 mt-16">
+                            <div className="mb-6">
+                                <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1 flex items-center gap-2">
+                                    <Tag size={13} className="text-[#E8D2A6]" /> Parcourir
+                                </div>
+                                <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Explorer par genre</h2>
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                {genres.map((g) => (
+                                    <Link
+                                        key={g.genre}
+                                        to={`/browse?genre=${encodeURIComponent(g.genre)}`}
+                                        data-testid={`genre-${g.genre}`}
+                                        className="px-5 py-2.5 rounded-full border border-[#262626] bg-[#0a0a0a] text-neutral-200 hover:border-[#E8D2A6] hover:text-[#E8D2A6] hover:bg-[#E8D2A6]/5 transition-colors"
+                                    >
+                                        {g.genre}
+                                        <span className="ml-2 text-xs text-neutral-600">{g.count}</span>
+                                    </Link>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
                     {animes.length > 0 && <MediaCarousel title="Animes" items={animes} seeAllHref="/browse?type=anime" testId="carousel-animes" />}
+
+                    {seasonItems.length > 0 && (
+                        <MediaCarousel title={seasonTitle(now.getMonth())} eyebrow="Du moment" items={seasonItems} seeAllHref="/browse" testId="carousel-season" />
+                    )}
                 </>
             )}
 

@@ -626,6 +626,49 @@ async def delete_media(media_id: str, user: dict = Depends(require_admin)):
     await db.favorites.delete_many({"media_id": media_id})
     return {"ok": True}
 
+# ---------- Trending / Genres ----------
+@api_router.get("/trending")
+async def trending(limit: int = 10):
+    limit = max(1, min(limit, 30))
+    agg = await db.watch_progress.aggregate([
+        {"$group": {"_id": "$media_id", "views": {"$sum": 1}}},
+        {"$sort": {"views": -1}},
+        {"$limit": limit * 3},
+    ]).to_list(limit * 3)
+    views_map = {a["_id"]: a["views"] for a in agg if a.get("_id")}
+    ordered_ids = [a["_id"] for a in agg if a.get("_id")]
+    result, seen = [], set()
+    if ordered_ids:
+        docs = await db.media.find({"id": {"$in": ordered_ids}}, {"_id": 0}).to_list(len(ordered_ids))
+        by_id = {d["id"]: d for d in docs}
+        for mid in ordered_ids:
+            d = by_id.get(mid)
+            if d:
+                item = serialize_media(d)
+                item["view_count"] = views_map.get(mid, 0)
+                result.append(item)
+                seen.add(mid)
+            if len(result) >= limit:
+                break
+    if len(result) < limit:
+        extra = await db.media.find({"id": {"$nin": list(seen)}}, {"_id": 0}).sort([("rating", -1), ("created_at", -1)]).to_list(limit - len(result))
+        for d in extra:
+            item = serialize_media(d)
+            item["view_count"] = views_map.get(d["id"], 0)
+            result.append(item)
+    return result[:limit]
+
+@api_router.get("/genres")
+async def list_genres(limit: int = 30):
+    limit = max(1, min(limit, 100))
+    agg = await db.media.aggregate([
+        {"$unwind": "$genres"},
+        {"$group": {"_id": "$genres", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1, "_id": 1}},
+        {"$limit": limit},
+    ]).to_list(limit)
+    return [{"genre": a["_id"], "count": a["count"]} for a in agg if a.get("_id")]
+
 # ---------- Reviews ----------
 @api_router.get("/media/{media_id}/reviews")
 async def list_reviews(media_id: str):
