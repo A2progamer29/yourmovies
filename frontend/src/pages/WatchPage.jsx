@@ -154,19 +154,6 @@ export default function WatchPage() {
                     <div className="flex items-center gap-2">
                         {!partyOpen ? (
                             <>
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        data-testid="party-join-input"
-                                        value={joinInput}
-                                        onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
-                                        placeholder="Code Watch Party"
-                                        maxLength={6}
-                                        className="bg-[#111] border-[#262626] text-white w-40 tracking-widest uppercase"
-                                    />
-                                    <Button variant="outline" onClick={joinParty} data-testid="party-join-btn" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full h-10 px-4">
-                                        Rejoindre
-                                    </Button>
-                                </div>
                                 <Button
                                     onClick={createParty}
                                     data-testid="party-create-btn"
@@ -174,6 +161,19 @@ export default function WatchPage() {
                                 >
                                     <Users size={14} className="mr-2" /> Watch Party
                                 </Button>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        data-testid="party-join-input"
+                                        value={joinInput}
+                                        onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
+                                        placeholder="Code"
+                                        maxLength={6}
+                                        className="bg-[#111] border-[#262626] text-white w-40 tracking-widest uppercase"
+                                    />
+                                    <Button variant="outline" onClick={joinParty} data-testid="party-join-btn" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full h-10 px-4">
+                                        Rejoindre
+                                    </Button>
+                                </div>
                             </>
                         ) : null}
                     </div>
