@@ -32,6 +32,7 @@ import TermsPage from "@/pages/TermsPage";
 import PrivacyPage from "@/pages/PrivacyPage";
 import Footer from "@/components/Footer";
 import BetaNoticeDialog from "@/components/BetaNoticeDialog";
+import VersionChecker from "@/components/VersionChecker";
 
 function AppRouter() {
     const location = useLocation();
@@ -83,6 +84,7 @@ function App() {
                     <AuthProvider>
                         <FavoritesProvider>
                             <AppRouter />
+                            <VersionChecker />
                             <BetaNoticeDialog />
                             <Toaster theme="dark" richColors position="top-right" />
                         </FavoritesProvider>
