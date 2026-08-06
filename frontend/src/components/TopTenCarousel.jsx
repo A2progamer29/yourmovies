@@ -4,8 +4,7 @@ import { TrendingUp, Film } from "lucide-react";
 import HScroller from "@/components/HScroller";
 
 function TopTenItem({ media, rank }) {
-    const [imgError, setImgError] = useState(false);
-    const hasPoster = media.poster_url && !imgError;
+    const [imgOk, setImgOk] = useState(true);
     const typeLabel = media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime";
     return (
         <Link
@@ -20,21 +19,20 @@ function TopTenItem({ media, rank }) {
                 >
                     {rank}
                 </span>
-                <div className="w-28 sm:w-36 -ml-3 sm:-ml-5 shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
-                    {hasPoster ? (
+                <div className="relative w-28 sm:w-36 -ml-3 sm:-ml-5 shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
+                        <Film size={22} className="text-[#E8D2A6]/70" />
+                        <span className="text-xs text-neutral-300 font-medium line-clamp-3 leading-snug">{media.title}</span>
+                    </div>
+                    {media.poster_url && imgOk && (
                         <img
                             src={media.poster_url}
                             alt={media.title}
                             loading="lazy"
                             draggable={false}
-                            className="w-full h-full object-cover"
-                            onError={() => setImgError(true)}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={() => setImgOk(false)}
                         />
-                    ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-3 text-center">
-                            <Film size={22} className="text-[#E8D2A6]/70" />
-                            <span className="text-xs text-neutral-300 font-medium line-clamp-3 leading-snug">{media.title}</span>
-                        </div>
                     )}
                 </div>
             </div>
