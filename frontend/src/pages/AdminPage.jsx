@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, ShieldOff, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -10,12 +10,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import GivePremiumDialog from "@/components/GivePremiumDialog";
+import AdminRoleDialog from "@/components/AdminRoleDialog";
+import AdminPricing from "@/components/AdminPricing";
 import { showError } from "@/lib/errors";
 
 export default function AdminPage() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+    const level = user?.admin_level || 0;
     const [items, setItems] = useState([]);
     const [users, setUsers] = useState([]);
     const [announcements, setAnnouncements] = useState([]);
@@ -28,6 +31,7 @@ export default function AdminPage() {
     const [cagnotte, setCagnotte] = useState({ total: 0, goal: 1000 });
     const [cagnotteInput, setCagnotteInput] = useState("");
     const [premiumUser, setPremiumUser] = useState(null);
+    const [roleUser, setRoleUser] = useState(null);
     const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
     const [userQ, setUserQ] = useState("");
@@ -74,7 +78,7 @@ export default function AdminPage() {
             loadMedia();
             loadUsers();
             loadAnnouncements();
-            loadReviews();
+            if ((user?.admin_level || 0) >= 2) loadReviews();
             loadWishes();
             loadCagnotte();
         }
@@ -89,13 +93,6 @@ export default function AdminPage() {
         await api.delete(`/media/${id}`);
         toast.success("Supprimé");
         loadMedia();
-    };
-    const toggleAdmin = async (u) => {
-        try {
-            await api.post(`/admin/users/${u.user_id}/toggle-admin`);
-            toast.success("Rôle mis à jour");
-            loadUsers();
-        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
     const deleteUser = async (u) => {
         if (u.user_id === user.user_id) { toast.error("Impossible de supprimer votre propre compte"); return; }
@@ -257,21 +254,34 @@ export default function AdminPage() {
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Users size={14} className="mr-2" /> Utilisateurs
                         </TabsTrigger>
-                        <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <MessageSquare size={14} className="mr-2" /> Commentaires
-                        </TabsTrigger>
+                        {level >= 2 && (
+                            <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <MessageSquare size={14} className="mr-2" /> Commentaires
+                            </TabsTrigger>
+                        )}
                         <TabsTrigger value="wishboard" data-testid="admin-tab-wishboard" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <ChevronUp size={14} className="mr-2" /> Wishboard
                         </TabsTrigger>
-                        <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Coins size={14} className="mr-2" /> Freemium
-                        </TabsTrigger>
-                        <TabsTrigger value="cagnotte" data-testid="admin-tab-cagnotte" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <PiggyBank size={14} className="mr-2" /> Cagnotte
-                        </TabsTrigger>
-                        <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Megaphone size={14} className="mr-2" /> Annonces
-                        </TabsTrigger>
+                        {level >= 2 && (
+                            <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Coins size={14} className="mr-2" /> Freemium
+                            </TabsTrigger>
+                        )}
+                        {level >= 3 && (
+                            <TabsTrigger value="cagnotte" data-testid="admin-tab-cagnotte" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <PiggyBank size={14} className="mr-2" /> Cagnotte
+                            </TabsTrigger>
+                        )}
+                        {level >= 2 && (
+                            <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Megaphone size={14} className="mr-2" /> Annonces
+                            </TabsTrigger>
+                        )}
+                        {level >= 3 && (
+                            <TabsTrigger value="pricing" data-testid="admin-tab-pricing" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Tag size={14} className="mr-2" /> Tarifs
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     <TabsContent value="media" className="mt-8">
@@ -311,8 +321,9 @@ export default function AdminPage() {
                                     </div>
                                     <div className="col-span-1 text-[#E8D2A6]">{m.rating ? m.rating.toFixed(1) : "—"}</div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
-                                        <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>
-                                        <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                        {level >= 2 && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
+                                        {level >= 3 && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
+                                        {level < 2 && <span className="text-xs text-neutral-600">Lecture</span>}
                                     </div>
                                 </div>
                             ))}
@@ -374,27 +385,32 @@ export default function AdminPage() {
                                         {u.premium_until ? new Date(u.premium_until).toLocaleDateString("fr-FR") : "—"}
                                     </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => toggleAdmin(u)}
-                                            data-testid={`toggle-admin-${u.user_id}`}
-                                            className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"
-                                        >
-                                            {u.is_admin ? <ShieldOff size={12} className="mr-1" /> : <Shield size={12} className="mr-1" />}
-                                            {u.is_admin ? "Retirer" : "Admin"}
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => setPremiumUser(u)}
-                                            data-testid={`toggle-premium-${u.user_id}`}
-                                            className={u.premium ? "text-[#E8D2A6] hover:bg-white/5" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}
-                                        >
-                                            <Crown size={12} className="mr-1" />
-                                            {u.premium ? "Premium" : "Premium"}
-                                        </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.user_id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                        {level >= 3 ? (
+                                            <>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setRoleUser(u)}
+                                                    data-testid={`role-btn-${u.user_id}`}
+                                                    className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"
+                                                >
+                                                    <Shield size={12} className="mr-1" />
+                                                    {u.is_admin ? (u.admin_role === "super" ? "Super" : u.admin_role === "moderator" ? "Modo" : "Éditeur") : "Admin"}
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setPremiumUser(u)}
+                                                    data-testid={`toggle-premium-${u.user_id}`}
+                                                    className={u.premium ? "text-[#E8D2A6] hover:bg-white/5" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}
+                                                >
+                                                    <Crown size={12} className="mr-1" /> Premium
+                                                </Button>
+                                                <Button variant="ghost" size="icon" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.user_id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                            </>
+                                        ) : (
+                                            u.is_admin && <span className="text-[10px] uppercase tracking-wide text-neutral-500">{u.admin_role === "super" ? "Super" : u.admin_role === "moderator" ? "Modo" : "Éditeur"}</span>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -469,13 +485,17 @@ export default function AdminPage() {
                                         <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "approved")} className={w.status === "approved" ? "text-black bg-[#E8D2A6] hover:bg-[#D4BB8B]" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}>
                                             <Check size={13} className="mr-1" /> Approuver
                                         </Button>
-                                        <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "pending")} className={w.status === "pending" ? "text-white bg-white/10" : "text-neutral-400 hover:text-white hover:bg-white/5"}>
-                                            <Clock size={13} className="mr-1" /> En attente
-                                        </Button>
-                                        <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "refused")} className={w.status === "refused" ? "text-red-400 bg-red-500/10" : "text-neutral-400 hover:text-red-400 hover:bg-white/5"}>
-                                            <X size={13} className="mr-1" /> Refuser
-                                        </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => deleteWish(w)} data-testid={`delete-wish-${w.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                        {level >= 2 && (
+                                            <>
+                                                <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "pending")} className={w.status === "pending" ? "text-white bg-white/10" : "text-neutral-400 hover:text-white hover:bg-white/5"}>
+                                                    <Clock size={13} className="mr-1" /> En attente
+                                                </Button>
+                                                <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "refused")} className={w.status === "refused" ? "text-red-400 bg-red-500/10" : "text-neutral-400 hover:text-red-400 hover:bg-white/5"}>
+                                                    <X size={13} className="mr-1" /> Refuser
+                                                </Button>
+                                                <Button variant="ghost" size="icon" onClick={() => deleteWish(w)} data-testid={`delete-wish-${w.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -610,10 +630,17 @@ export default function AdminPage() {
                             </div>
                         </div>
                     </TabsContent>
+
+                    {level >= 3 && (
+                        <TabsContent value="pricing" className="mt-8">
+                            <AdminPricing />
+                        </TabsContent>
+                    )}
                 </Tabs>
             </div>
 
             <GivePremiumDialog user={premiumUser} open={!!premiumUser} onOpenChange={(v) => !v && setPremiumUser(null)} onDone={loadUsers} />
+            <AdminRoleDialog user={roleUser} open={!!roleUser} onOpenChange={(v) => !v && setRoleUser(null)} onDone={loadUsers} />
         </div>
     );
 }

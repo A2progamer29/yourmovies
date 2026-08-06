@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Navigate, Link } from "react-router-dom";
-import { ChevronLeft, Shield, ShieldOff, Crown, Trash2, Save, ExternalLink, Coins, Calendar, MessageSquare, Ban } from "lucide-react";
+import { ChevronLeft, Shield, Crown, Trash2, Save, ExternalLink, Coins, Calendar, MessageSquare, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import GivePremiumDialog from "@/components/GivePremiumDialog";
+import AdminRoleDialog from "@/components/AdminRoleDialog";
 import Header from "@/components/Header";
 
 export default function AdminUserPage() {
@@ -21,6 +22,8 @@ export default function AdminUserPage() {
     const [form, setForm] = useState({ name: "", email: "", bio: "", password: "" });
     const [saving, setSaving] = useState(false);
     const [premiumOpen, setPremiumOpen] = useState(false);
+    const [roleOpen, setRoleOpen] = useState(false);
+    const level = user?.admin_level || 0;
 
     const load = async () => {
         try {
@@ -54,10 +57,6 @@ export default function AdminUserPage() {
         }
     };
 
-    const toggleAdmin = async () => {
-        try { await api.post(`/admin/users/${id}/toggle-admin`); toast.success("Rôle mis à jour"); load(); }
-        catch (e) { showError(toast, e, "Action impossible"); }
-    };
     const toggleBlock = async () => {
         const willBlock = !target.blocked;
         if (willBlock && !window.confirm(`Bloquer ${target.email} ?\n\nLe compte sera automatiquement SUPPRIMÉ au bout de 15 jours s'il reste bloqué.`)) return;
@@ -145,7 +144,8 @@ export default function AdminUserPage() {
                     ))}
                 </div>
 
-                {/* Édition */}
+                {/* Édition — super-admin uniquement */}
+                {level >= 3 && (
                 <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] space-y-4">
                     <h2 className="font-display text-xl">Modifier le compte</h2>
                     <div>
@@ -171,28 +171,39 @@ export default function AdminUserPage() {
                         </Button>
                     </div>
                 </div>
+                )}
 
                 {/* Actions */}
                 <div className="mt-6 p-5 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                     <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Actions rapides</div>
                     <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={toggleAdmin} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
-                            {target.is_admin ? <><ShieldOff size={14} className="mr-2" /> Retirer admin</> : <><Shield size={14} className="mr-2" /> Rendre admin</>}
-                        </Button>
-                        <Button variant="outline" onClick={() => setPremiumOpen(true)} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
-                            <Crown size={14} className="mr-2" /> {target.premium ? "Gérer le Premium" : "Donner un Premium"}
-                        </Button>
-                        <Button variant="outline" onClick={toggleBlock} className={`rounded-full bg-transparent ${target.blocked ? "border-[#262626] text-white hover:bg-white/5" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`}>
-                            <Ban size={14} className="mr-2" /> {target.blocked ? "Débloquer" : "Bloquer le compte"}
-                        </Button>
-                        <Button variant="outline" onClick={removeUser} className="border-red-500/40 text-red-400 bg-transparent hover:bg-red-500/10 rounded-full">
-                            <Trash2 size={14} className="mr-2" /> Supprimer le compte
-                        </Button>
+                        {level >= 3 && (
+                            <Button variant="outline" onClick={() => setRoleOpen(true)} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
+                                <Shield size={14} className="mr-2" /> Gérer le rôle admin
+                            </Button>
+                        )}
+                        {level >= 3 && (
+                            <Button variant="outline" onClick={() => setPremiumOpen(true)} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
+                                <Crown size={14} className="mr-2" /> {target.premium ? "Gérer le Premium" : "Donner un Premium"}
+                            </Button>
+                        )}
+                        {level >= 2 && (
+                            <Button variant="outline" onClick={toggleBlock} className={`rounded-full bg-transparent ${target.blocked ? "border-[#262626] text-white hover:bg-white/5" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`}>
+                                <Ban size={14} className="mr-2" /> {target.blocked ? "Débloquer" : "Bloquer le compte"}
+                            </Button>
+                        )}
+                        {level >= 3 && (
+                            <Button variant="outline" onClick={removeUser} className="border-red-500/40 text-red-400 bg-transparent hover:bg-red-500/10 rounded-full">
+                                <Trash2 size={14} className="mr-2" /> Supprimer le compte
+                            </Button>
+                        )}
+                        {level < 2 && <span className="text-sm text-neutral-500">Consultation seule (Éditeur).</span>}
                     </div>
                 </div>
             </div>
 
             <GivePremiumDialog user={target} open={premiumOpen} onOpenChange={setPremiumOpen} onDone={load} />
+            <AdminRoleDialog user={target} open={roleOpen} onOpenChange={setRoleOpen} onDone={load} />
         </div>
     );
 }

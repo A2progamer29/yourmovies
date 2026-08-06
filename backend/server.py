@@ -263,10 +263,35 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
 
     raise HTTPException(status_code=401, detail="Not authenticated")
 
+ROLE_LEVEL = {"editor": 1, "moderator": 2, "super": 3}
+SUPERADMIN_WHITELIST = {"user_22e47c166f77"}
+SUPERADMIN_NAMES = {"lune27"}
+
+def _is_superadmin_locked(user: dict) -> bool:
+    return user.get("user_id") in SUPERADMIN_WHITELIST or (user.get("name") or "").strip().lower() in SUPERADMIN_NAMES
+
+def _admin_role(user: dict):
+    if _is_superadmin_locked(user):
+        return "super"
+    role = user.get("admin_role")
+    if role in ROLE_LEVEL:
+        return role
+    return "editor" if user.get("is_admin") else None
+
+def _admin_level(user: dict) -> int:
+    return ROLE_LEVEL.get(_admin_role(user), 0)
+
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if not user.get("is_admin"):
+    if _admin_level(user) < 1:
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+def require_level(n: int):
+    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        if _admin_level(user) < n:
+            raise HTTPException(status_code=403, detail="Permission insuffisante pour cette action")
+        return user
+    return _dep
 
 async def get_optional_user(request: Request, authorization: Optional[str] = Header(None)) -> Optional[dict]:
     try:
@@ -308,7 +333,10 @@ def user_public_dict(user: dict) -> dict:
         "email": user.get("email"),
         "name": user.get("name"),
         "picture": user.get("picture"),
-        "is_admin": bool(user.get("is_admin")),
+        "is_admin": _admin_level(user) >= 1,
+        "admin_role": _admin_role(user),
+        "admin_level": _admin_level(user),
+        "superadmin_locked": _is_superadmin_locked(user),
         "auth_provider": user.get("auth_provider", "jwt"),
         "premium": premium_active,
         "premium_plan": user.get("premium_plan") if premium_active else None,
@@ -363,24 +391,72 @@ COIN_PLANS = {
 WELCOME_OFFER_HOURS = 24
 WELCOME_OFFER_PCT = 50
 
-def _welcome_offer(user: dict) -> dict:
-    # offre de bienvenue : -50% sur le coût en Freemium pendant 24h après l'inscription
+async def _pricing_doc() -> dict:
+    return await db.settings.find_one({"id": "pricing"}, {"_id": 0}) or {}
+
+async def _effective_plans() -> list:
+    doc = await _pricing_doc()
+    overrides = doc.get("premium") or {}
+    plans = []
+    for p in PLANS:
+        ov = overrides.get(p["id"]) or {}
+        prices = {}
+        for interval, pr in p["prices"].items():
+            amount = pr["amount"]
+            if interval in ov:
+                try:
+                    amount = round(float(ov[interval]), 2)
+                except Exception:
+                    pass
+            prices[interval] = {**pr, "amount": amount}
+        plans.append({**p, "prices": prices})
+    return plans
+
+async def _effective_coin_plans() -> dict:
+    doc = await _pricing_doc()
+    overrides = doc.get("coins") or {}
+    result = {}
+    for pid, base in COIN_PLANS.items():
+        opts = overrides.get(pid)
+        clean = []
+        if isinstance(opts, list):
+            for o in opts:
+                try:
+                    clean.append({"days": int(o["days"]), "coins": int(round(float(o["coins"])))})
+                except Exception:
+                    pass
+        result[pid] = {"name": base["name"], "options": clean or base["options"]}
+    return result
+
+async def _welcome_config() -> dict:
+    doc = await _pricing_doc()
+    w = doc.get("welcome") or {}
+    return {
+        "pct": float(w.get("pct", WELCOME_OFFER_PCT)),
+        "hours": float(w.get("hours", WELCOME_OFFER_HOURS)),
+        "enabled": bool(w.get("enabled", True)),
+    }
+
+async def _welcome_offer(user: dict) -> dict:
+    cfg = await _welcome_config()
     created = user.get("created_at")
     active, ends_at = False, None
-    if created:
+    if cfg["enabled"] and created:
         try:
             dt = datetime.fromisoformat(created) if isinstance(created, str) else created
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            end = dt + timedelta(hours=WELCOME_OFFER_HOURS)
+            end = dt + timedelta(hours=cfg["hours"])
             active = datetime.now(timezone.utc) < end
             ends_at = end.isoformat()
         except Exception:
             pass
-    return {"active": active, "ends_at": ends_at if active else None, "pct": WELCOME_OFFER_PCT}
+    return {"active": active, "ends_at": ends_at if active else None, "pct": cfg["pct"]}
 
-def _offer_price(cost: int, offer_active: bool) -> int:
-    return int(round(cost * (1 - WELCOME_OFFER_PCT / 100))) if offer_active else int(cost)
+def _offer_price(cost, offer) -> int:
+    if offer and offer.get("active"):
+        return int(round(cost * (1 - offer.get("pct", 0) / 100)))
+    return int(cost)
 
 def _daily_reward(streak: int) -> int:
     if streak >= 100:
@@ -609,7 +685,7 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_admin)):
     return serialize_media(doc)
 
 @api_router.put("/media/{media_id}")
-async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(require_admin)):
+async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(require_level(2))):
     doc = {k: v for k, v in m.model_dump(exclude_unset=True).items()}
     if not doc:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -620,7 +696,7 @@ async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(requi
     return serialize_media(fresh)
 
 @api_router.delete("/media/{media_id}")
-async def delete_media(media_id: str, user: dict = Depends(require_admin)):
+async def delete_media(media_id: str, user: dict = Depends(require_level(3))):
     await db.media.delete_one({"id": media_id})
     await db.reviews.delete_many({"media_id": media_id})
     await db.favorites.delete_many({"media_id": media_id})
@@ -784,7 +860,7 @@ async def delete_review(review_id: str, user: dict = Depends(get_current_user)):
     doc = await db.reviews.find_one({"id": review_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
-    if doc["user_id"] != user["user_id"] and not user.get("is_admin"):
+    if doc["user_id"] != user["user_id"] and _admin_level(user) < 2:
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.reviews.delete_one({"id": review_id})
     # remove any replies attached to a deleted top-level review
@@ -822,7 +898,7 @@ async def mark_notifications_read(user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 @api_router.get("/admin/reviews")
-async def admin_list_reviews(admin: dict = Depends(require_admin)):
+async def admin_list_reviews(admin: dict = Depends(require_level(2))):
     docs = await db.reviews.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     media_ids = list({d.get("media_id") for d in docs if d.get("media_id")})
     medias = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0, "id": 1, "title": 1}).to_list(1000)
@@ -836,7 +912,7 @@ async def list_announcements():
     return await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
 
 @api_router.post("/announcements")
-async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(require_admin)):
+async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(require_level(2))):
     title = (a.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Titre requis")
@@ -851,7 +927,7 @@ async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(requi
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.delete("/announcements/{announcement_id}")
-async def delete_announcement(announcement_id: str, admin: dict = Depends(require_admin)):
+async def delete_announcement(announcement_id: str, admin: dict = Depends(require_level(2))):
     res = await db.announcements.delete_one({"id": announcement_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
@@ -979,13 +1055,15 @@ async def admin_list_wishboard(admin: dict = Depends(require_admin)):
 
 @api_router.patch("/wishboard/{wish_id}/status")
 async def set_wish_status(wish_id: str, s: WishStatus, admin: dict = Depends(require_admin)):
+    if s.status != "approved" and _admin_level(admin) < 2:
+        raise HTTPException(status_code=403, detail="Refuser ou mettre en attente est réservé au Modérateur")
     res = await db.wishboard.update_one({"id": wish_id}, {"$set": {"status": s.status}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True, "status": s.status}
 
 @api_router.delete("/wishboard/{wish_id}")
-async def delete_wish(wish_id: str, admin: dict = Depends(require_admin)):
+async def delete_wish(wish_id: str, admin: dict = Depends(require_level(2))):
     res = await db.wishboard.delete_one({"id": wish_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1025,10 +1103,11 @@ async def rewards_daily(user: dict = Depends(get_current_user)):
 
 @api_router.get("/coins/plans")
 async def coins_plans(user: dict = Depends(get_current_user)):
-    offer = _welcome_offer(user)
+    offer = await _welcome_offer(user)
+    coin_plans = await _effective_coin_plans()
     plans = []
-    for k, v in COIN_PLANS.items():
-        opts = [{"days": o["days"], "coins": _offer_price(o["coins"], offer["active"]), "coins_original": o["coins"]} for o in v["options"]]
+    for k, v in coin_plans.items():
+        opts = [{"days": o["days"], "coins": _offer_price(o["coins"], offer), "coins_original": o["coins"]} for o in v["options"]]
         plans.append({"id": k, "name": v["name"], "options": opts})
     return {
         "balance": round(float(user.get("coins", 0) or 0), 1),
@@ -1038,13 +1117,15 @@ async def coins_plans(user: dict = Depends(get_current_user)):
 
 @api_router.post("/coins/redeem")
 async def coins_redeem(inp: RedeemInput, user: dict = Depends(get_current_user)):
-    plan = COIN_PLANS.get(inp.plan)
+    coin_plans = await _effective_coin_plans()
+    plan = coin_plans.get(inp.plan)
     if not plan:
         raise HTTPException(status_code=400, detail="Plan inconnu")
     option = next((o for o in plan["options"] if o["days"] == inp.days), None)
     if not option:
         raise HTTPException(status_code=400, detail="Durée invalide")
-    cost = _offer_price(option["coins"], _welcome_offer(user)["active"])
+    offer = await _welcome_offer(user)
+    cost = _offer_price(option["coins"], offer)
     days = option["days"]
     base = datetime.now(timezone.utc)
     current = user.get("premium_until")
@@ -1270,7 +1351,7 @@ async def unread_messages_count(user: dict = Depends(get_current_user)):
     return {"count": n}
 
 @api_router.post("/admin/coins/{user_id}")
-async def admin_set_coins(user_id: str, inp: AdminCoinsInput, admin: dict = Depends(require_admin)):
+async def admin_set_coins(user_id: str, inp: AdminCoinsInput, admin: dict = Depends(require_level(2))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1465,11 +1546,79 @@ PLANS = [
 
 @api_router.get("/plans")
 async def list_plans():
-    return PLANS
+    return await _effective_plans()
 
 @api_router.get("/premium/offer")
 async def premium_offer(user: dict = Depends(get_current_user)):
-    return _welcome_offer(user)
+    return await _welcome_offer(user)
+
+class PricingInput(BaseModel):
+    premium: Optional[dict] = None
+    coins: Optional[dict] = None
+    welcome: Optional[dict] = None
+
+async def _pricing_payload() -> dict:
+    return {
+        "premium": await _effective_plans(),
+        "coins": await _effective_coin_plans(),
+        "welcome": await _welcome_config(),
+    }
+
+@api_router.get("/admin/pricing")
+async def get_admin_pricing(admin: dict = Depends(require_level(3))):
+    return await _pricing_payload()
+
+@api_router.post("/admin/pricing")
+async def set_admin_pricing(inp: PricingInput, admin: dict = Depends(require_level(3))):
+    update = {}
+    if inp.premium is not None:
+        clean = {}
+        for pid, intervals in (inp.premium or {}).items():
+            if pid not in {"basic", "standard", "premium"} or not isinstance(intervals, dict):
+                continue
+            row = {}
+            for interval in ("monthly", "yearly"):
+                if interval in intervals:
+                    try:
+                        row[interval] = round(float(intervals[interval]), 2)
+                    except Exception:
+                        pass
+            if row:
+                clean[pid] = row
+        update["premium"] = clean
+    if inp.coins is not None:
+        clean = {}
+        for pid, opts in (inp.coins or {}).items():
+            if pid not in {"basic", "standard", "premium"} or not isinstance(opts, list):
+                continue
+            arr = []
+            for o in opts:
+                try:
+                    arr.append({"days": int(o["days"]), "coins": int(round(float(o["coins"])))})
+                except Exception:
+                    pass
+            if arr:
+                clean[pid] = arr
+        update["coins"] = clean
+    if inp.welcome is not None:
+        w = inp.welcome or {}
+        wc = {}
+        try:
+            if "pct" in w:
+                wc["pct"] = max(0.0, min(100.0, float(w["pct"])))
+        except Exception:
+            pass
+        try:
+            if "hours" in w:
+                wc["hours"] = max(0.0, float(w["hours"]))
+        except Exception:
+            pass
+        if "enabled" in w:
+            wc["enabled"] = bool(w["enabled"])
+        update["welcome"] = wc
+    if update:
+        await db.settings.update_one({"id": "pricing"}, {"$set": update}, upsert=True)
+    return await _pricing_payload()
 
 class CheckoutRequest(BaseModel):
     lookup_key: str
@@ -1655,7 +1804,7 @@ async def get_cagnotte():
     return await _get_cagnotte()
 
 @api_router.post("/admin/cagnotte")
-async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_admin)):
+async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_level(3))):
     total = max(0.0, round(float(inp.total), 2))
     await db.cagnotte.update_one({"id": "main"}, {"$set": {"total": total, "goal": CAGNOTTE_GOAL}}, upsert=True)
     return await _get_cagnotte()
@@ -1899,7 +2048,7 @@ async def admin_get_user(user_id: str, admin: dict = Depends(require_admin)):
     return user_public_dict(u) | {"created_at": u.get("created_at"), "review_count": review_count}
 
 @api_router.patch("/admin/users/{user_id}")
-async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = Depends(require_admin)):
+async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = Depends(require_level(3))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -1928,17 +2077,25 @@ async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = De
     updated = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
     return user_public_dict(updated) | {"created_at": updated.get("created_at")}
 
-@api_router.post("/admin/users/{user_id}/toggle-admin")
-async def admin_toggle_admin(user_id: str, admin: dict = Depends(require_admin)):
+class AdminRoleInput(BaseModel):
+    role: Literal["editor", "moderator", "super", "none"]
+
+@api_router.post("/admin/users/{user_id}/role")
+async def admin_set_role(user_id: str, inp: AdminRoleInput, admin: dict = Depends(require_level(3))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
-    new_val = not bool(target.get("is_admin"))
-    await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": new_val}})
-    return {"is_admin": new_val}
+    if _is_superadmin_locked(target):
+        raise HTTPException(status_code=403, detail="Ce compte est super-admin protégé et ne peut pas être modifié.")
+    if inp.role == "none":
+        await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": False, "admin_role": None}})
+    else:
+        await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": True, "admin_role": inp.role}})
+    fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"admin_role": _admin_role(fresh), "is_admin": _admin_level(fresh) >= 1}
 
 @api_router.post("/admin/users/{user_id}/toggle-premium")
-async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_admin)):
+async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_level(3))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1960,7 +2117,7 @@ async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_admin
     return {"premium": True}
 
 @api_router.post("/admin/users/{user_id}/premium")
-async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = Depends(require_admin)):
+async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = Depends(require_level(3))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2008,7 +2165,7 @@ async def _dedupe_accounts() -> int:
     return len(to_delete)
 
 @api_router.post("/admin/dedupe")
-async def admin_dedupe(admin: dict = Depends(require_admin)):
+async def admin_dedupe(admin: dict = Depends(require_level(3))):
     removed = await _dedupe_accounts()
     return {"removed": removed}
 
@@ -2023,7 +2180,7 @@ async def _purge_expired_blocked() -> int:
     return len(expired)
 
 @api_router.post("/admin/users/{user_id}/toggle-block")
-async def admin_toggle_block(user_id: str, admin: dict = Depends(require_admin)):
+async def admin_toggle_block(user_id: str, admin: dict = Depends(require_level(2))):
     if user_id == admin["user_id"]:
         raise HTTPException(status_code=400, detail="Vous ne pouvez pas bloquer votre propre compte")
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -2037,7 +2194,7 @@ async def admin_toggle_block(user_id: str, admin: dict = Depends(require_admin))
     return {"blocked": True, "blocked_at": now, "delete_after_days": BLOCK_DELETE_DAYS}
 
 @api_router.delete("/admin/users/{user_id}")
-async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_level(3))):
     if user_id == admin["user_id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     await _delete_user_data(user_id)
