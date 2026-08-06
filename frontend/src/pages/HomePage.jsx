@@ -309,21 +309,23 @@ export default function HomePage() {
                         <Link
                             to="/wishboard"
                             data-testid="wishboard-cta"
-                            className="group block rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] via-[#0f0b04] to-[#0a0a0a] hover:border-[#E8D2A6]/60 transition-colors p-8 sm:p-10"
+                            className="group relative block overflow-hidden rounded-3xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#1c1509] via-[#120d05] to-[#0a0a0a] hover:border-[#E8D2A6]/70 transition-colors p-8 sm:p-12"
                         >
-                            <div className="flex items-center justify-between gap-6 flex-wrap">
+                            <div className="pointer-events-none absolute -right-16 -top-16 w-56 h-56 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
+                            <div className="relative flex items-center justify-between gap-6 flex-wrap">
                                 <div className="flex items-center gap-5">
-                                    <div className="w-14 h-14 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center shrink-0">
-                                        <Search size={24} />
+                                    <div className="w-16 h-16 rounded-2xl bg-[#E8D2A6] text-black flex items-center justify-center shrink-0">
+                                        <Search size={28} />
                                     </div>
                                     <div>
-                                        <div className="font-display text-2xl sm:text-3xl tracking-tight text-white">Vous ne trouvez pas votre bonheur ?</div>
-                                        <div className="text-neutral-400 mt-1">Faites une demande dans le Wishboard — on ajoute vos titres préférés.</div>
+                                        <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-1.5">Wishboard</div>
+                                        <div className="font-display text-2xl sm:text-4xl tracking-tight text-white leading-tight">Vous ne trouvez pas votre bonheur ?</div>
+                                        <div className="text-neutral-400 mt-2 text-sm sm:text-base">Faites une demande — on ajoute vos films, séries et animes préférés au catalogue.</div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 text-[#E8D2A6] font-semibold text-lg shrink-0">
-                                    Aller au Wishboard <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                                </div>
+                                <span className="inline-flex items-center gap-2 h-12 px-6 rounded-full bg-[#E8D2A6] text-black font-semibold shrink-0 group-hover:bg-[#F5E6C5] transition-colors">
+                                    Faire une demande <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                                </span>
                             </div>
                         </Link>
                     </section>
@@ -345,10 +347,9 @@ export default function HomePage() {
                                         key={g.genre}
                                         to={`/browse?genre=${encodeURIComponent(g.genre)}`}
                                         data-testid={`genre-${g.genre}`}
-                                        className="px-5 py-2.5 rounded-full border border-[#262626] bg-[#0a0a0a] text-neutral-200 hover:border-[#E8D2A6] hover:text-[#E8D2A6] hover:bg-[#E8D2A6]/5 transition-colors"
+                                        className="px-6 py-3 rounded-full border border-[#262626] bg-[#0e0e0e] text-neutral-200 font-medium hover:border-[#E8D2A6] hover:text-[#E8D2A6] hover:bg-[#E8D2A6]/10 hover:-translate-y-0.5 transition-all duration-200"
                                     >
                                         {g.genre}
-                                        <span className="ml-2 text-xs text-neutral-600">{g.count}</span>
                                     </Link>
                                 ))}
                             </div>
