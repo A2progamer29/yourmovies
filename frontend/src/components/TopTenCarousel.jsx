@@ -30,7 +30,7 @@ function TopTenItem({ media, rank }) {
                     )}
                 </div>
                 <span
-                    className="absolute -top-6 sm:-top-8 -right-1 sm:-right-2 z-20 leading-none text-7xl sm:text-8xl pointer-events-none"
+                    className="absolute -top-10 sm:-top-14 -right-1 sm:-right-2 z-20 leading-none text-7xl sm:text-8xl pointer-events-none"
                     style={{
                         fontFamily: "'Playfair Display', Georgia, serif",
                         color: "transparent",
@@ -64,7 +64,7 @@ export default function TopTenCarousel({ items }) {
             </div>
             <HScroller
                 testId="carousel-top10"
-                itemClassName="flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory pt-10 pb-2 -mx-6 px-6"
+                itemClassName="flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory pt-16 pb-2 -mx-6 px-6"
             >
                 {items.slice(0, 10).map((m, i) => (
                     <TopTenItem key={m.id} media={m} rank={i + 1} />
