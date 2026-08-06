@@ -14,8 +14,7 @@ function TopTenItem({ media, rank }) {
         >
             <div className="flex items-end">
                 <span
-                    className="font-display leading-[0.72] text-[104px] sm:text-[148px] shrink-0"
-                    style={{ color: "transparent", WebkitTextFillColor: "transparent", WebkitTextStroke: "2.5px #E8D2A6" }}
+                    className="font-display font-semibold leading-[0.72] text-[104px] sm:text-[148px] shrink-0 text-[#E8D2A6]"
                 >
                     {rank}
                 </span>
