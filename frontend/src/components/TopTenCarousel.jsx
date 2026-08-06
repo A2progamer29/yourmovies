@@ -30,7 +30,7 @@ function TopTenItem({ media, rank }) {
                     )}
                 </div>
                 <span
-                    className="absolute -top-10 sm:-top-14 -right-1 sm:-right-2 z-20 leading-none text-7xl sm:text-8xl pointer-events-none"
+                    className="absolute -top-10 sm:-top-14 -left-1 sm:-left-2 z-20 leading-none text-7xl sm:text-8xl pointer-events-none"
                     style={{
                         fontFamily: "'Playfair Display', Georgia, serif",
                         color: "transparent",
