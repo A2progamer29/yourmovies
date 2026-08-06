@@ -41,7 +41,7 @@ export default function TermsPage() {
                 </Section>
 
                 <Section title="5. Premium & Freemium">
-                    <p>Des offres Premium et une monnaie virtuelle « Freemium » sont proposées. Le Freemium n&apos;a aucune valeur monétaire réelle et ne peut être ni revendu ni échangé contre de l&apos;argent. Les paiements sont traités par un prestataire externe (Stripe).</p>
+                    <p>Des offres Premium et une monnaie virtuelle « Freemium » sont proposées. Le Freemium n&apos;a aucune valeur monétaire réelle et ne peut être ni revendu ni échangé contre de l&apos;argent. Les paiements des offres Premium se font via notre serveur Discord (salon #ticket) : carte bancaire, PayPal, Paysafecard, etc.</p>
                 </Section>
 
                 <Section title="6. Modifications">

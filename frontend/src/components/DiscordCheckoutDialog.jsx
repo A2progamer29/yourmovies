@@ -3,7 +3,7 @@ import { Ticket, Copy, Check, ShieldCheck, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const DISCORD_URL = "https://discord.gg/8SZ8KPrjcQ";
-const PAYMENTS = ["Carte bancaire", "PayPal", "Paysafecard", "Crypto", "& plus"];
+const PAYMENTS = ["Carte bancaire", "PayPal", "Paysafecard", "& plus"];
 
 function DiscordIcon({ size = 20, className = "" }) {
     return (
@@ -34,48 +34,48 @@ export default function DiscordCheckoutDialog({ open, onOpenChange, offerLabel, 
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="bg-[#0a0a0a] border-[#262626] text-white sm:max-w-md">
+            <DialogContent className="bg-[#0a0a0a] border-[#262626] text-white sm:max-w-xl p-7 gap-5">
                 <DialogHeader>
-                    <DialogTitle className="font-display text-2xl flex items-center gap-2.5">
-                        <DiscordIcon size={22} className="text-[#5865F2]" /> Finaliser sur Discord
+                    <DialogTitle className="font-display text-2xl sm:text-3xl flex items-center gap-2.5">
+                        <DiscordIcon size={24} className="text-[#5865F2]" /> Finaliser sur Discord
                     </DialogTitle>
                 </DialogHeader>
 
-                <p className="text-sm text-neutral-400 -mt-1">
+                <p className="text-sm text-neutral-400 -mt-2 leading-relaxed">
                     Le paiement se fait via notre Discord, en quelques minutes. Suis ces étapes :
                 </p>
 
-                <div className="mt-1 rounded-xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a] p-4 flex items-center justify-between gap-3">
+                <div className="rounded-xl border border-[#262626] bg-[#111] p-4 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                        <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1">
+                        <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1.5">
                             <Ticket size={12} className="text-[#E8D2A6]" /> Ton offre
                         </div>
                         <div className="text-white font-medium truncate">{offerLabel}</div>
                     </div>
                     <button
                         onClick={copy}
-                        className="shrink-0 inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-full border border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-[#E8D2A6] transition-colors"
+                        className="shrink-0 inline-flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-full border border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-[#E8D2A6] transition-colors"
                     >
-                        {copied ? <><Check size={13} /> Copié</> : <><Copy size={13} /> Copier</>}
+                        {copied ? <><Check size={14} /> Copié</> : <><Copy size={14} /> Copier</>}
                     </button>
                 </div>
 
-                <ol className="mt-4 space-y-3">
+                <ol className="space-y-4">
                     {steps.map((s, i) => (
-                        <li key={i} className="flex items-start gap-3 text-sm text-neutral-300">
-                            <span className="shrink-0 w-6 h-6 rounded-full bg-[#5865F2]/15 text-[#8b93f5] text-xs font-semibold flex items-center justify-center mt-0.5">
+                        <li key={i} className="flex items-start gap-3.5 text-[15px] text-neutral-300">
+                            <span className="shrink-0 w-7 h-7 rounded-full bg-[#5865F2]/15 text-[#8b93f5] text-sm font-semibold flex items-center justify-center">
                                 {i + 1}
                             </span>
-                            <span className="leading-relaxed">{s}</span>
+                            <span className="leading-relaxed pt-0.5">{s}</span>
                         </li>
                     ))}
                 </ol>
 
-                <div className="mt-4">
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2">Moyens de paiement acceptés</div>
+                <div>
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2.5">Moyens de paiement acceptés</div>
                     <div className="flex flex-wrap gap-2">
                         {PAYMENTS.map((p) => (
-                            <span key={p} className="text-xs px-3 py-1.5 rounded-full border border-[#262626] bg-[#111] text-neutral-300">
+                            <span key={p} className="text-[13px] px-3.5 py-2 rounded-full border border-[#262626] bg-[#111] text-neutral-300">
                                 {p}
                             </span>
                         ))}
@@ -86,13 +86,13 @@ export default function DiscordCheckoutDialog({ open, onOpenChange, offerLabel, 
                     href={DISCORD_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-5 inline-flex items-center justify-center gap-2 w-full h-12 rounded-full font-semibold bg-[#5865F2] text-white hover:bg-[#4752C4] transition-colors"
+                    className="inline-flex items-center justify-center gap-2 w-full h-12 rounded-full font-semibold bg-[#5865F2] text-white hover:bg-[#4752C4] transition-colors"
                 >
                     <DiscordIcon size={18} /> Rejoindre le Discord <ArrowRight size={16} />
                 </a>
 
-                <p className="mt-3 text-[11px] text-neutral-500 flex items-center justify-center gap-1.5">
-                    <ShieldCheck size={12} className="text-[#E8D2A6]" /> Traitement manuel par l&apos;équipe. Ton Premium est activé après confirmation.
+                <p className="-mt-1 text-[11px] text-neutral-500 flex items-center justify-center gap-1.5 text-center">
+                    <ShieldCheck size={12} className="text-[#E8D2A6] shrink-0" /> Traitement manuel par l&apos;équipe. Ton Premium est activé après confirmation.
                 </p>
             </DialogContent>
         </Dialog>

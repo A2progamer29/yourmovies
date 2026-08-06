@@ -34,7 +34,7 @@ export default function PrivacyPage() {
                 </Section>
 
                 <Section title="4. Prestataires externes">
-                    <p>Certaines fonctions reposent sur des services tiers : Google (connexion), Stripe (paiements), et des fournisseurs pour les médias. Les contenus vidéo proviennent de <span className="text-white">sources externes</span> ; pour des raisons de sécurité, les détails de cette infrastructure ne sont pas divulgués publiquement.</p>
+                    <p>Certaines fonctions reposent sur des services tiers : Google (connexion), Discord (paiements et support), et des fournisseurs pour les médias. Les contenus vidéo proviennent de <span className="text-white">sources externes</span> ; pour des raisons de sécurité, les détails de cette infrastructure ne sont pas divulgués publiquement.</p>
                 </Section>
 
                 <Section title="5. Suppression du compte">
