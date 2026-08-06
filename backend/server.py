@@ -317,17 +317,35 @@ def _is_online(user: dict) -> bool:
     except Exception:
         return False
 
+PREMIUM_PLAN_LEVELS = {"basic": 1, "standard": 2, "premium": 3, "admin": 4}
+
+def _active_premium_source(plan, until, source: str) -> Optional[dict]:
+    if not plan or not until:
+        return None
+    try:
+        dt = datetime.fromisoformat(until) if isinstance(until, str) else until
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if dt <= datetime.now(timezone.utc):
+            return None
+        return {"plan": plan, "until": dt.isoformat(), "source": source, "level": PREMIUM_PLAN_LEVELS.get(plan, 0)}
+    except Exception:
+        return None
+
+def _effective_premium_entitlement(user: dict) -> Optional[dict]:
+    """Return the best active entitlement without overwriting paid/coin premium."""
+    sources = [
+        _active_premium_source(user.get("premium_plan"), user.get("premium_until"), "account"),
+        _active_premium_source(user.get("discord_premium_plan"), user.get("discord_premium_until"), "discord"),
+    ]
+    active = [source for source in sources if source]
+    if not active:
+        return None
+    return max(active, key=lambda item: (item["level"], item["until"]))
+
 def user_public_dict(user: dict) -> dict:
-    premium_until = user.get("premium_until")
-    premium_active = False
-    if premium_until:
-        try:
-            dt = datetime.fromisoformat(premium_until) if isinstance(premium_until, str) else premium_until
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            premium_active = dt > datetime.now(timezone.utc)
-        except Exception:
-            premium_active = False
+    entitlement = _effective_premium_entitlement(user)
+    premium_active = entitlement is not None
     return {
         "user_id": user.get("user_id"),
         "email": user.get("email"),
@@ -339,13 +357,15 @@ def user_public_dict(user: dict) -> dict:
         "superadmin_locked": _is_superadmin_locked(user),
         "auth_provider": user.get("auth_provider", "jwt"),
         "premium": premium_active,
-        "premium_plan": user.get("premium_plan") if premium_active else None,
-        "premium_until": premium_until if premium_active else None,
+        "premium_plan": entitlement["plan"] if entitlement else None,
+        "premium_until": entitlement["until"] if entitlement else None,
+        "premium_source": entitlement["source"] if entitlement else None,
         "bio": user.get("bio"),
         "preferred_quality": user.get("preferred_quality"),
         "autoplay_hero": user.get("autoplay_hero", True),
         "accent_color": user.get("accent_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
+        "discord_linked": bool(user.get("discord_user_id")),
         "coins": round(float(user.get("coins", 0) or 0), 1),
         "login_streak": int(user.get("login_streak", 0) or 0),
         "blocked": bool(user.get("blocked_at")),
@@ -359,33 +379,30 @@ def user_public_dict(user: dict) -> dict:
 
 # ---------- Freemium ----------
 def _is_premium(user: dict) -> bool:
-    pu = user.get("premium_until")
-    if not pu:
-        return False
-    try:
-        dt = datetime.fromisoformat(pu) if isinstance(pu, str) else pu
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt > datetime.now(timezone.utc)
-    except Exception:
-        return False
+    return _effective_premium_entitlement(user) is not None
 
 COIN_PLANS = {
     "basic": {"name": "Basic", "options": [
-        {"days": 30, "coins": 800},
-        {"days": 60, "coins": 1500},
-        {"days": 90, "coins": 2100},
+        {"days": 30, "coins": 1200},
+        {"days": 60, "coins": 2250},
+        {"days": 90, "coins": 3150},
     ]},
     "standard": {"name": "Standard", "options": [
-        {"days": 30, "coins": 2000},
-        {"days": 60, "coins": 3800},
-        {"days": 90, "coins": 5400},
+        {"days": 30, "coins": 2800},
+        {"days": 60, "coins": 5250},
+        {"days": 90, "coins": 7350},
     ]},
     "premium": {"name": "Premium", "options": [
-        {"days": 30, "coins": 5000},
-        {"days": 60, "coins": 9500},
-        {"days": 90, "coins": 13500},
+        {"days": 30, "coins": 6000},
+        {"days": 60, "coins": 11250},
+        {"days": 90, "coins": 15750},
     ]},
+}
+
+LEGACY_COIN_OPTIONS = {
+    "basic": [{"days": 30, "coins": 800}, {"days": 60, "coins": 1500}, {"days": 90, "coins": 2100}],
+    "standard": [{"days": 30, "coins": 2000}, {"days": 60, "coins": 3800}, {"days": 90, "coins": 5400}],
+    "premium": [{"days": 30, "coins": 5000}, {"days": 60, "coins": 9500}, {"days": 90, "coins": 13500}],
 }
 
 WELCOME_OFFER_HOURS = 24
@@ -393,6 +410,19 @@ WELCOME_OFFER_PCT = 50
 
 async def _pricing_doc() -> dict:
     return await db.settings.find_one({"id": "pricing"}, {"_id": 0}) or {}
+
+async def _migrate_coin_economy_v2() -> None:
+    """Replace only untouched legacy defaults; preserve intentional admin prices."""
+    doc = await _pricing_doc()
+    if int(doc.get("coin_economy_version", 0) or 0) >= 2:
+        return
+    overrides = doc.get("coins")
+    update = {"$set": {"coin_economy_version": 2}}
+    if not overrides or overrides == LEGACY_COIN_OPTIONS:
+        update["$unset"] = {"coins": ""}
+    else:
+        logger.info("Tarifs YM Coins personnalisés conservés pendant la migration v2.")
+    await db.settings.update_one({"id": "pricing"}, update, upsert=True)
 
 async def _effective_plans() -> list:
     doc = await _pricing_doc()
@@ -471,7 +501,7 @@ def _daily_reward(streak: int) -> int:
         return 5
     return 3
 
-async def award_coins(user_id: str, amount: float, title: str, body: str = "") -> float:
+async def award_coins(user_id: str, amount: float, title: str, body: str = "", notify: bool = True) -> float:
     amount = round(float(amount), 1)
     res = await db.users.find_one_and_update(
         {"user_id": user_id},
@@ -479,20 +509,21 @@ async def award_coins(user_id: str, amount: float, title: str, body: str = "") -
         return_document=True,
     )
     new_balance = round(float((res or {}).get("coins", 0) or 0), 1) if res else 0
-    await db.notifications.insert_one({
-        "id": f"n_{uuid.uuid4().hex[:12]}",
-        "user_id": user_id,
-        "type": "coins",
-        "title": title,
-        "body": body,
-        "media_title": None,
-        "link": "/coins",
-        "read": False,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    if notify:
+        await db.notifications.insert_one({
+            "id": f"n_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": "coins",
+            "title": title,
+            "body": body,
+            "media_title": None,
+            "link": "/coins",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
     return new_balance
 
-COMMENT_COOLDOWN_SECONDS = 60
+COMMENT_COOLDOWN_SECONDS = 180
 
 async def _comment_can_earn(user: dict, text: str) -> bool:
     # anti-spam : pas de gain si < 60 s depuis le dernier commentaire, ni si texte identique au précédent.
@@ -2452,6 +2483,19 @@ async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None,
 async def root():
     return {"message": "YourMovie's API"}
 
+# ---------- Discord integration ----------
+try:
+    from .discord_api import create_discord_router
+except ImportError:
+    from discord_api import create_discord_router
+
+api_router.include_router(create_discord_router(
+    db=db,
+    award_coins=award_coins,
+    get_current_user=get_current_user,
+    get_coin_plans=_effective_coin_plans,
+))
+
 # ---------- Wire ----------
 app.include_router(api_router)
 
@@ -2475,6 +2519,10 @@ async def startup():
         await _dedupe_accounts()
     except Exception as e:
         logger.warning(f"Déduplication au démarrage échouée : {e}")
+    try:
+        await _migrate_coin_economy_v2()
+    except Exception as e:
+        logger.warning(f"Migration économie YM Coins v2 échouée : {e}")
     # index uniques : bloque les doublons email / user_id (courses d'inscription).
     # En try/except : si des doublons existent déjà en base, on n'empêche pas le démarrage.
     try:
