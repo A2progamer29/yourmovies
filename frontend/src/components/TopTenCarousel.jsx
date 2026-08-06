@@ -12,29 +12,31 @@ function TopTenItem({ media, rank }) {
             data-testid={`top10-${rank}`}
             className="shrink-0 snap-start select-none group w-36 sm:w-44"
         >
-            <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
-                    <Film size={22} className="text-[#E8D2A6]/70" />
-                    <span className="text-xs text-neutral-300 font-medium line-clamp-3 leading-snug">{media.title}</span>
+            <div className="relative aspect-[2/3]">
+                <div className="absolute inset-0 rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
+                        <Film size={22} className="text-[#E8D2A6]/70" />
+                        <span className="text-xs text-neutral-300 font-medium line-clamp-3 leading-snug">{media.title}</span>
+                    </div>
+                    {media.poster_url && imgOk && (
+                        <img
+                            src={media.poster_url}
+                            alt={media.title}
+                            loading="lazy"
+                            draggable={false}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={() => setImgOk(false)}
+                        />
+                    )}
                 </div>
-                {media.poster_url && imgOk && (
-                    <img
-                        src={media.poster_url}
-                        alt={media.title}
-                        loading="lazy"
-                        draggable={false}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        onError={() => setImgOk(false)}
-                    />
-                )}
                 <span
-                    className="absolute top-1 right-2.5 z-20 leading-none text-5xl sm:text-6xl"
+                    className="absolute -top-6 sm:-top-8 -right-1 sm:-right-2 z-20 leading-none text-7xl sm:text-8xl pointer-events-none"
                     style={{
                         fontFamily: "'Playfair Display', Georgia, serif",
                         color: "transparent",
                         WebkitTextFillColor: "transparent",
-                        WebkitTextStroke: "1.5px #E8D2A6",
-                        filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.95)) drop-shadow(0 0 2px rgba(0,0,0,0.85))",
+                        WebkitTextStroke: "2px #E8D2A6",
+                        filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.95)) drop-shadow(0 0 2px rgba(0,0,0,0.9))",
                     }}
                 >
                     {rank}
@@ -60,7 +62,10 @@ export default function TopTenCarousel({ items }) {
                 </div>
                 <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Top 10 le plus regardé</h2>
             </div>
-            <HScroller testId="carousel-top10">
+            <HScroller
+                testId="carousel-top10"
+                itemClassName="flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory pt-10 pb-2 -mx-6 px-6"
+            >
                 {items.slice(0, 10).map((m, i) => (
                     <TopTenItem key={m.id} media={m} rank={i + 1} />
                 ))}
