@@ -12,13 +12,14 @@ function TopTenItem({ media, rank }) {
             data-testid={`top10-${rank}`}
             className="shrink-0 snap-start select-none group"
         >
-            <div className="flex items-end">
+            <div className="flex items-end gap-3 sm:gap-4">
                 <span
-                    className="font-display font-semibold leading-[0.72] text-[104px] sm:text-[148px] shrink-0 text-[#E8D2A6]"
+                    className="leading-[0.72] text-[104px] sm:text-[150px] shrink-0"
+                    style={{ fontFamily: "'Playfair Display', Georgia, serif", color: "transparent", WebkitTextFillColor: "transparent", WebkitTextStroke: "2px #E8D2A6" }}
                 >
                     {rank}
                 </span>
-                <div className="relative z-10 w-28 sm:w-36 -ml-2 sm:-ml-3 shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
+                <div className="relative z-10 w-28 sm:w-36 shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] group-hover:border-[#E8D2A6]/50 transition-colors bg-gradient-to-br from-[#1c1c1c] to-[#0a0a0a]">
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
                         <Film size={22} className="text-[#E8D2A6]/70" />
                         <span className="text-xs text-neutral-300 font-medium line-clamp-3 leading-snug">{media.title}</span>
