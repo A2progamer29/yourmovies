@@ -8,6 +8,7 @@ import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
+import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PRESETS = [5, 10, 20, 50];
 
@@ -24,7 +25,8 @@ export default function CagnottePage() {
     const navigate = useNavigate();
     const [data, setData] = useState({ total: 0, goal: 1000, reached: false, refund_pct: 0 });
     const [amount, setAmount] = useState("10");
-    const [busy, setBusy] = useState(false);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [offer, setOffer] = useState("");
 
     const load = async () => {
         try {
@@ -35,18 +37,12 @@ export default function CagnottePage() {
 
     useEffect(() => { load(); }, []);
 
-    const contribute = async () => {
+    const contribute = () => {
         if (!user) { navigate("/login"); return; }
         const amt = Number(amount);
         if (!amt || amt < 1) { toast.error("Montant minimum : 1 €"); return; }
-        setBusy(true);
-        try {
-            const r = await api.post("/cagnotte/contribute", { amount: amt, origin_url: window.location.origin });
-            window.location.href = r.data.checkout_url;
-        } catch (e) {
-            showError(toast, e, "Contribution impossible");
-            setBusy(false);
-        }
+        setOffer(`Contribution à la cagnotte — ${amt} €`);
+        setDialogOpen(true);
     };
 
     const pct = data.goal > 0 ? Math.min(100, Math.round((data.total / data.goal) * 100)) : 0;
@@ -134,11 +130,11 @@ export default function CagnottePage() {
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500">€</span>
                         </div>
-                        <Button onClick={contribute} disabled={busy} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
-                            <Heart size={16} className="mr-2" fill="currentColor" /> {busy ? "Redirection…" : "Contribuer"}
+                        <Button onClick={contribute} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
+                            <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
                         </Button>
                     </div>
-                    <p className="text-xs text-neutral-500 mt-3">Paiement sécurisé par Stripe. Tu seras redirigé vers une page de paiement.</p>
+                    <p className="text-xs text-neutral-500 mt-3">Paiement via notre Discord — carte bancaire, PayPal, Paysafecard et plus.</p>
                 </div>
 
                 <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] flex gap-3 text-sm text-neutral-400">
@@ -148,6 +144,8 @@ export default function CagnottePage() {
                     </p>
                 </div>
             </div>
+
+            <DiscordCheckoutDialog open={dialogOpen} onOpenChange={setDialogOpen} offerLabel={offer} kind="donation" />
         </div>
     );
 }

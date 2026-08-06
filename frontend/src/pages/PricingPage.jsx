@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, Sparkles, Star, Crown } from "lucide-react";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { describeError, showError } from "@/lib/errors";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PLAN_ICON = {
     basic: <Star size={18} />,
@@ -19,29 +18,22 @@ export default function PricingPage() {
     const navigate = useNavigate();
     const [plans, setPlans] = useState([]);
     const [interval, setInterval] = useState("monthly");
-    const [loading, setLoading] = useState(null);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [offer, setOffer] = useState("");
 
     useEffect(() => {
         api.get("/plans").then((r) => setPlans(r.data));
     }, []);
 
-    const subscribe = async (plan) => {
+    const subscribe = (plan) => {
         if (!user) {
             navigate("/login");
             return;
         }
-        setLoading(plan.id);
-        try {
-            const price = plan.prices[interval];
-            const res = await api.post("/payments/checkout", {
-                lookup_key: price.lookup_key,
-                origin_url: window.location.origin,
-            });
-            window.location.href = res.data.checkout_url;
-        } catch (e) {
-            showError(toast, e, "Paiement impossible");
-            setLoading(null);
-        }
+        const price = plan.prices[interval];
+        const label = `${plan.name} — abonnement ${interval === "yearly" ? "annuel" : "mensuel"} (${price.amount.toFixed(2)} €/${interval === "yearly" ? "an" : "mois"})`;
+        setOffer(label);
+        setDialogOpen(true);
     };
 
     return (
@@ -125,14 +117,14 @@ export default function PricingPage() {
 
                                 <Button
                                     onClick={() => subscribe(plan)}
-                                    disabled={isCurrent || loading === plan.id}
+                                    disabled={isCurrent}
                                     data-testid={`subscribe-${plan.id}`}
                                     className={`mt-auto rounded-full h-11 font-semibold ${highlight
                                         ? "bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
                                         : "bg-white text-black hover:bg-neutral-200"
                                         }`}
                                 >
-                                    {isCurrent ? "Votre abonnement actuel" : loading === plan.id ? "..." : `Choisir ${plan.name}`}
+                                    {isCurrent ? "Votre abonnement actuel" : `Choisir ${plan.name}`}
                                 </Button>
                             </div>
                         );
@@ -140,9 +132,11 @@ export default function PricingPage() {
                 </div>
 
                 <div className="text-center mt-10 text-xs text-neutral-500">
-                    Paiement sécurisé via Stripe. Annulation possible à tout moment depuis votre espace Abonnement.
+                    Paiement via notre Discord — carte bancaire, PayPal, Paysafecard et plus. Sans engagement.
                 </div>
             </section>
+
+            <DiscordCheckoutDialog open={dialogOpen} onOpenChange={setDialogOpen} offerLabel={offer} kind="subscription" />
         </div>
     );
 }

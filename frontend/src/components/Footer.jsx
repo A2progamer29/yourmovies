@@ -1,8 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
-// À remplacer par le vrai lien d'invitation Discord :
-const DISCORD_URL = "https://discord.gg/";
+const DISCORD_URL = "https://discord.gg/8SZ8KPrjcQ";
 
 function DiscordIcon({ size = 20 }) {
     return (

@@ -148,8 +148,8 @@ export default function SubscriptionPage() {
                 </div>
 
                 <div className="text-xs text-neutral-500">
-                    La gestion complète de facturation, factures et méthodes de paiement se fait via Stripe. En cas de question,
-                    contactez le support.
+                    La gestion de l&apos;abonnement (renouvellement, changement de plan, questions) se fait via notre Discord,
+                    salon <span className="text-neutral-300">#ticket</span>.
                 </div>
 
                 <div className="mt-10 p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
