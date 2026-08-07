@@ -239,7 +239,7 @@ export default function MediaDetailPage() {
                 </motion.div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 grid lg:grid-cols-[minmax(0,1fr)_320px] gap-10 lg:gap-14">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 space-y-14">
                 <main className="space-y-14 min-w-0">
                     {/* Trailer */}
                     {media.trailer_youtube_id && (
@@ -303,7 +303,7 @@ export default function MediaDetailPage() {
 
                 </main>
 
-                <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
+                <aside className="w-full">
                     {(media.director || media.cast?.length > 0) && (
                         <div className="p-6 rounded-2xl border border-white/10 bg-[#0a0a0a]">
                             <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-5">Distribution</div>
@@ -323,16 +323,6 @@ export default function MediaDetailPage() {
                             )}
                         </div>
                     )}
-                    <div className="p-6 rounded-2xl border border-white/10 bg-gradient-to-br from-[#111] to-[#080808]">
-                        <div className="text-sm text-neutral-400 mb-4">Prêt à commencer ?</div>
-                        <Button
-                            onClick={() => navigate(`/watch/${media.id}`)}
-                            data-testid="watch-btn-aside"
-                            className="w-full bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12"
-                        >
-                            <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
-                        </Button>
-                    </div>
                 </aside>
             </div>
 
