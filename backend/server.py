@@ -140,6 +140,7 @@ class MediaBase(BaseModel):
     video_file_path: Optional[str] = None
     video_url: Optional[str] = None  # external MP4/HLS URL alternative to upload
     bunny_video_id: Optional[str] = None  # vidéo hébergée sur Bunny Stream
+    bunny_library_id: Optional[str] = None  # bibliothèque Bunny associée à la vidéo
     qualities: List[dict] = []  # [{quality: "720p"|"1080p"|"4k", url: "https://...", file_path: "..."}]
     cast: List[str] = []
     director: Optional[str] = None
@@ -166,6 +167,7 @@ class MediaUpdate(BaseModel):
     video_file_path: Optional[str] = None
     video_url: Optional[str] = None
     bunny_video_id: Optional[str] = None
+    bunny_library_id: Optional[str] = None
     qualities: Optional[List[dict]] = None
     cast: Optional[List[str]] = None
     director: Optional[str] = None
@@ -781,6 +783,7 @@ def serialize_media(doc) -> dict:
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
         "bunny_video_id": doc.get("bunny_video_id"),
+        "bunny_library_id": doc.get("bunny_library_id"),
         "qualities": doc.get("qualities", []),
         "title_logo_url": doc.get("title_logo_url"),
         "age_rating": doc.get("age_rating"),
@@ -1856,7 +1859,7 @@ async def bunny_video_status(video_id: str):
     if not r.ok:
         raise HTTPException(status_code=500, detail="Statut vidéo indisponible")
     j = r.json()
-    return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0), "availableResolutions": j.get("availableResolutions")}
+    return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0), "availableResolutions": j.get("availableResolutions"), "libraryId": str(BUNNY_LIBRARY_ID)}
 
 # ---------- Plans (abonnements gérés manuellement via Discord) ----------
 
