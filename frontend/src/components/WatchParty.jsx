@@ -27,16 +27,18 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         const backend = process.env.REACT_APP_BACKEND_URL;
         const wsProto = backend.startsWith("https") ? "wss" : "ws";
         const wsBase = backend.replace(/^https?:\/\//, "");
-        const params = new URLSearchParams();
-        if (token) params.set("token", token);
-        if (profileId) params.set("profile", profileId);
-        if (profileName) params.set("name", profileName);
-        const qs = params.toString();
-        const url = `${wsProto}://${wsBase}/api/party/${code}/ws${qs ? `?${qs}` : ""}`;
+        const url = `${wsProto}://${wsBase}/api/party/${code}/ws`;
         const ws = new WebSocket(url);
         wsRef.current = ws;
 
-        ws.onopen = () => setConnected(true);
+        ws.onopen = () => {
+            if (!token) {
+                ws.close(4401, "Authentification requise");
+                return;
+            }
+            ws.send(JSON.stringify({ type: "auth", token, profile: profileId || null }));
+            setConnected(true);
+        };
         ws.onclose = () => setConnected(false);
         ws.onerror = () => setConnected(false);
 
