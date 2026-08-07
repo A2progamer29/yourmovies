@@ -55,6 +55,7 @@ export default function SettingsPage() {
     const [, setSaveStatus] = useState("idle");
     const lastSavedForm = useRef({});
     const formReady = useRef(false);
+    const initializedUserId = useRef(null);
     const saveRequest = useRef(0);
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
@@ -70,7 +71,7 @@ export default function SettingsPage() {
     }, [user]);
 
     useEffect(() => {
-        if (user) {
+        if (user && initializedUserId.current !== user.user_id) {
             const nextForm = {
                 name: user.name || "",
                 bio: user.bio || "",
@@ -84,11 +85,12 @@ export default function SettingsPage() {
                 reviews_public: user.reviews_public !== false,
                 history_public: user.history_public !== false,
             };
+            initializedUserId.current = user.user_id;
             lastSavedForm.current = nextForm;
             formReady.current = true;
             setForm(nextForm);
         }
-    }, [user]);
+    }, [user?.user_id]);
 
     useEffect(() => {
         if (!user || !formReady.current || !Object.keys(form).length) return undefined;
@@ -114,8 +116,21 @@ export default function SettingsPage() {
         const timer = window.setTimeout(async () => {
             setSaveStatus("saving");
             try {
-                await api.patch("/settings", payload);
-                lastSavedForm.current = { ...lastSavedForm.current, ...payload };
+                const response = await api.patch("/settings", payload);
+                const confirmed = Object.fromEntries(
+                    changedFields.map((field) => [
+                        field,
+                        response.data?.[field] !== undefined ? response.data[field] : payload[field],
+                    ]),
+                );
+                lastSavedForm.current = { ...lastSavedForm.current, ...confirmed };
+                setForm((current) => {
+                    const synchronized = { ...current };
+                    changedFields.forEach((field) => {
+                        if (current[field] === payload[field]) synchronized[field] = confirmed[field];
+                    });
+                    return synchronized;
+                });
                 if (requestId === saveRequest.current) setSaveStatus("saved");
             } catch (error) {
                 if (requestId !== saveRequest.current) return;
@@ -129,10 +144,10 @@ export default function SettingsPage() {
                 setSaveStatus("error");
                 showError(toast, error, "Modification non enregistrée");
             }
-        }, 650);
+        }, changedFields.some((field) => field === "name" || field === "bio") ? 650 : 80);
 
         return () => window.clearTimeout(timer);
-    }, [form, user]);
+    }, [form, user?.user_id, user?.premium]);
 
     useEffect(() => {
         if (tab !== "discord" || !user || user.discord_linked) return undefined;
