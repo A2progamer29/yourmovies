@@ -30,6 +30,10 @@ ACTIVITY_TYPES = {"message", "reaction", "command"}
 LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
+def api_error(status: int, code: str, message: str, action: str) -> HTTPException:
+    return HTTPException(status_code=status, detail={"code": code, "message": message, "action": action})
+
+
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
     try:
         return max(minimum, int(os.environ.get(name, default)))
@@ -92,7 +96,7 @@ def create_discord_router(
     bump_reward = _env_int("DISCORD_BUMP_REWARD", 5, 1)
     bump_cooldown = _env_int("DISCORD_BUMP_COOLDOWN_SECONDS", 7200, 60)
     bump_daily_cap = _env_int("DISCORD_BUMP_DAILY_CAP", 15, 1)
-    link_ttl_minutes = _env_int("DISCORD_LINK_CODE_TTL_MINUTES", 10, 1)
+    link_ttl_minutes = 5
     activity_policy = RewardPolicy(activity_min, activity_max, activity_cooldown, activity_daily_cap)
     bump_policy = RewardPolicy(bump_reward, bump_reward, bump_cooldown, bump_daily_cap)
 
@@ -116,9 +120,9 @@ def create_discord_router(
     ) -> None:
         expected = os.environ.get("DISCORD_SERVICE_KEY", "")
         if not expected:
-            raise HTTPException(status_code=503, detail="DISCORD_SERVICE_KEY is not configured")
+            raise api_error(503, "YM-CONFIG-SERVICE-KEY", "DISCORD_SERVICE_KEY n’est pas configurée sur le backend.", "Ajoute la variable sur Render puis redémarre le service.")
         if not x_yourmovies_service_key or not hmac.compare_digest(x_yourmovies_service_key, expected):
-            raise HTTPException(status_code=401, detail="Invalid service key")
+            raise api_error(401, "YM-AUTH-SERVICE-KEY", "La clé de service du bot ne correspond pas à celle du backend.", "Utilise exactement la même DISCORD_SERVICE_KEY des deux côtés puis redémarre les services.")
 
     async def linked_user(discord_user_id: str) -> Optional[dict]:
         return await db.discord_links.find_one({"discord_user_id": discord_user_id}, {"_id": 0})
@@ -215,10 +219,10 @@ def create_discord_router(
             "expires_at": {"$gt": now},
         })
         if not code_doc:
-            raise HTTPException(status_code=400, detail="Code invalide ou expiré")
+            raise api_error(400, "YM-LINK-CODE-INVALID", "Le code de liaison est invalide ou expiré.", "Ouvre Paramètres > Discord et utilise le code affiché avant son renouvellement automatique de 5 minutes.")
         other = await db.discord_links.find_one({"discord_user_id": inp.discord_user_id}, {"_id": 0})
         if other and other.get("user_id") != code_doc["user_id"]:
-            raise HTTPException(status_code=409, detail="Ce compte Discord est déjà lié")
+            raise api_error(409, "YM-LINK-DISCORD-USED", "Ce compte Discord est déjà lié à un autre compte.", "Dissocie d’abord l’ancienne liaison depuis les paramètres du compte concerné.")
         try:
             await db.discord_links.update_one(
                 {"user_id": code_doc["user_id"]},
@@ -232,7 +236,7 @@ def create_discord_router(
                 upsert=True,
             )
         except DuplicateKeyError as exc:
-            raise HTTPException(status_code=409, detail="Compte Discord déjà lié") from exc
+            raise api_error(409, "YM-LINK-CONFLICT", "La liaison existe déjà.", "Dissocie l’ancien compte puis génère un nouveau code.") from exc
         await db.users.update_one(
             {"user_id": code_doc["user_id"]},
             {"$set": {"discord_user_id": inp.discord_user_id}},
@@ -245,10 +249,10 @@ def create_discord_router(
         await ensure_indexes()
         link = await linked_user(discord_user_id)
         if not link:
-            raise HTTPException(status_code=404, detail="Compte Discord non lié")
+            raise api_error(404, "YM-MEMBER-NOT-LINKED", "Ton compte Discord n’est pas lié à YourMovie's.", "Va dans Paramètres > Discord, génère un code puis utilise /lier.")
         user = await db.users.find_one({"user_id": link["user_id"]}, {"_id": 0, "name": 1, "coins": 1})
         if not user:
-            raise HTTPException(status_code=404, detail="Compte YourMovie's introuvable")
+            raise api_error(404, "YM-MEMBER-NOT-FOUND", "Le compte YourMovie's associé est introuvable.", "Dissocie puis relie à nouveau Discord, ou contacte le staff.")
         return {
             "name": user.get("name"),
             "coins": round(float(user.get("coins", 0) or 0), 1),
@@ -412,7 +416,7 @@ def create_discord_router(
         await ensure_indexes()
         link = await linked_user(inp.discord_user_id)
         if not link:
-            raise HTTPException(status_code=404, detail="Compte Discord non lié")
+            raise api_error(404, "YM-BOOST-NOT-LINKED", "Ce membre n’a pas lié son compte Discord.", "Demande-lui de générer un code sur le site puis d’utiliser /lier.")
         return {"ok": True, **await apply_boost_entitlement(link, inp.guild_id, inp.boost_count, inp.boost_count > 0)}
 
     return router
