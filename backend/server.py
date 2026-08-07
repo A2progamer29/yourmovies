@@ -791,6 +791,7 @@ def serialize_media(doc) -> dict:
         "seasons": doc.get("seasons", []),
         "featured": doc.get("featured", False),
         "featured_order": doc.get("featured_order"),
+        "in_theaters": doc.get("in_theaters", False),
         "created_at": doc.get("created_at", ""),
     }
 
