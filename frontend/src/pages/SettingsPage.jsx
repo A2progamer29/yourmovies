@@ -468,9 +468,13 @@ export default function SettingsPage() {
                             <div className="mb-2 flex items-center gap-2">
                                 <Palette size={14} className="text-[#E8D2A6]" />
                                 <div className="text-sm font-medium text-white">Fond du profil</div>
-                                <Crown size={12} className="text-[#E8D2A6]" />
+                                {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                             </div>
-                            <p className="mb-4 text-xs text-neutral-500">Choisissez la couleur affichée derrière le contenu de votre profil. Réservé aux abonnés Premium.</p>
+                            <p className="mb-4 text-xs text-neutral-500">
+                                {user.premium
+                                    ? "Choisissez la couleur affichée derrière le contenu de votre profil."
+                                    : "Choisissez la couleur affichée derrière le contenu de votre profil. Réservé aux abonnés Premium."}
+                            </p>
                             <div className="flex flex-wrap gap-3">
                                 {PROFILE_BACKGROUND_PRESETS.map((color) => (
                                     <button
@@ -553,7 +557,7 @@ export default function SettingsPage() {
                                 <SelectTrigger data-testid="settings-quality" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs"><SelectValue /></SelectTrigger>
                                 <SelectContent className="bg-[#111] border-[#262626] text-white">
                                     <SelectItem value="auto">Auto (max autorisé par l&apos;abonnement)</SelectItem>
-                                    <SelectItem value="4k">4K UHD (Premium)</SelectItem>
+                                    <SelectItem value="4k">4K UHD{!user.premium ? " (Premium)" : ""}</SelectItem>
                                     <SelectItem value="1080p">Full HD 1080p</SelectItem>
                                     <SelectItem value="720p">HD 720p</SelectItem>
                                 </SelectContent>
@@ -596,7 +600,11 @@ export default function SettingsPage() {
                                 <div className="text-white">Couleur d&apos;accent</div>
                                 {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                             </div>
-                            <div className="text-xs text-neutral-500 mb-4">Personnalisez la couleur principale de votre YourMovie&apos;s. Réservé aux abonnés.</div>
+                            <div className="text-xs text-neutral-500 mb-4">
+                                {user.premium
+                                    ? "Personnalisez la couleur principale de votre YourMovie's."
+                                    : "Personnalisez la couleur principale de votre YourMovie's. Réservé aux abonnés Premium."}
+                            </div>
                             <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
                                 {ACCENT_PRESETS.map((c) => (
                                     <button
