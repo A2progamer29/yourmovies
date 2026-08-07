@@ -12,6 +12,8 @@ import logging
 import uuid
 import io
 import secrets
+import hashlib
+import time
 import requests
 import bcrypt
 import jwt as pyjwt
@@ -47,6 +49,25 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+@app.middleware("http")
+async def security_and_abuse_guard(request: Request, call_next):
+    if request.url.path.startswith("/api"):
+        configured = os.environ.get("CORS_ORIGINS", "https://yourmovies.online")
+        allowed = {value.strip() for value in configured.split(",") if value.strip() and value.strip() != "*"}
+        origin = request.headers.get("origin")
+        if origin and origin not in allowed:
+            return FastAPIResponse(content='{"detail":"Origine non autorisée"}', status_code=403, media_type="application/json")
+        scope = "mutation" if request.method in {"POST", "PUT", "PATCH", "DELETE"} else "read"
+        try:
+            await _enforce_rate_limit(request, scope, 40 if scope == "mutation" else 180, 60)
+        except HTTPException as exc:
+            return FastAPIResponse(content='{"detail":"Trop de requêtes"}', status_code=429, media_type="application/json", headers=exc.headers)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
 
 # ---------- Storage (Cloudinary) ----------
 import cloudinary
@@ -87,7 +108,7 @@ class UserPublic(BaseModel):
 class RegisterInput(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
-    name: str
+    name: str = Field(min_length=2, max_length=40)
 
 class LoginInput(BaseModel):
     email: EmailStr
@@ -154,9 +175,9 @@ class MediaOut(MediaBase):
     created_at: str
 
 class ReviewCreate(BaseModel):
-    media_id: str
+    media_id: str = Field(min_length=1, max_length=80)
     rating: float = Field(..., ge=0, le=10)
-    comment: str = ""
+    comment: str = Field(default="", max_length=2000)
 
 class ReviewOut(BaseModel):
     id: str
@@ -168,15 +189,15 @@ class ReviewOut(BaseModel):
     created_at: str
 
 class ReplyCreate(BaseModel):
-    comment: str
+    comment: str = Field(min_length=1, max_length=2000)
 
 class ReviewEdit(BaseModel):
     rating: Optional[float] = Field(default=None, ge=0, le=10)
-    comment: Optional[str] = None
+    comment: Optional[str] = Field(default=None, max_length=2000)
 
 class AnnouncementCreate(BaseModel):
-    title: str
-    body: str = ""
+    title: str = Field(min_length=1, max_length=120)
+    body: str = Field(default="", max_length=10000)
 
 class WishCreate(BaseModel):
     imdb_id: str
@@ -217,11 +238,27 @@ def verify_password(pw: str, hashed: str) -> bool:
     except Exception:
         return False
 
-def create_jwt(user_id: str) -> str:
+SESSION_TTL = timedelta(days=7)
+
+def _token_fingerprint(jti: str) -> str:
+    return hashlib.sha256(jti.encode()).hexdigest()
+
+async def create_jwt(user_id: str) -> str:
+    now = datetime.now(timezone.utc)
+    jti = secrets.token_urlsafe(32)
     payload = {
         "user_id": user_id,
-        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        "jti": jti,
+        "iat": now,
+        "exp": now + SESSION_TTL,
     }
+    await db.auth_sessions.insert_one({
+        "jti_hash": _token_fingerprint(jti),
+        "user_id": user_id,
+        "created_at": now,
+        "expires_at": now + SESSION_TTL,
+        "revoked_at": None,
+    })
     return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 async def get_user_by_id(user_id: str) -> Optional[dict]:
@@ -239,6 +276,17 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
         user = None
         try:
             payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+            jti = payload.get("jti")
+            if not jti:
+                raise pyjwt.InvalidTokenError("legacy token")
+            session = await db.auth_sessions.find_one({
+                "jti_hash": _token_fingerprint(jti),
+                "user_id": payload.get("user_id"),
+                "revoked_at": None,
+                "expires_at": {"$gt": datetime.now(timezone.utc)},
+            })
+            if not session:
+                raise pyjwt.InvalidTokenError("revoked token")
             user = await get_user_by_id(payload.get("user_id"))
         except Exception:
             user = None
@@ -265,11 +313,8 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 ROLE_LEVEL = {"editor": 1, "moderator": 2, "super": 3}
-SUPERADMIN_WHITELIST = {"user_22e47c166f77"}
-SUPERADMIN_NAMES = {"lune27"}
-
 def _is_superadmin_locked(user: dict) -> bool:
-    return user.get("user_id") in SUPERADMIN_WHITELIST or (user.get("name") or "").strip().lower() in SUPERADMIN_NAMES
+    return bool(user.get("account_identifier") and user.get("superadmin_locked"))
 
 def _admin_role(user: dict):
     if _is_superadmin_locked(user):
@@ -305,6 +350,42 @@ async def current_profile_id(x_profile_id: Optional[str] = Header(None, alias="X
     return x_profile_id or None
 
 ONLINE_WINDOW_SECONDS = 120
+RATE_BUCKETS: dict = {}
+RATE_LOCK = asyncio.Lock()
+
+async def _enforce_rate_limit(request: Request, scope: str, limit: int, window_seconds: int) -> None:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    client_ip = forwarded or (request.client.host if request.client else "unknown")
+    key = f"{scope}:{client_ip}"
+    now = time.monotonic()
+    async with RATE_LOCK:
+        attempts = [stamp for stamp in RATE_BUCKETS.get(key, []) if now - stamp < window_seconds]
+        if len(attempts) >= limit:
+            retry_after = max(1, int(window_seconds - (now - attempts[0])))
+            raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez plus tard.", headers={"Retry-After": str(retry_after)})
+        attempts.append(now)
+        RATE_BUCKETS[key] = attempts
+
+def _new_account_identifier() -> str:
+    return f"YM-{secrets.token_hex(6).upper()}"
+
+async def _allocate_account_identifier() -> str:
+    for _ in range(20):
+        candidate = _new_account_identifier()
+        if not await db.users.find_one({"account_identifier": candidate}, {"_id": 1}):
+            return candidate
+    raise RuntimeError("Impossible de générer un identifiant de compte unique")
+
+async def _migrate_account_identifiers() -> None:
+    users = await db.users.find({}, {"_id": 0, "user_id": 1, "name": 1, "account_identifier": 1}).to_list(100000)
+    for existing in users:
+        updates = {}
+        if not existing.get("account_identifier"):
+            updates["account_identifier"] = await _allocate_account_identifier()
+        if (existing.get("name") or "").strip().lower() == "lune27":
+            updates.update({"is_admin": True, "admin_role": "super", "superadmin_locked": True})
+        if updates:
+            await db.users.update_one({"user_id": existing["user_id"]}, {"$set": updates})
 
 def _is_online(user: dict) -> bool:
     ls = user.get("last_seen")
@@ -349,6 +430,7 @@ def user_public_dict(user: dict) -> dict:
     premium_active = entitlement is not None
     return {
         "user_id": user.get("user_id"),
+        "account_identifier": user.get("account_identifier"),
         "email": user.get("email"),
         "name": user.get("name"),
         "picture": user.get("picture"),
@@ -424,7 +506,7 @@ async def _migrate_coin_economy_v2() -> None:
     if not overrides or overrides == LEGACY_COIN_OPTIONS:
         update["$unset"] = {"coins": ""}
     else:
-        logger.info("Tarifs YM Coins personnalisés conservés pendant la migration v2.")
+        logger.info("Tarifs Freemium personnalisés conservés pendant la migration v2.")
     await db.settings.update_one({"id": "pricing"}, update, upsert=True)
 
 async def _effective_plans() -> list:
@@ -563,7 +645,8 @@ async def _unique_name(base: str) -> str:
 
 # ---------- Auth Routes ----------
 @api_router.post("/auth/register")
-async def register(inp: RegisterInput):
+async def register(inp: RegisterInput, request: Request):
+    await _enforce_rate_limit(request, "register", 5, 3600)
     existing = await db.users.find_one({"email": inp.email.lower()})
     if existing:
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
@@ -572,14 +655,14 @@ async def register(inp: RegisterInput):
     if name_clash:
         raise HTTPException(status_code=400, detail="Ce pseudo est déjà pris.")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
-    is_admin = await db.users.count_documents({}) == 0  # first user becomes admin
     doc = {
         "user_id": user_id,
+        "account_identifier": await _allocate_account_identifier(),
         "email": inp.email.lower(),
         "name": name,
         "password_hash": hash_password(inp.password),
         "picture": None,
-        "is_admin": is_admin,
+        "is_admin": False,
         "auth_provider": "jwt",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -588,24 +671,26 @@ async def register(inp: RegisterInput):
     except DuplicateKeyError:
         # course entre deux inscriptions simultanées sur le même email
         raise HTTPException(status_code=400, detail="Email already registered")
-    token = create_jwt(user_id)
+    token = await create_jwt(user_id)
     return {"token": token, "user": user_public_dict(doc)}
 
 @api_router.post("/auth/login")
-async def login(inp: LoginInput):
+async def login(inp: LoginInput, request: Request):
+    await _enforce_rate_limit(request, "login", 10, 900)
     user = await db.users.find_one({"email": inp.email.lower()}, {"_id": 0})
     if not user or not user.get("password_hash") or not verify_password(inp.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.get("blocked_at"):
         raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
-    token = create_jwt(user["user_id"])
+    token = await create_jwt(user["user_id"])
     return {"token": token, "user": user_public_dict(user)}
 
 class GoogleAuthInput(BaseModel):
     credential: str
 
 @api_router.post("/auth/google")
-async def auth_google(inp: GoogleAuthInput):
+async def auth_google(inp: GoogleAuthInput, request: Request):
+    await _enforce_rate_limit(request, "google-login", 20, 900)
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Google login not configured")
     try:
@@ -631,21 +716,21 @@ async def auth_google(inp: GoogleAuthInput):
         await db.users.update_one({"user_id": user_id}, {"$set": {"picture": picture}})
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
-        is_admin = await db.users.count_documents({}) == 0
         name = await _unique_name(name)
         await db.users.insert_one({
             "user_id": user_id,
+            "account_identifier": await _allocate_account_identifier(),
             "email": email,
             "name": name,
             "picture": picture,
-            "is_admin": is_admin,
+            "is_admin": False,
             "auth_provider": "google",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
     user = await get_user_by_id(user_id)
     if user.get("blocked_at"):
         raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
-    token = create_jwt(user_id)
+    token = await create_jwt(user_id)
     return {"token": token, "user": user_public_dict(user)}
 
 @api_router.get("/auth/me")
@@ -653,7 +738,17 @@ async def me(user: dict = Depends(get_current_user)):
     return user_public_dict(user)
 
 @api_router.post("/auth/logout")
-async def logout(request: Request, response: Response):
+async def logout(request: Request, response: Response, authorization: Optional[str] = Header(None)):
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            payload = pyjwt.decode(authorization.split(" ", 1)[1], JWT_SECRET, algorithms=[JWT_ALGO], options={"verify_exp": False})
+            if payload.get("jti"):
+                await db.auth_sessions.update_one(
+                    {"jti_hash": _token_fingerprint(payload["jti"]), "user_id": payload.get("user_id")},
+                    {"$set": {"revoked_at": datetime.now(timezone.utc)}},
+                )
+        except Exception:
+            pass
     session_token = request.cookies.get("session_token")
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
@@ -782,7 +877,12 @@ async def list_genres(limit: int = 30):
 # ---------- Reviews ----------
 @api_router.get("/media/{media_id}/reviews")
 async def list_reviews(media_id: str):
-    docs = await db.reviews.find({"media_id": media_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    private_users = await db.users.find({"reviews_public": False}, {"_id": 0, "user_id": 1}).to_list(100000)
+    private_ids = [item["user_id"] for item in private_users]
+    query = {"media_id": media_id}
+    if private_ids:
+        query["user_id"] = {"$nin": private_ids}
+    docs = await db.reviews.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return docs
 
 async def _recompute_rating(media_id: str):
@@ -1202,7 +1302,7 @@ async def users_search(q: str, user: dict = Depends(get_current_user)):
     if not q:
         return []
     docs = await db.users.find(
-        {"name": {"$regex": re.escape(q), "$options": "i"}},
+        {"name": {"$regex": re.escape(q), "$options": "i"}, "profile_public": {"$ne": False}},
         {"_id": 0, "user_id": 1, "name": 1, "picture": 1},
     ).limit(10).to_list(10)
     return [{"user_id": d["user_id"], "name": d.get("name"), "picture": d.get("picture")} for d in docs]
@@ -1236,7 +1336,7 @@ async def user_public_profile(user_id: str, viewer: Optional[dict] = Depends(get
     }
     # profil privé : on masque le contenu aux visiteurs (le propriétaire voit tout)
     if not u.get("profile_public", True) and not is_self:
-        return {**base, "private": True}
+        return {"user_id": uid, "name": u.get("name"), "private": True, "is_self": False}
 
     reviews_ok = u.get("reviews_public", True) or is_self
     history_ok = u.get("history_public", True) or is_self
@@ -1443,21 +1543,79 @@ async def favorite_status(media_id: str, user: dict = Depends(get_current_user),
     return {"favorite": bool(fav), "watchlist": bool(watch)}
 
 # ---------- Upload / File ----------
+UPLOAD_LIMITS = {
+    "free": {"monthly": 10 * 1024 * 1024, "per_file": 3 * 1024 * 1024},
+    "basic": {"monthly": 50 * 1024 * 1024, "per_file": 5 * 1024 * 1024},
+    "standard": {"monthly": 150 * 1024 * 1024, "per_file": 10 * 1024 * 1024},
+    "premium": {"monthly": 500 * 1024 * 1024, "per_file": 20 * 1024 * 1024},
+    "admin": {"monthly": 10 * 1024 * 1024 * 1024, "per_file": 2 * 1024 * 1024 * 1024},
+}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+IMAGE_SIGNATURES = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a")
+
+def _upload_tier(user: dict) -> str:
+    if _admin_level(user) >= 1:
+        return "admin"
+    entitlement = _effective_premium_entitlement(user)
+    return entitlement["plan"] if entitlement and entitlement["plan"] in UPLOAD_LIMITS else "free"
+
+async def _monthly_upload_usage(user_id: str) -> int:
+    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    pipeline = [
+        {"$match": {"uploaded_by": user_id, "created_at": {"$gte": month_start}}},
+        {"$group": {"_id": None, "bytes": {"$sum": "$size"}}},
+    ]
+    rows = await db.files.aggregate(pipeline).to_list(1)
+    return int(rows[0].get("bytes", 0) or 0) if rows else 0
+
+async def _reserve_upload_quota(user_id: str, size: int, monthly_limit: int) -> str:
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    quota_id = f"{user_id}:{month}"
+    await db.upload_quotas.update_one(
+        {"id": quota_id},
+        {"$setOnInsert": {"id": quota_id, "user_id": user_id, "month": month, "bytes": 0}},
+        upsert=True,
+    )
+    reserved = await db.upload_quotas.find_one_and_update(
+        {"id": quota_id, "bytes": {"$lte": monthly_limit - size}},
+        {"$inc": {"bytes": size}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not reserved:
+        raise HTTPException(status_code=429, detail="Quota mensuel de téléversement atteint")
+    return quota_id
+
 @api_router.post("/upload")
 async def upload_file(file: UploadFile = File(...), kind: str = Form("image"), user: dict = Depends(get_current_user)):
-    if kind == "video" and not user.get("is_admin"):
+    if kind not in {"image", "video"}:
+        raise HTTPException(status_code=400, detail="Type de fichier non autorisé")
+    if kind == "video" and _admin_level(user) < 1:
         raise HTTPException(status_code=403, detail="Admin only")
     if not CLOUDINARY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Stockage non configuré (CLOUDINARY_URL manquant)")
-    data = await file.read()
+    tier = _upload_tier(user)
+    limits = UPLOAD_LIMITS[tier]
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size <= 0 or size > limits["per_file"]:
+        raise HTTPException(status_code=413, detail=f"Fichier trop volumineux pour le plan {tier}")
+    if kind == "image":
+        header = await file.read(16)
+        await file.seek(0)
+        is_webp = len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+        if file.content_type not in ALLOWED_IMAGE_TYPES or (not header.startswith(IMAGE_SIGNATURES) and not is_webp):
+            raise HTTPException(status_code=415, detail="Image invalide. Formats autorisés : JPEG, PNG, WebP et GIF")
+    quota_id = await _reserve_upload_quota(user["user_id"], size, limits["monthly"])
     resource_type = "video" if kind == "video" else "image"
     try:
         result = cloudinary.uploader.upload(
-            data,
+            file.file,
             folder=f"{APP_NAME}/{kind}",
             resource_type=resource_type,
         )
     except Exception as e:
+        await db.upload_quotas.update_one({"id": quota_id}, {"$inc": {"bytes": -size}})
         logger.error(f"Cloudinary upload failed: {e}")
         raise HTTPException(status_code=500, detail="Téléversement impossible")
     url = result.get("secure_url")
@@ -1467,15 +1625,17 @@ async def upload_file(file: UploadFile = File(...), kind: str = Form("image"), u
         "url": url,
         "original_filename": file.filename,
         "kind": kind,
+        "size": int(result.get("bytes", size) or size),
+        "plan_at_upload": tier,
         "uploaded_by": user["user_id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    return {"path": result.get("public_id"), "url": url, "size": result.get("bytes", len(data)), "content_type": file.content_type}
+    return {"path": result.get("public_id"), "url": url, "size": result.get("bytes", size), "content_type": file.content_type}
 
 @api_router.post("/upload/sign")
 async def upload_sign(kind: str = Form("image"), user: dict = Depends(get_current_user)):
-    if kind == "video" and not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin only")
+    if _admin_level(user) < 1:
+        raise HTTPException(status_code=403, detail="La signature directe est réservée aux administrateurs")
     if not CLOUDINARY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Stockage non configuré")
     import time
@@ -1524,13 +1684,7 @@ async def bunny_video_status(video_id: str):
     j = r.json()
     return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0), "availableResolutions": j.get("availableResolutions")}
 
-# ---------- Plans / Stripe ----------
-import stripe
-
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY") or ""
-stripe.api_key = STRIPE_SECRET_KEY or "sk_test_emergent"
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_CONFIGURED = STRIPE_SECRET_KEY.startswith("sk_")
+# ---------- Plans (abonnements gérés manuellement via Discord) ----------
 
 PLANS = [
     {
@@ -1671,6 +1825,7 @@ def _plan_price_from_lookup(lookup_key: str):
 
 @api_router.post("/payments/checkout")
 async def create_checkout(req: CheckoutRequest, user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Le paiement en ligne a été retiré. Les abonnements sont gérés via Discord.")
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Paiement indisponible : Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante).")
     plan, plan_id, interval, amount, currency = _plan_price_from_lookup(req.lookup_key)
@@ -1749,6 +1904,7 @@ async def _on_payment_paid(session_id: str, subscription_id: Optional[str] = Non
 
 @api_router.get("/payments/status/{session_id}")
 async def get_payment_status(session_id: str, user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Le système Stripe a été retiré.")
     record = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not record:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -1777,6 +1933,7 @@ async def get_payment_status(session_id: str, user: dict = Depends(get_current_u
 
 @api_router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
+    raise HTTPException(status_code=410, detail="Le système Stripe a été retiré.")
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
     try:
@@ -1847,6 +2004,7 @@ async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_leve
 
 @api_router.post("/cagnotte/contribute")
 async def contribute_cagnotte(inp: ContributeInput, user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="La cagnotte est désormais gérée manuellement via Discord.")
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Contributions indisponibles : Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante).")
     amount = round(float(inp.amount), 2)
@@ -1952,7 +2110,6 @@ async def similar_media(media_id: str, limit: int = 8):
 # ---------- Subscription Management ----------
 @api_router.get("/subscription/current")
 async def current_subscription(user: dict = Depends(get_current_user)):
-    sub_id = user.get("stripe_subscription_id")
     plan = user.get("premium_plan")
     premium_until = user.get("premium_until")
     interval = user.get("premium_interval")
@@ -1965,25 +2122,13 @@ async def current_subscription(user: dict = Depends(get_current_user)):
         "amount": None,
         "currency": None,
         "status": None,
-        "stripe_subscription_id": sub_id,
+        "stripe_subscription_id": None,
     }
-    if sub_id:
-        try:
-            sub = await run_in_threadpool(lambda: stripe.Subscription.retrieve(sub_id))
-            result["cancel_at_period_end"] = bool(sub.cancel_at_period_end)
-            if sub.current_period_end:
-                result["next_billing_date"] = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc).isoformat()
-            result["status"] = sub.status
-            if sub["items"] and sub["items"]["data"]:
-                price = sub["items"]["data"][0]["price"]
-                result["amount"] = price.get("unit_amount")
-                result["currency"] = price.get("currency")
-        except Exception as e:
-            logger.error(f"Fetch subscription failed: {e}")
     return result
 
 @api_router.post("/subscription/cancel")
 async def cancel_subscription(user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Les abonnements sont gérés manuellement via Discord.")
     sub_id = user.get("stripe_subscription_id")
     if not sub_id:
         raise HTTPException(status_code=400, detail="No active subscription")
@@ -1996,6 +2141,7 @@ async def cancel_subscription(user: dict = Depends(get_current_user)):
 
 @api_router.post("/subscription/resume")
 async def resume_subscription(user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Les abonnements sont gérés manuellement via Discord.")
     sub_id = user.get("stripe_subscription_id")
     if not sub_id:
         raise HTTPException(status_code=400, detail="No active subscription")
@@ -2088,6 +2234,8 @@ async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = De
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if _is_superadmin_locked(target) and admin["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Ce compte super-administrateur protégé ne peut être modifié que par son propriétaire.")
     updates = {}
     if inp.name is not None:
         new_name = inp.name.strip()
@@ -2110,6 +2258,11 @@ async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = De
             await db.users.update_one({"user_id": user_id}, {"$set": updates})
         except DuplicateKeyError:
             raise HTTPException(status_code=400, detail="Cet email est déjà utilisé par un autre compte.")
+        if inp.password:
+            await db.auth_sessions.update_many(
+                {"user_id": user_id, "revoked_at": None},
+                {"$set": {"revoked_at": datetime.now(timezone.utc)}},
+            )
     updated = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
     return user_public_dict(updated) | {"created_at": updated.get("created_at")}
 
@@ -2238,10 +2391,10 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_level(3)
 
 # ---------- Settings ----------
 class SettingsInput(BaseModel):
-    name: Optional[str] = None
-    bio: Optional[str] = None
-    picture: Optional[str] = None
-    banner: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=2, max_length=40)
+    bio: Optional[str] = Field(default=None, max_length=500)
+    picture: Optional[str] = Field(default=None, max_length=2048)
+    banner: Optional[str] = Field(default=None, max_length=2048)
     preferred_quality: Optional[str] = None
     autoplay_hero: Optional[bool] = None
     accent_color: Optional[str] = None
@@ -2299,7 +2452,8 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
     return user_public_dict(fresh)
 
 @api_router.post("/settings/pin")
-async def set_pin(inp: PinInput, user: dict = Depends(get_current_user)):
+async def set_pin(inp: PinInput, request: Request, user: dict = Depends(get_current_user)):
+    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900)
     if not inp.pin or not inp.pin.isdigit() or not (4 <= len(inp.pin) <= 6):
         raise HTTPException(status_code=400, detail="Le PIN doit être 4 à 6 chiffres")
     existing_hash = user.get("pin_hash")
@@ -2310,7 +2464,8 @@ async def set_pin(inp: PinInput, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 @api_router.delete("/settings/pin")
-async def remove_pin(inp: PinInput, user: dict = Depends(get_current_user)):
+async def remove_pin(inp: PinInput, request: Request, user: dict = Depends(get_current_user)):
+    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900)
     if not user.get("pin_hash"):
         raise HTTPException(status_code=400, detail="Aucun PIN défini")
     if not verify_password(inp.pin, user["pin_hash"]):
@@ -2319,7 +2474,8 @@ async def remove_pin(inp: PinInput, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 @api_router.post("/settings/verify-pin")
-async def verify_user_pin(inp: PinInput, user: dict = Depends(get_current_user)):
+async def verify_user_pin(inp: PinInput, request: Request, user: dict = Depends(get_current_user)):
+    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900)
     if not user.get("pin_hash"):
         raise HTTPException(status_code=400, detail="Aucun PIN défini")
     if not verify_password(inp.pin, user["pin_hash"]):
@@ -2353,7 +2509,8 @@ async def remove_profile_pin(profile_id: str, user: dict = Depends(get_current_u
     return {"ok": True}
 
 @api_router.post("/profiles/{profile_id}/verify-pin")
-async def verify_profile_pin(profile_id: str, inp: ProfilePinInput, user: dict = Depends(get_current_user)):
+async def verify_profile_pin(profile_id: str, inp: ProfilePinInput, request: Request, user: dict = Depends(get_current_user)):
+    await _enforce_rate_limit(request, f"profile-pin:{user['user_id']}:{profile_id}", 8, 900)
     prof = await db.profiles.find_one({"id": profile_id, "user_id": user["user_id"]}, {"_id": 0})
     if not prof:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2417,30 +2574,47 @@ def _party_participants(party: "Party") -> list:
     return [{"user_id": c["user_id"], "name": c["name"], "is_host": c.get("account_id") == party.host_id} for c in party.connections]
 
 @app.websocket("/api/party/{code}/ws")
-async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None, profile: Optional[str] = None, name: Optional[str] = None):
+async def party_ws(websocket: WebSocket, code: str):
     code = code.upper()
     party = PARTIES.get(code)
     if not party:
         await websocket.close(code=4404)
         return
 
-    # Authenticate via query token (JWT)
-    user = None
-    if token:
-        try:
-            payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
-            user = await get_user_by_id(payload.get("user_id"))
-        except Exception:
-            user = None
-    if not user:
-        # allow anonymous with a friendly name
-        user = {"user_id": f"anon_{uuid.uuid4().hex[:6]}", "name": "Invité"}
-
+    allowed_origins = {o.strip() for o in os.environ.get("CORS_ORIGINS", "https://yourmovies.online").split(",") if o.strip()}
+    origin = websocket.headers.get("origin")
+    if origin not in allowed_origins:
+        await websocket.close(code=4403)
+        return
     await websocket.accept()
-    # identité côté profil : distingue les participants d'un même compte,
-    # tout en gardant la détection d'hôte par compte (account_id)
+    try:
+        auth = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+        if auth.get("type") != "auth" or not auth.get("token"):
+            raise ValueError("auth required")
+        payload = pyjwt.decode(auth["token"], JWT_SECRET, algorithms=[JWT_ALGO])
+        jti = payload.get("jti")
+        session = await db.auth_sessions.find_one({
+            "jti_hash": _token_fingerprint(jti or ""),
+            "user_id": payload.get("user_id"),
+            "revoked_at": None,
+            "expires_at": {"$gt": datetime.now(timezone.utc)},
+        })
+        user = await get_user_by_id(payload.get("user_id")) if session else None
+        if not user or user.get("blocked_at"):
+            raise ValueError("invalid session")
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
+    profile = auth.get("profile")
     account_id = user["user_id"]
-    display_name = (name or "").strip() or user.get("name", "Invité")
+    display_name = user.get("name", "Utilisateur")
+    if profile:
+        owned_profile = await db.profiles.find_one({"id": profile, "user_id": account_id}, {"_id": 0, "name": 1})
+        if not owned_profile:
+            await websocket.close(code=4403)
+            return
+        display_name = owned_profile.get("name") or display_name
     conn_id = f"{account_id}:{profile}" if profile else account_id
     conn = {"ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name}
     party.connections.append(conn)
@@ -2460,8 +2634,15 @@ async def party_ws(websocket: WebSocket, code: str, token: Optional[str] = None,
     })
 
     try:
+        message_times = []
         while True:
             data = await websocket.receive_json()
+            now_tick = time.monotonic()
+            message_times = [stamp for stamp in message_times if now_tick - stamp < 10]
+            if len(message_times) >= 20:
+                await websocket.close(code=4429)
+                break
+            message_times.append(now_tick)
             t = data.get("type")
             if t == "sync":
                 # Only host controls playback (comparaison par compte)
@@ -2519,14 +2700,14 @@ app.include_router(api_router)
 
 # CORS : jamais de credentials avec un wildcard. Si CORS_ORIGINS n'est pas défini
 # (ou vaut '*'), on autorise '*' mais sans credentials pour éviter le fail-open.
-_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '*').split(',') if o.strip()]
-_cors_credentials = _cors_origins != ['*']
+_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', 'https://yourmovies.online').split(',') if o.strip() and o.strip() != '*']
+_cors_credentials = True
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=_cors_credentials,
     allow_origins=_cors_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key"],
 )
 
 @app.on_event("startup")
@@ -2540,12 +2721,19 @@ async def startup():
     try:
         await _migrate_coin_economy_v2()
     except Exception as e:
-        logger.warning(f"Migration économie YM Coins v2 échouée : {e}")
+        logger.warning(f"Migration économie Freemium v2 échouée : {e}")
+    try:
+        await _migrate_account_identifiers()
+    except Exception as e:
+        logger.error(f"Migration des identifiants de compte échouée : {e}")
     # index uniques : bloque les doublons email / user_id (courses d'inscription).
     # En try/except : si des doublons existent déjà en base, on n'empêche pas le démarrage.
     try:
         await db.users.create_index("user_id", unique=True)
         await db.users.create_index("email", unique=True)
+        await db.users.create_index("account_identifier", unique=True, sparse=True)
+        await db.auth_sessions.create_index("jti_hash", unique=True)
+        await db.auth_sessions.create_index("expires_at", expireAfterSeconds=0)
     except Exception as e:
         logger.warning(f"Index unique users non créé (doublons existants ?) : {e}")
     # purge périodique des comptes bloqués depuis > 15 jours
