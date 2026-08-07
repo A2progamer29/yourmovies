@@ -17,7 +17,6 @@ import AdminMediaForm from "@/pages/AdminMediaForm";
 import AdminUserPage from "@/pages/AdminUserPage";
 import AuthCallback from "@/pages/AuthCallback";
 import PricingPage from "@/pages/PricingPage";
-import PaymentSuccess from "@/pages/PaymentSuccess";
 import SubscriptionPage from "@/pages/SubscriptionPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
@@ -68,7 +67,6 @@ function AppRouter() {
             <Route path="/admin/media/:id/edit" element={<AdminMediaForm />} />
             <Route path="/admin/users/:id" element={<AdminUserPage />} />
             <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/payment/success" element={<PaymentSuccess />} />
         </Routes>
         {!noFooter && <Footer />}
         </>
