@@ -65,8 +65,16 @@ export default function PublicProfilePage() {
         <div className="min-h-screen bg-[#050505] text-white">
             <div className="noise-overlay" />
             <Header />
-            <div className="max-w-3xl mx-auto px-6 py-12">
-                <div className="flex items-center gap-5 mb-10">
+            <section className="relative isolate min-h-[300px] overflow-hidden border-b border-[#262626]">
+                {profile.banner ? (
+                    <img src={profile.banner} alt="" className="absolute inset-0 -z-20 h-full w-full object-cover object-center" />
+                ) : (
+                    <div className="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_20%_20%,rgba(232,210,166,0.16),transparent_38%),linear-gradient(135deg,#17130d_0%,#050505_58%,#101010_100%)]" />
+                )}
+                <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/90 via-black/60 to-black/30" />
+                <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#050505] via-transparent to-black/30" />
+                <div className="mx-auto flex min-h-[300px] max-w-7xl items-end px-6 pb-10 pt-20">
+                <div className="flex w-full flex-col gap-5 sm:flex-row sm:items-end">
                     {profile.picture ? (
                         <img src={profile.picture} alt={profile.name} className="w-20 h-20 rounded-full object-cover border border-[#262626]" />
                     ) : (
@@ -105,7 +113,10 @@ export default function PublicProfilePage() {
                         </div>
                     )}
                 </div>
+                </div>
+            </section>
 
+            <div className="max-w-3xl mx-auto px-6 py-12">
                 {profile.private && (
                     <div className="p-10 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-400 flex flex-col items-center gap-3">
                         <Lock size={24} className="text-neutral-600" />
@@ -181,3 +192,4 @@ export default function PublicProfilePage() {
         </div>
     );
 }
+
