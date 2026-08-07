@@ -672,6 +672,28 @@ export default function SettingsPage() {
                     <div className="space-y-6">
                         <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-1">
+                                <UserIcon size={14} className="text-[#E8D2A6]" />
+                                <div className="text-white font-medium">Identifiant unique du compte</div>
+                            </div>
+                            <div className="text-xs text-neutral-500 mb-4">Cet identifiant permanent permet de distinguer votre compte. Il ne peut pas être modifié.</div>
+                            <div className="flex max-w-md gap-2">
+                                <Input readOnly value={user.account_identifier || "Attribution en cours"} className="bg-[#111] border-[#262626] text-white font-mono" />
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={!user.account_identifier}
+                                    onClick={async () => {
+                                        await navigator.clipboard.writeText(user.account_identifier);
+                                        toast.success("Identifiant copié");
+                                    }}
+                                    className="border-[#262626] bg-transparent text-white hover:bg-white/5"
+                                >
+                                    <Copy size={15} />
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                            <div className="flex items-center gap-2 mb-1">
                                 <Lock size={14} className="text-[#E8D2A6]" />
                                 <div className="text-white font-medium">Code PIN du compte</div>
                                 {user.has_pin && <span className="ml-2 text-[10px] uppercase tracking-widest text-emerald-400">Activé</span>}
@@ -735,7 +757,7 @@ export default function SettingsPage() {
                                 <div className="text-white font-medium">Liaison avec Discord</div>
                             </div>
                             <p className="text-sm text-neutral-400 mb-5">
-                                Liez votre compte pour recevoir des YM Coins grâce à votre activité et activer les avantages liés aux boosts.
+                                Liez votre compte pour recevoir des Freemium grâce à votre activité et activer les avantages liés aux boosts.
                             </p>
 
                             {user.discord_linked ? (
