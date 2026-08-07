@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2 } from "lucide-react";
+import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
 import * as tus from "tus-js-client";
@@ -35,6 +35,7 @@ const EMPTY = {
     cast: "",
     director: "",
     country: "",
+    rating: "",
     seasons: [],
     featured: false,
     in_theaters: false,
@@ -66,6 +67,10 @@ export default function AdminMediaForm() {
     const [dragBunny, setDragBunny] = useState(false);
     const [bunnyStage, setBunnyStage] = useState("");
     const [saving, setSaving] = useState(false);
+    const [tmdbQuery, setTmdbQuery] = useState("");
+    const [tmdbResults, setTmdbResults] = useState([]);
+    const [tmdbSearching, setTmdbSearching] = useState(false);
+    const [tmdbImporting, setTmdbImporting] = useState(null);
 
     useEffect(() => {
         if (!isEdit) return;
@@ -199,6 +204,7 @@ export default function AdminMediaForm() {
             cast: form.cast ? form.cast.split(",").map((s) => s.trim()).filter(Boolean) : [],
             director: form.director || null,
             country: form.country || null,
+            rating: form.rating === "" || form.rating == null ? null : Number(form.rating),
             seasons: form.seasons || [],
             featured: !!form.featured,
             in_theaters: form.type === "movie" && !!form.in_theaters,
@@ -218,6 +224,57 @@ export default function AdminMediaForm() {
             showError(toast, e, "Enregistrement impossible");
         } finally {
             setSaving(false);
+        }
+    };
+
+    const searchTmdb = async () => {
+        const query = tmdbQuery.trim();
+        if (query.length < 2) {
+            toast.error("Entre au moins 2 caractères");
+            return;
+        }
+        setTmdbSearching(true);
+        try {
+            const r = await api.get("/admin/tmdb/search", { params: { q: query, kind: form.type } });
+            setTmdbResults(r.data || []);
+            if (!r.data?.length) toast.info("Aucun résultat trouvé");
+        } catch (e) {
+            showError(toast, e, "Recherche TMDB impossible");
+        } finally {
+            setTmdbSearching(false);
+        }
+    };
+
+    const importTmdb = async (result) => {
+        setTmdbImporting(result.tmdb_id);
+        try {
+            const r = await api.get(`/admin/tmdb/import/${result.media_type}/${result.tmdb_id}`, { params: { kind: form.type } });
+            const data = r.data;
+            setForm((current) => ({
+                ...current,
+                ...data,
+                genres: (data.genres || []).join(", "),
+                cast: (data.cast || []).join(", "),
+                year: data.year ?? "",
+                duration_minutes: data.duration_minutes ?? "",
+                rating: data.rating ?? "",
+                seasons: data.seasons || current.seasons || [],
+                // Ne jamais remplacer les vidéos déjà ajoutées au catalogue.
+                video_file_path: current.video_file_path,
+                video_url: current.video_url,
+                bunny_video_id: current.bunny_video_id,
+                qualities: current.qualities,
+                trailer_video_url: current.trailer_video_url,
+                featured: current.featured,
+                featured_order: current.featured_order,
+                in_theaters: current.in_theaters,
+            }));
+            setTmdbResults([]);
+            toast.success("Informations importées depuis TMDB");
+        } catch (e) {
+            showError(toast, e, "Import TMDB impossible");
+        } finally {
+            setTmdbImporting(null);
         }
     };
 
@@ -302,6 +359,59 @@ export default function AdminMediaForm() {
                 </div>
 
                 <div className="space-y-10">
+                    {/* SECTION: Import intelligent TMDB */}
+                    <section className="p-5 rounded-xl border border-[#E8D2A6]/30 bg-[#E8D2A6]/[0.04]">
+                        <div className="flex items-start gap-3 mb-4">
+                            <div className="w-9 h-9 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center shrink-0">
+                                <WandSparkles size={17} />
+                            </div>
+                            <div>
+                                <h2 className="font-display text-xl text-[#E8D2A6]">Import intelligent</h2>
+                                <p className="text-xs text-neutral-400 mt-1">Recherche un film ou une série et remplit automatiquement les informations, l'affiche, la bannière, le casting et la bande-annonce.</p>
+                            </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <Input
+                                value={tmdbQuery}
+                                onChange={(e) => setTmdbQuery(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchTmdb(); } }}
+                                placeholder={form.type === "movie" ? "Ex. Spider-Man: No Way Home" : "Ex. Stranger Things"}
+                                data-testid="tmdb-search-input"
+                                className="bg-[#111] border-[#262626] text-white flex-1"
+                            />
+                            <Button type="button" onClick={searchTmdb} disabled={tmdbSearching} data-testid="tmdb-search-button" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]">
+                                {tmdbSearching ? <Loader2 size={15} className="mr-2 animate-spin" /> : <Search size={15} className="mr-2" />}
+                                {tmdbSearching ? "Recherche..." : "Rechercher"}
+                            </Button>
+                        </div>
+                        {tmdbResults.length > 0 && (
+                            <div className="mt-4 grid gap-2 max-h-96 overflow-y-auto pr-1">
+                                {tmdbResults.map((result) => (
+                                    <button
+                                        type="button"
+                                        key={result.tmdb_id}
+                                        onClick={() => importTmdb(result)}
+                                        disabled={tmdbImporting != null}
+                                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-[#262626] bg-[#0a0a0a] hover:border-[#E8D2A6]/60 text-left transition-colors disabled:opacity-60"
+                                    >
+                                        {result.poster_url ? (
+                                            <img src={result.poster_url} alt="" className="w-12 h-[72px] rounded object-cover bg-[#111] shrink-0" />
+                                        ) : (
+                                            <div className="w-12 h-[72px] rounded bg-[#111] shrink-0 flex items-center justify-center"><Film size={16} className="text-neutral-600" /></div>
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-white font-medium truncate">{result.title}</div>
+                                            <div className="text-xs text-neutral-500 mt-1">{result.year || "Année inconnue"}{result.original_title && result.original_title !== result.title ? ` · ${result.original_title}` : ""}</div>
+                                            {result.description && <div className="text-xs text-neutral-400 mt-1 line-clamp-2">{result.description}</div>}
+                                        </div>
+                                        {tmdbImporting === result.tmdb_id ? <Loader2 size={17} className="text-[#E8D2A6] animate-spin shrink-0" /> : <Plus size={17} className="text-[#E8D2A6] shrink-0" />}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <p className="text-[11px] text-neutral-600 mt-3">Données et images fournies par TMDB. Vérifie les informations avant d'enregistrer.</p>
+                    </section>
+
                     {/* SECTION: Informations générales */}
                     <section>
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Informations générales</h2>
