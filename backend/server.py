@@ -1353,7 +1353,18 @@ async def admin_list_wishboard(admin: dict = Depends(require_admin)):
 async def set_wish_status(wish_id: str, s: WishStatus, admin: dict = Depends(require_admin)):
     if s.status != "approved" and _admin_level(admin) < 2:
         raise HTTPException(status_code=403, detail="Refuser ou mettre en attente est réservé au Modérateur")
-    res = await db.wishboard.update_one({"id": wish_id}, {"$set": {"status": s.status}})
+    update: dict = {"$set": {"status": s.status}}
+    if s.status == "approved":
+        approved_at = datetime.now(timezone.utc)
+        update["$set"].update({
+            "approved_at": approved_at,
+            "approved_expires_at": approved_at + timedelta(hours=24),
+        })
+    else:
+        # Une demande remise en attente ou refusée ne doit pas être supprimée
+        # par l'ancienne échéance d'une approbation.
+        update["$unset"] = {"approved_at": "", "approved_expires_at": ""}
+    res = await db.wishboard.update_one({"id": wish_id}, update)
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True, "status": s.status}
@@ -2896,8 +2907,21 @@ async def startup():
         await db.users.create_index("account_identifier", unique=True, sparse=True)
         await db.auth_sessions.create_index("jti_hash", unique=True)
         await db.auth_sessions.create_index("expires_at", expireAfterSeconds=0)
+        # MongoDB supprime automatiquement les demandes 24 h après leur
+        # approbation. Les documents non approuvés n'ont pas ce champ.
+        await db.wishboard.create_index("approved_expires_at", expireAfterSeconds=0)
     except Exception as e:
         logger.warning(f"Index unique users non créé (doublons existants ?) : {e}")
+    try:
+        # Compatibilité avec les approbations créées avant cette fonctionnalité :
+        # elles restent visibles 24 h à compter de ce déploiement.
+        now = datetime.now(timezone.utc)
+        await db.wishboard.update_many(
+            {"status": "approved", "approved_expires_at": {"$exists": False}},
+            {"$set": {"approved_at": now, "approved_expires_at": now + timedelta(hours=24)}},
+        )
+    except Exception as e:
+        logger.warning(f"Migration expiration Wishboard échouée : {e}")
     # purge périodique des comptes bloqués depuis > 15 jours
     asyncio.create_task(_blocked_purge_loop())
 
