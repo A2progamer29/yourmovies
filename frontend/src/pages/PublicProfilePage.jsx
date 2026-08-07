@@ -62,16 +62,31 @@ export default function PublicProfilePage() {
     const initial = profile.name?.[0]?.toUpperCase() || "U";
 
     return (
-        <div className="min-h-screen bg-[#050505] text-white">
+        <div className="min-h-screen text-white" style={{ backgroundColor: profile.profile_background_color || "#050505" }}>
             <div className="noise-overlay" />
             <Header />
-            <div className="max-w-3xl mx-auto px-6 py-12">
-                <div className="flex items-center gap-5 mb-10">
-                    {profile.picture ? (
-                        <img src={profile.picture} alt={profile.name} className="w-20 h-20 rounded-full object-cover border border-[#262626]" />
-                    ) : (
-                        <div className="w-20 h-20 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-3xl font-semibold">{initial}</div>
-                    )}
+            <section className="relative isolate min-h-[300px] overflow-hidden border-b border-[#262626]">
+                {profile.banner ? (
+                    <img src={profile.banner} alt="" className="absolute inset-0 -z-20 h-full w-full object-cover object-center" />
+                ) : (
+                    <div className="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_20%_20%,rgba(232,210,166,0.16),transparent_38%),linear-gradient(135deg,#17130d_0%,#050505_58%,#101010_100%)]" />
+                )}
+                <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/90 via-black/60 to-black/30" />
+                <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[var(--profile-bg)] via-transparent to-black/30" style={{ "--profile-bg": profile.profile_background_color || "#050505" }} />
+                <div className="mx-auto flex min-h-[300px] max-w-7xl items-end px-6 pb-10 pt-20">
+                <div className="flex w-full flex-col gap-5 sm:flex-row sm:items-end">
+                    <div className="relative shrink-0">
+                        {profile.picture ? (
+                            <img src={profile.picture} alt={profile.name} className="w-20 h-20 rounded-full object-cover border border-[#262626]" />
+                        ) : (
+                            <div className="w-20 h-20 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-3xl font-semibold">{initial}</div>
+                        )}
+                        <span
+                            className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-[3px] border-[#080808] ${profile.online ? "bg-emerald-400" : "bg-neutral-600"}`}
+                            aria-label={profile.online ? "En ligne" : "Hors ligne"}
+                            title={profile.online ? "En ligne" : "Hors ligne"}
+                        />
+                    </div>
                     <div className="min-w-0">
                         <h1 className="font-display text-3xl tracking-tight flex items-center gap-2 flex-wrap">
                             {profile.name}
@@ -82,10 +97,6 @@ export default function PublicProfilePage() {
                             )}
                         </h1>
                         <div className="text-sm text-neutral-500 mt-1.5 flex items-center gap-4 flex-wrap">
-                            <span className="flex items-center gap-1.5">
-                                <span className={`w-2 h-2 rounded-full ${profile.online ? "bg-emerald-400" : "bg-neutral-600"}`} />
-                                <span className={profile.online ? "text-emerald-400" : "text-neutral-500"}>{profile.online ? "En ligne" : "Hors ligne"}</span>
-                            </span>
                             <span><span className="text-white font-medium">{followers}</span> abonnés</span>
                             <span><span className="text-white font-medium">{profile.following}</span> abonnements</span>
                             {!profile.private && <span className="flex items-center gap-1.5"><MessageSquare size={13} /> {profile.review_count} avis</span>}
@@ -105,7 +116,10 @@ export default function PublicProfilePage() {
                         </div>
                     )}
                 </div>
+                </div>
+            </section>
 
+            <div className="max-w-3xl mx-auto px-6 py-12">
                 {profile.private && (
                     <div className="p-10 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-400 flex flex-col items-center gap-3">
                         <Lock size={24} className="text-neutral-600" />

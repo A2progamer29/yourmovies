@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
 
@@ -24,12 +23,57 @@ const ACCENT_PRESETS = [
     { name: "Rouge cinéma", value: "#E8564A" },
 ];
 
+const PROFILE_BACKGROUND_PRESETS = [
+    { name: "Noir cinéma", value: "#050505" },
+    { name: "Anthracite", value: "#111111" },
+    { name: "Bleu nuit", value: "#08111F" },
+    { name: "Bordeaux", value: "#1B090D" },
+    { name: "Vert profond", value: "#07150F" },
+    { name: "Violet nuit", value: "#120B1C" },
+];
+
+const AUTOSAVE_FIELDS = [
+    "name",
+    "bio",
+    "preferred_quality",
+    "profile_public",
+    "reviews_public",
+    "history_public",
+];
+
+const PREMIUM_AUTOSAVE_FIELDS = [
+    "accent_color",
+    "profile_background_color",
+    "autoplay_hero",
+];
+
+const AUTOSAVE_SUCCESS_MESSAGES = {
+    name: "Nom enregistré",
+    bio: "Bio enregistrée",
+    preferred_quality: "Qualité préférée enregistrée",
+    profile_public: "Visibilité du profil enregistrée",
+    reviews_public: "Visibilité des avis enregistrée",
+    history_public: "Visibilité de l’historique enregistrée",
+    accent_color: "Couleur d’accent enregistrée",
+    profile_background_color: "Fond du profil enregistré",
+    autoplay_hero: "Préférence de bande-annonce enregistrée",
+};
+
+const getAutosaveSuccessMessage = (fields) => {
+    if (fields.length !== 1) return "Modifications enregistrées";
+    return AUTOSAVE_SUCCESS_MESSAGES[fields[0]] || "Modification enregistrée";
+};
+
 export default function SettingsPage() {
     const { user, loading, refresh } = useAuth();
     const navigate = useNavigate();
     const [tab, setTab] = useState("profile"); // profile | preferences | security
     const [form, setForm] = useState({});
-    const [saving, setSaving] = useState(false);
+    const [, setSaveStatus] = useState("idle");
+    const lastSavedForm = useRef({});
+    const formReady = useRef(false);
+    const initializedUserId = useRef(null);
+    const saveRequest = useRef(0);
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
     const [sub, setSub] = useState(null);
@@ -44,20 +88,88 @@ export default function SettingsPage() {
     }, [user]);
 
     useEffect(() => {
-        if (user) {
-            setForm({
+        if (user && initializedUserId.current !== user.user_id) {
+            const nextForm = {
                 name: user.name || "",
                 bio: user.bio || "",
                 picture: user.picture || "",
+                banner: user.banner || "",
                 preferred_quality: user.preferred_quality || "auto",
                 autoplay_hero: user.autoplay_hero !== false,
                 accent_color: user.accent_color || "#E8D2A6",
+                profile_background_color: user.profile_background_color || "#050505",
                 profile_public: user.profile_public !== false,
                 reviews_public: user.reviews_public !== false,
                 history_public: user.history_public !== false,
-            });
+            };
+            initializedUserId.current = user.user_id;
+            lastSavedForm.current = nextForm;
+            formReady.current = true;
+            setForm(nextForm);
         }
-    }, [user]);
+    }, [user?.user_id]);
+
+    useEffect(() => {
+        if (!user || !formReady.current || !Object.keys(form).length) return undefined;
+
+        const allowedFields = user.premium
+            ? [...AUTOSAVE_FIELDS, ...PREMIUM_AUTOSAVE_FIELDS]
+            : AUTOSAVE_FIELDS;
+        const changedFields = allowedFields.filter(
+            (field) => form[field] !== lastSavedForm.current[field],
+        );
+
+        if (!changedFields.length) return undefined;
+
+        const previousValues = Object.fromEntries(
+            changedFields.map((field) => [field, lastSavedForm.current[field]]),
+        );
+        const payload = Object.fromEntries(
+            changedFields.map((field) => [field, form[field]]),
+        );
+        const requestId = ++saveRequest.current;
+        setSaveStatus("pending");
+
+        const timer = window.setTimeout(async () => {
+            setSaveStatus("saving");
+            try {
+                const response = await api.patch("/settings", payload);
+                const confirmed = Object.fromEntries(
+                    changedFields.map((field) => [
+                        field,
+                        response.data?.[field] !== undefined ? response.data[field] : payload[field],
+                    ]),
+                );
+                lastSavedForm.current = { ...lastSavedForm.current, ...confirmed };
+                setForm((current) => {
+                    const synchronized = { ...current };
+                    changedFields.forEach((field) => {
+                        if (current[field] === payload[field]) synchronized[field] = confirmed[field];
+                    });
+                    return synchronized;
+                });
+                if (requestId === saveRequest.current) {
+                    setSaveStatus("saved");
+                    toast.success(getAutosaveSuccessMessage(changedFields), {
+                        id: "settings-autosave-success",
+                    });
+                }
+            } catch (error) {
+                if (requestId !== saveRequest.current) return;
+                setForm((current) => {
+                    const restored = { ...current };
+                    changedFields.forEach((field) => {
+                        if (current[field] === payload[field]) restored[field] = previousValues[field];
+                    });
+                    return restored;
+                });
+                setSaveStatus("error");
+                showError(toast, error, "Modification non enregistrée");
+            }
+        }, changedFields.some((field) => field === "name" || field === "bio") ? 650 : 80);
+
+        return () => window.clearTimeout(timer);
+    }, [form, user?.user_id, user?.premium]);
 
     useEffect(() => {
         if (tab !== "discord" || !user || user.discord_linked) return undefined;
@@ -133,32 +245,6 @@ export default function SettingsPage() {
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
 
-    const save = async () => {
-        setSaving(true);
-        try {
-            const payload = {
-                name: form.name,
-                bio: form.bio,
-                picture: form.picture || null,
-                preferred_quality: form.preferred_quality,
-                autoplay_hero: form.autoplay_hero,
-                profile_public: form.profile_public,
-                reviews_public: form.reviews_public,
-                history_public: form.history_public,
-            };
-            if (user.premium) {
-                payload.accent_color = form.accent_color;
-            }
-            await api.patch("/settings", payload);
-            await refresh();
-            toast.success("Paramètres enregistrés");
-        } catch (e) {
-            showError(toast, e, "Enregistrement impossible");
-        } finally {
-            setSaving(false);
-        }
-    };
-
     // Applique la couleur immédiatement (aperçu en direct), en plus de l'enregistrer.
     const pickAccent = (color) => {
         setForm((f) => ({ ...f, accent_color: color }));
@@ -208,6 +294,28 @@ export default function SettingsPage() {
             await api.patch("/settings", { picture: null });
             await refresh();
         } catch (e) { showError(toast, e, "Erreur"); }
+    };
+
+    const uploadBanner = async (file) => {
+        try {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("kind", "image");
+            const r = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+            setForm((f) => ({ ...f, banner: r.data.url }));
+            await api.patch("/settings", { banner: r.data.url });
+            await refresh();
+            toast.success("Bannière mise à jour");
+        } catch (e) { showError(toast, e, "Téléversement de la bannière impossible"); }
+    };
+
+    const removeBanner = async () => {
+        setForm((f) => ({ ...f, banner: "" }));
+        try {
+            await api.patch("/settings", { banner: "" });
+            await refresh();
+            toast.success("Bannière retirée");
+        } catch (e) { showError(toast, e, "Impossible de retirer la bannière"); }
     };
 
     const setPinNow = async () => {
@@ -279,7 +387,9 @@ export default function SettingsPage() {
             <Header />
             <div className="max-w-4xl mx-auto px-6 py-12">
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Compte</div>
-                <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-10">Paramètres</h1>
+                <div className="mb-10 flex min-h-14 flex-wrap items-end justify-between gap-3">
+                    <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Paramètres</h1>
+                </div>
 
                 <div className="flex gap-2 mb-8 border-b border-[#262626]">
                     {TABS.map((t) => (
@@ -323,6 +433,80 @@ export default function SettingsPage() {
                             </div>
                         </div>
 
+                        <div className="overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                            <div className="relative aspect-[4/1] min-h-[120px] bg-[#111]">
+                                {form.banner ? (
+                                    <img src={form.banner} alt="Aperçu de la bannière" className="absolute inset-0 h-full w-full object-cover" />
+                                ) : (
+                                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(232,210,166,0.16),transparent_38%),linear-gradient(135deg,#17130d_0%,#0a0a0a_52%,#111_100%)]" />
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
+                                <div className="absolute bottom-4 left-5">
+                                    <div className="text-sm font-medium text-white">Bannière du profil</div>
+                                    <div className="mt-0.5 text-xs text-white/55">Visible en arrière-plan dans la partie haute de votre profil.</div>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div className="text-xs text-neutral-400">Format recommandé : 1600 × 400 px (4:1)</div>
+                                    <div className="mt-1 text-[11px] text-neutral-600">JPG, PNG ou WebP. Le centre de l’image reste visible sur mobile.</div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border border-[#E8D2A6] px-4 text-xs font-semibold text-[#E8D2A6] transition-colors hover:bg-[#E8D2A6] hover:text-black">
+                                        <Upload size={12} />
+                                        <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && uploadBanner(e.target.files[0])} />
+                                        {form.banner ? "Changer" : "Ajouter"}
+                                    </label>
+                                    {form.banner && (
+                                        <button type="button" onClick={removeBanner} className="text-xs text-neutral-500 transition-colors hover:text-red-400">Retirer</button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[#262626] bg-[#0a0a0a] p-5">
+                            <div className="mb-2 flex items-center gap-2">
+                                <Palette size={14} className="text-[#E8D2A6]" />
+                                <div className="text-sm font-medium text-white">Fond du profil</div>
+                                {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
+                            </div>
+                            <p className="mb-4 text-xs text-neutral-500">
+                                {user.premium
+                                    ? "Choisissez la couleur affichée derrière le contenu de votre profil."
+                                    : "Choisissez la couleur affichée derrière le contenu de votre profil. Réservé aux abonnés Premium."}
+                            </p>
+                            <div className="flex flex-wrap gap-3">
+                                {PROFILE_BACKGROUND_PRESETS.map((color) => (
+                                    <button
+                                        key={color.value}
+                                        type="button"
+                                        disabled={!user.premium}
+                                        onClick={() => setForm((current) => ({ ...current, profile_background_color: color.value }))}
+                                        data-testid={`profile-background-${color.value.slice(1)}`}
+                                        aria-label={color.name}
+                                        title={color.name}
+                                        className={`h-11 w-11 rounded-full border-2 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35 ${form.profile_background_color === color.value ? "border-[#E8D2A6]" : "border-[#343434]"}`}
+                                        style={{ backgroundColor: color.value }}
+                                    />
+                                ))}
+                                <label className={`relative flex h-11 min-w-[132px] items-center justify-center gap-2 rounded-full border px-4 text-xs font-semibold transition-colors ${user.premium ? "cursor-pointer border-[#343434] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white" : "cursor-not-allowed border-[#262626] text-neutral-600"}`}>
+                                    <Palette size={13} /> Sur mesure
+                                    <input
+                                        type="color"
+                                        disabled={!user.premium}
+                                        value={form.profile_background_color || "#050505"}
+                                        onChange={(event) => setForm((current) => ({ ...current, profile_background_color: event.target.value.toUpperCase() }))}
+                                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                                        aria-label="Choisir une couleur de fond personnalisée"
+                                    />
+                                </label>
+                            </div>
+                            <div className="mt-4 flex items-center gap-3 rounded-md border border-[#262626] bg-black/20 p-3">
+                                <span className="h-7 w-7 rounded-full border border-white/10" style={{ backgroundColor: form.profile_background_color || "#050505" }} />
+                                <span className="text-xs text-neutral-400">Aperçu : <span className="font-mono text-neutral-200">{form.profile_background_color || "#050505"}</span></span>
+                            </div>
+                        </div>
+
                         <div>
                             <Label className="text-neutral-300">Nom affiché *</Label>
                             <Input data-testid="settings-name" value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
@@ -336,20 +520,29 @@ export default function SettingsPage() {
                         <div className="pt-4 border-t border-[#262626]">
                             <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Confidentialité du profil</div>
                             {[
-                                { key: "profile_public", title: "Profil public", desc: "Si désactivé, votre profil est privé : les autres ne voient rien." },
-                                { key: "history_public", title: "Historique visible", desc: "Affiche votre top 10 des derniers visionnages sur votre profil." },
-                                { key: "reviews_public", title: "Avis visibles", desc: "Affiche vos avis publiés sur votre profil." },
+                                { key: "profile_public", title: "Visibilité du profil", desc: "Choisissez si les autres membres peuvent consulter votre profil." },
+                                { key: "history_public", title: "Visibilité de l’historique", desc: "Choisissez si votre top 10 des derniers visionnages apparaît sur votre profil." },
+                                { key: "reviews_public", title: "Visibilité des avis", desc: "Choisissez si vos avis publiés apparaissent sur votre profil." },
                             ].map((row) => (
-                                <div key={row.key} className="flex items-center justify-between gap-3 p-3 rounded-md border border-[#262626] bg-[#111] mb-2">
+                                <div key={row.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-b border-[#262626] last:border-b-0">
                                     <div className="min-w-0">
-                                        <div className="text-white text-sm">{row.title}</div>
-                                        <div className="text-xs text-neutral-500">{row.desc}</div>
+                                        <div className="text-white text-sm font-medium">{row.title}</div>
+                                        <div className="text-xs text-neutral-500 mt-1">{row.desc}</div>
                                     </div>
-                                    <Switch
-                                        checked={form[row.key] !== false}
-                                        onCheckedChange={(v) => setForm({ ...form, [row.key]: v })}
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={form[row.key] !== false}
+                                        onClick={() => setForm((current) => ({ ...current, [row.key]: current[row.key] === false }))}
                                         data-testid={`toggle-${row.key}`}
-                                    />
+                                        className={`inline-flex h-10 min-w-[112px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white ${form[row.key] !== false
+                                            ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                            : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                            }`}
+                                    >
+                                        {form[row.key] !== false ? <Eye size={14} /> : <EyeOff size={14} />}
+                                        {form[row.key] !== false ? "Public" : "Privé"}
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -364,7 +557,7 @@ export default function SettingsPage() {
                                 <SelectTrigger data-testid="settings-quality" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs"><SelectValue /></SelectTrigger>
                                 <SelectContent className="bg-[#111] border-[#262626] text-white">
                                     <SelectItem value="auto">Auto (max autorisé par l&apos;abonnement)</SelectItem>
-                                    <SelectItem value="4k">4K UHD (Premium)</SelectItem>
+                                    <SelectItem value="4k">4K UHD{!user.premium ? " (Premium)" : ""}</SelectItem>
                                     <SelectItem value="1080p">Full HD 1080p</SelectItem>
                                     <SelectItem value="720p">HD 720p</SelectItem>
                                 </SelectContent>
@@ -372,20 +565,33 @@ export default function SettingsPage() {
                             <div className="text-xs text-neutral-500 mt-1">La qualité de départ dans le lecteur. Vous pouvez la changer à tout moment.</div>
                         </div>
 
-                        <div className="flex items-center justify-between p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            <div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5 border-y border-[#262626]">
+                            <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
                                     Bande-annonce cinéma sur l&apos;accueil
                                     {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </div>
-                                <div className="text-xs text-neutral-500 mt-1">La vidéo de mise en avant se lit automatiquement en fond du hero.</div>
+                                <div className="text-xs text-neutral-500 mt-1">
+                                    {user.premium
+                                        ? "Activez ou désactivez la lecture automatique de la vidéo en fond de l’accueil."
+                                        : "Cette préférence est réservée aux abonnés Premium."}
+                                </div>
                             </div>
-                            <Switch
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!!form.autoplay_hero}
                                 data-testid="settings-autoplay"
-                                checked={!!form.autoplay_hero}
                                 disabled={!user.premium}
-                                onCheckedChange={(v) => setForm({ ...form, autoplay_hero: v })}
-                            />
+                                onClick={() => setForm((current) => ({ ...current, autoplay_hero: !current.autoplay_hero }))}
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white disabled:cursor-not-allowed disabled:opacity-40 ${form.autoplay_hero
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                    : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                    }`}
+                            >
+                                <Play size={14} fill={form.autoplay_hero ? "currentColor" : "none"} />
+                                {form.autoplay_hero ? "Activée" : "Désactivée"}
+                            </button>
                         </div>
 
                         <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
@@ -394,7 +600,11 @@ export default function SettingsPage() {
                                 <div className="text-white">Couleur d&apos;accent</div>
                                 {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                             </div>
-                            <div className="text-xs text-neutral-500 mb-4">Personnalisez la couleur principale de votre YourMovie&apos;s. Réservé aux abonnés.</div>
+                            <div className="text-xs text-neutral-500 mb-4">
+                                {user.premium
+                                    ? "Personnalisez la couleur principale de votre YourMovie's."
+                                    : "Personnalisez la couleur principale de votre YourMovie's. Réservé aux abonnés Premium."}
+                            </div>
                             <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
                                 {ACCENT_PRESETS.map((c) => (
                                     <button
@@ -402,7 +612,7 @@ export default function SettingsPage() {
                                         disabled={!user.premium}
                                         onClick={() => pickAccent(c.value)}
                                         data-testid={`accent-${c.value.replace('#', '')}`}
-                                        className={`aspect-square rounded-lg border-2 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${form.accent_color === c.value ? "border-white ring-2 ring-white/40" : "border-transparent"}`}
+                                        className={`aspect-square rounded-lg border-2 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${form.accent_color === c.value ? "border-white" : "border-transparent"}`}
                                         style={{ background: c.value }}
                                         title={c.name}
                                     />
@@ -587,18 +797,6 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {tab !== "security" && tab !== "subscription" && tab !== "discord" && (
-                    <div className="mt-10 flex justify-end gap-2 border-t border-[#262626] pt-6">
-                        <Button
-                            onClick={save}
-                            disabled={saving}
-                            data-testid="save-settings-btn"
-                            className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold"
-                        >
-                            <Save size={14} className="mr-2" /> {saving ? "..." : "Enregistrer"}
-                        </Button>
-                    </div>
-                )}
             </div>
         </div>
     );

@@ -27,24 +27,42 @@ export default function ProfilePage() {
     const watchlist = items.filter((i) => i.list_type === "watchlist");
 
     return (
-        <div className="min-h-screen bg-[#050505] text-white">
+        <div className="min-h-screen text-white" style={{ backgroundColor: user.profile_background_color || "#050505" }}>
             <Header />
-            <div className="max-w-7xl mx-auto px-6 py-12">
-                <div className="flex items-center gap-5 mb-10">
-                    {user.picture ? (
-                        <img src={user.picture} alt={user.name} className="w-16 h-16 rounded-full" />
-                    ) : (
-                        <div className="w-16 h-16 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-2xl font-semibold">
-                            {user.name?.[0]?.toUpperCase()}
-                        </div>
-                    )}
+            <section className="relative isolate min-h-[280px] overflow-hidden border-b border-[#262626]">
+                {user.banner ? (
+                    <img src={user.banner} alt="" className="absolute inset-0 -z-20 h-full w-full object-cover object-center" />
+                ) : (
+                    <div className="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_20%_20%,rgba(232,210,166,0.16),transparent_38%),linear-gradient(135deg,#17130d_0%,#050505_58%,#101010_100%)]" />
+                )}
+                <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/90 via-black/60 to-black/30" />
+                <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[var(--profile-bg)] via-transparent to-black/30" style={{ "--profile-bg": user.profile_background_color || "#050505" }} />
+                <div className="mx-auto flex min-h-[280px] max-w-7xl items-end px-6 pb-10 pt-20">
+                <div className="flex items-center gap-5">
+                    <div className="relative shrink-0">
+                        {user.picture ? (
+                            <img src={user.picture} alt={user.name} className="w-16 h-16 rounded-full object-cover border border-[#262626]" />
+                        ) : (
+                            <div className="w-16 h-16 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-2xl font-semibold">
+                                {user.name?.[0]?.toUpperCase()}
+                            </div>
+                        )}
+                        <span
+                            className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-[#080808] bg-emerald-400"
+                            aria-label="En ligne"
+                            title="En ligne"
+                        />
+                    </div>
                     <div>
                         <div className="text-xs uppercase tracking-widest text-neutral-500">Profil</div>
                         <h1 className="font-display text-3xl tracking-tighter" data-testid="profile-name">{user.name}</h1>
                         <div className="text-sm text-neutral-500">{user.email}</div>
                     </div>
                 </div>
+                </div>
+            </section>
 
+            <div className="max-w-7xl mx-auto px-6 py-10">
                 <Tabs value={tab} onValueChange={(v) => { const n = new URLSearchParams(searchParams); n.set("tab", v); setSearchParams(n); }}>
                     <TabsList className="bg-[#111] border border-[#262626]">
                         <TabsTrigger value="favorites" data-testid="tab-favorites" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">Favoris ({favorites.length})</TabsTrigger>

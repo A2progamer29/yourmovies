@@ -148,38 +148,42 @@ export default function MediaDetailPage() {
             <div className="noise-overlay" />
             <Header />
 
-            {/* Banner */}
-            <section className="relative w-full h-[70vh] min-h-[480px] overflow-hidden">
-                <img src={banner} alt={media.title} className="w-full h-full object-cover scale-105 blur-sm"
+            {/* Immersive banner */}
+            <section className="relative w-full h-[52vh] min-h-[390px] md:h-[60vh] md:min-h-[520px] overflow-hidden">
+                <img src={banner} alt={media.title} className="w-full h-full object-cover"
                     onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = BANNER_FALLBACK; }} />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/70 to-[#050505]/20" />
-                <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/90 via-transparent to-[#050505]/30" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/35 to-black/20" />
+                <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/80 via-[#050505]/15 to-transparent" />
+            </section>
 
-                {media.title_logo_url && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center px-6 pointer-events-none">
-                        <img src={media.title_logo_url} alt={media.title} className="max-h-40 sm:max-h-56 w-auto max-w-[85%] object-contain drop-shadow-2xl" />
-                    </div>
-                )}
-
-                <div className="relative z-10 max-w-7xl mx-auto h-full px-6 flex items-end pb-16">
-                    <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="flex gap-8 items-end">
+            {/* Main identity card */}
+            <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 -mt-32 md:-mt-44">
+                <motion.div
+                    initial={{ opacity: 0, y: 24 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.55 }}
+                    className="rounded-2xl border border-white/10 bg-[#0a0a0a]/95 shadow-2xl shadow-black/60 backdrop-blur-xl p-5 sm:p-7 lg:p-8"
+                >
+                    <div className="flex gap-5 md:gap-8 items-end">
                         <img
                             src={media.poster_url || POSTER_FALLBACK}
                             alt={media.title}
                             onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = POSTER_FALLBACK; }}
-                            className="hidden md:block w-48 lg:w-56 aspect-[2/3] object-cover rounded-lg border border-[#262626] shadow-2xl"
+                            className="hidden sm:block w-32 md:w-44 lg:w-52 shrink-0 aspect-[2/3] object-cover rounded-xl border border-white/10 shadow-2xl"
                         />
-                        <div className="max-w-2xl">
+                        <div className="min-w-0 flex-1">
                             <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-3">
                                 {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"}
                                 {media.year && <span className="text-neutral-500 ml-3">· {media.year}</span>}
                             </div>
-                            {!media.title_logo_url && (
-                                <h1 data-testid="media-title" className="font-display text-4xl sm:text-6xl tracking-tighter leading-none font-light">
+                            {media.title_logo_url ? (
+                                <img src={media.title_logo_url} alt={media.title} className="max-h-20 sm:max-h-28 lg:max-h-32 max-w-[90%] w-auto object-contain object-left drop-shadow-xl" />
+                            ) : (
+                                <h1 data-testid="media-title" className="font-display text-3xl sm:text-5xl lg:text-6xl tracking-tighter leading-none font-light">
                                     {media.title}
                                 </h1>
                             )}
-                            <div className="flex flex-wrap items-center gap-4 mt-5 text-sm text-neutral-400">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-5 text-sm text-neutral-400">
                                 {media.rating && (
                                     <div className="flex items-center gap-1.5 text-white">
                                         <Star size={14} fill="#E8D2A6" className="text-[#E8D2A6]" />
@@ -202,8 +206,8 @@ export default function MediaDetailPage() {
                                     ))}
                                 </div>
                             )}
-                            <p className="mt-6 text-lg text-neutral-300 leading-relaxed">{media.description}</p>
-                            <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+                            <p className="mt-5 text-sm sm:text-base text-neutral-300 leading-relaxed max-w-3xl line-clamp-4 sm:line-clamp-none">{media.description}</p>
+                            <div className="mt-6 flex flex-wrap items-center gap-3">
                                 <Button
                                     onClick={() => navigate(`/watch/${media.id}`)}
                                     data-testid="watch-btn"
@@ -218,7 +222,7 @@ export default function MediaDetailPage() {
                                     className={`rounded-full h-12 px-5 border-[#262626] bg-transparent hover:bg-white/5 ${status.favorite ? "text-[#E8D2A6] border-[#E8D2A6]/50" : "text-white"}`}
                                 >
                                     <Heart size={16} className="mr-2" fill={status.favorite ? "currentColor" : "none"} />
-                                    {status.favorite ? "Favori" : "Favori"}
+                                    {status.favorite ? "Dans mes favoris" : "Ajouter aux favoris"}
                                 </Button>
                                 <Button
                                     onClick={() => toggle("watchlist")}
@@ -227,21 +231,26 @@ export default function MediaDetailPage() {
                                     className={`rounded-full h-12 px-5 border-[#262626] bg-transparent hover:bg-white/5 ${status.watchlist ? "text-[#E8D2A6] border-[#E8D2A6]/50" : "text-white"}`}
                                 >
                                     <Bookmark size={16} className="mr-2" fill={status.watchlist ? "currentColor" : "none"} />
-                                    Watchlist
+                                    {status.watchlist ? "Dans ma liste" : "À voir plus tard"}
                                 </Button>
                             </div>
                         </div>
-                    </motion.div>
-                </div>
-            </section>
+                    </div>
+                </motion.div>
+            </div>
 
-            <div className="max-w-7xl mx-auto px-6 py-12 grid lg:grid-cols-3 gap-12">
-                <div className="lg:col-span-2 space-y-12 order-2 lg:order-1">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 space-y-14">
+                <main className="space-y-14 min-w-0">
                     {/* Trailer */}
                     {media.trailer_youtube_id && (
-                        <div>
-                            <h2 className="font-display text-2xl mb-4">Bande-annonce</h2>
-                            <div className="aspect-video rounded-lg overflow-hidden border border-[#262626]">
+                        <section>
+                            <div className="flex items-end justify-between mb-5">
+                                <div>
+                                    <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">À découvrir</div>
+                                    <h2 className="font-display text-3xl tracking-tight">Bande-annonce</h2>
+                                </div>
+                            </div>
+                            <div className="aspect-video rounded-2xl overflow-hidden border border-white/10 bg-[#0a0a0a] shadow-xl shadow-black/30">
                                 <iframe
                                     data-testid="trailer-iframe"
                                     className="w-full h-full"
@@ -251,14 +260,17 @@ export default function MediaDetailPage() {
                                     allowFullScreen
                                 />
                             </div>
-                        </div>
+                        </section>
                     )}
 
                     {/* Seasons */}
                     {media.type !== "movie" && media.seasons?.length > 0 && (
-                        <div>
-                            <h2 className="font-display text-2xl mb-4">Saisons</h2>
-                            <Accordion type="single" collapsible className="w-full">
+                        <section>
+                            <div className="mb-5">
+                                <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Épisodes</div>
+                                <h2 className="font-display text-3xl tracking-tight">Saisons</h2>
+                            </div>
+                            <Accordion type="single" collapsible className="w-full rounded-2xl border border-white/10 bg-[#0a0a0a] px-5">
                                 {media.seasons.map((s, i) => (
                                     <AccordionItem key={i} value={`s-${i}`} className="border-[#262626]">
                                         <AccordionTrigger data-testid={`season-${s.season_number}-trigger`} className="text-white hover:no-underline hover:text-[#E8D2A6]">
@@ -286,26 +298,19 @@ export default function MediaDetailPage() {
                                     </AccordionItem>
                                 ))}
                             </Accordion>
-                        </div>
+                        </section>
                     )}
 
-                </div>
+                </main>
 
-                <aside className="space-y-8 order-1 lg:order-2">
-                    <Button
-                        onClick={() => navigate(`/watch/${media.id}`)}
-                        data-testid="watch-btn-aside"
-                        className="w-full bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12"
-                    >
-                        <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
-                    </Button>
+                <aside className="w-full">
                     {(media.director || media.cast?.length > 0) && (
-                        <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Distribution</div>
+                        <div className="p-6 rounded-2xl border border-white/10 bg-[#0a0a0a]">
+                            <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-5">Distribution</div>
                             {media.director && (
-                                <div className="mb-3">
+                                <div className="mb-5 pb-5 border-b border-white/5">
                                     <div className="text-xs text-neutral-500">Réalisateur</div>
-                                    <div className="text-white">{media.director}</div>
+                                    <div className="text-white mt-1">{media.director}</div>
                                 </div>
                             )}
                             {media.cast?.length > 0 && (
@@ -313,7 +318,7 @@ export default function MediaDetailPage() {
                                     <div className="text-xs text-neutral-500 mb-1 flex items-center gap-1.5">
                                         <Users size={12} /> Casting
                                     </div>
-                                    <div className="text-neutral-300 text-sm leading-relaxed">{media.cast.join(", ")}</div>
+                                    <div className="text-neutral-300 text-sm leading-relaxed mt-2">{media.cast.join(", ")}</div>
                                 </div>
                             )}
                         </div>
@@ -322,9 +327,9 @@ export default function MediaDetailPage() {
             </div>
 
             {similar.length > 0 && (
-                <section className="max-w-7xl mx-auto px-6 pb-20" data-testid="similar-section">
+                <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="similar-section">
                     <div className="mb-6">
-                        <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Vous aimerez aussi</div>
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Vous aimerez aussi</div>
                         <h2 className="font-display text-3xl tracking-tight">Titres similaires</h2>
                     </div>
                     <div className="flex gap-5 overflow-x-auto no-scrollbar snap-x pb-2 -mx-6 px-6">
@@ -335,8 +340,11 @@ export default function MediaDetailPage() {
                 </section>
             )}
 
-            <section className="max-w-3xl mx-auto px-6 pb-24" data-testid="reviews-section">
-                <h2 className="font-display text-2xl mb-4">Avis & Notes</h2>
+            <section className="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="reviews-section">
+                <div className="mb-6">
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">La communauté</div>
+                    <h2 className="font-display text-3xl tracking-tight">Avis & notes</h2>
+                </div>
                 {user ? (
                     <div ref={formRef} className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
                         <div className="flex items-center gap-3 mb-3">
