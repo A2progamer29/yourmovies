@@ -37,6 +37,7 @@ const EMPTY = {
     country: "",
     seasons: [],
     featured: false,
+    in_theaters: false,
     featured_order: "",
 };
 
@@ -200,6 +201,7 @@ export default function AdminMediaForm() {
             country: form.country || null,
             seasons: form.seasons || [],
             featured: !!form.featured,
+            in_theaters: form.type === "movie" && !!form.in_theaters,
             featured_order: form.featured_order === "" ? null : Number(form.featured_order),
         };
         setSaving(true);
@@ -518,6 +520,15 @@ export default function AdminMediaForm() {
                     <section>
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Mise en avant</h2>
                         <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] space-y-4">
+                            {form.type === "movie" && (
+                                <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#262626]">
+                                    <div>
+                                        <div className="text-white">Actuellement au cinéma</div>
+                                        <div className="text-xs text-neutral-500">Avertit les spectateurs que la qualité disponible peut être réduite.</div>
+                                    </div>
+                                    <Switch checked={!!form.in_theaters} onCheckedChange={(v) => setForm({ ...form, in_theaters: v })} data-testid="form-in-theaters" />
+                                </div>
+                            )}
                             <div className="flex items-center justify-between">
                                 <div>
                                     <div className="text-white">À l&apos;affiche sur l&apos;accueil</div>
