@@ -1205,15 +1205,47 @@ async def admin_tmdb_import(
     )
     certifications = []
     if tmdb_kind == "movie":
-        for release in (data.get("release_dates") or {}).get("results", []):
-            if release.get("iso_3166_1") == "FR":
-                certifications = [x.get("certification") for x in release.get("release_dates", []) if x.get("certification")]
-                break
+        release_groups = (data.get("release_dates") or {}).get("results", [])
+        for country_code in ("FR", "US"):
+            release = next((item for item in release_groups if item.get("iso_3166_1") == country_code), None)
+            if release:
+                certifications = [
+                    item.get("certification")
+                    for item in release.get("release_dates", [])
+                    if item.get("certification")
+                ]
+                if certifications:
+                    break
     else:
-        for rating in (data.get("content_ratings") or {}).get("results", []):
-            if rating.get("iso_3166_1") == "FR" and rating.get("rating"):
+        rating_groups = (data.get("content_ratings") or {}).get("results", [])
+        for country_code in ("FR", "US"):
+            rating = next(
+                (item for item in rating_groups if item.get("iso_3166_1") == country_code and item.get("rating")),
+                None,
+            )
+            if rating:
                 certifications = [rating["rating"]]
                 break
+
+    def normalize_age_rating(value: Optional[str]) -> Optional[str]:
+        raw = (value or "").strip().upper()
+        if not raw:
+            return None
+        if raw in {"TP", "U", "G", "TV-G", "TOUS PUBLICS"}:
+            return "Tous publics"
+        french_match = re.search(r"(10|12|16|18)", raw)
+        if french_match:
+            return f"-{french_match.group(1)}"
+        us_map = {
+            "PG": "-10",
+            "TV-PG": "-10",
+            "PG-13": "-12",
+            "TV-14": "-12",
+            "R": "-16",
+            "NC-17": "-18",
+            "TV-MA": "-18",
+        }
+        return us_map.get(raw, raw)
     logos = (data.get("images") or {}).get("logos", [])
     logo = next((image for image in logos if image.get("iso_639_1") == "fr"), None) or (logos[0] if logos else None)
     release_date = data.get("release_date") or data.get("first_air_date")
@@ -1223,11 +1255,40 @@ async def admin_tmdb_import(
         runtime = runtimes[0] if runtimes else None
     seasons = []
     if tmdb_kind == "tv":
-        seasons = [{
-            "season_number": season.get("season_number"),
-            "title": season.get("name") or "",
-            "episodes": [],
-        } for season in data.get("seasons", []) if season.get("season_number", 0) > 0]
+        for season_summary in data.get("seasons", []):
+            season_number = season_summary.get("season_number", 0)
+            if season_number <= 0:
+                continue
+            season_data = await run_in_threadpool(
+                _tmdb_request,
+                f"/tv/{tmdb_id}/season/{season_number}",
+                {"language": "fr-FR"},
+            )
+            episodes = []
+            for episode in season_data.get("episodes", []):
+                episodes.append({
+                    "tmdb_id": episode.get("id"),
+                    "ep_number": episode.get("episode_number"),
+                    "title": episode.get("name") or f"Épisode {episode.get('episode_number', '')}".strip(),
+                    "duration": episode.get("runtime") or runtime,
+                    "description": episode.get("overview") or "",
+                    "air_date": episode.get("air_date"),
+                    "still_url": _tmdb_image(episode.get("still_path")),
+                    # Ces champs sont volontairement vides : l'admin ajoute le MP4
+                    # correspondant sans que les imports suivants ne l'écrasent.
+                    "video_url": "",
+                    "video_file_path": "",
+                    "bunny_video_id": "",
+                    "bunny_library_id": "",
+                })
+            seasons.append({
+                "tmdb_id": season_summary.get("id"),
+                "season_number": season_number,
+                "title": season_data.get("name") or season_summary.get("name") or "",
+                "description": season_data.get("overview") or "",
+                "poster_url": _tmdb_image(season_data.get("poster_path") or season_summary.get("poster_path")),
+                "episodes": episodes,
+            })
     return {
         "tmdb_id": tmdb_id,
         "title": data.get("title") or data.get("name") or "",
@@ -1239,7 +1300,7 @@ async def admin_tmdb_import(
         "poster_url": _tmdb_image(data.get("poster_path")),
         "banner_url": _tmdb_image(data.get("backdrop_path")),
         "title_logo_url": _tmdb_image(logo.get("file_path")) if logo else None,
-        "age_rating": certifications[0] if certifications else None,
+        "age_rating": normalize_age_rating(certifications[0]) if certifications else None,
         "trailer_youtube_id": trailer.get("key") if trailer else None,
         "cast": [person.get("name") for person in (credits.get("cast") or [])[:15] if person.get("name")],
         "director": director,
