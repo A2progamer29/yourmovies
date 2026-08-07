@@ -23,6 +23,15 @@ const ACCENT_PRESETS = [
     { name: "Rouge cinéma", value: "#E8564A" },
 ];
 
+const PROFILE_BACKGROUND_PRESETS = [
+    { name: "Noir cinéma", value: "#050505" },
+    { name: "Anthracite", value: "#111111" },
+    { name: "Bleu nuit", value: "#08111F" },
+    { name: "Bordeaux", value: "#1B090D" },
+    { name: "Vert profond", value: "#07150F" },
+    { name: "Violet nuit", value: "#120B1C" },
+];
+
 export default function SettingsPage() {
     const { user, loading, refresh } = useAuth();
     const navigate = useNavigate();
@@ -52,6 +61,7 @@ export default function SettingsPage() {
                 preferred_quality: user.preferred_quality || "auto",
                 autoplay_hero: user.autoplay_hero !== false,
                 accent_color: user.accent_color || "#E8D2A6",
+                profile_background_color: user.profile_background_color || "#050505",
                 profile_public: user.profile_public !== false,
                 reviews_public: user.reviews_public !== false,
                 history_public: user.history_public !== false,
@@ -148,6 +158,7 @@ export default function SettingsPage() {
             };
             if (user.premium) {
                 payload.accent_color = form.accent_color;
+                payload.profile_background_color = form.profile_background_color;
                 payload.autoplay_hero = form.autoplay_hero;
             }
             await api.patch("/settings", payload);
@@ -374,6 +385,45 @@ export default function SettingsPage() {
                                         <button type="button" onClick={removeBanner} className="text-xs text-neutral-500 transition-colors hover:text-red-400">Retirer</button>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[#262626] bg-[#0a0a0a] p-5">
+                            <div className="mb-2 flex items-center gap-2">
+                                <Palette size={14} className="text-[#E8D2A6]" />
+                                <div className="text-sm font-medium text-white">Fond du profil</div>
+                                <Crown size={12} className="text-[#E8D2A6]" />
+                            </div>
+                            <p className="mb-4 text-xs text-neutral-500">Choisissez la couleur affichée derrière le contenu de votre profil. Réservé aux abonnés Premium.</p>
+                            <div className="flex flex-wrap gap-3">
+                                {PROFILE_BACKGROUND_PRESETS.map((color) => (
+                                    <button
+                                        key={color.value}
+                                        type="button"
+                                        disabled={!user.premium}
+                                        onClick={() => setForm((current) => ({ ...current, profile_background_color: color.value }))}
+                                        data-testid={`profile-background-${color.value.slice(1)}`}
+                                        aria-label={color.name}
+                                        title={color.name}
+                                        className={`h-11 w-11 rounded-full border-2 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35 ${form.profile_background_color === color.value ? "border-[#E8D2A6] ring-2 ring-[#E8D2A6]/25" : "border-[#343434]"}`}
+                                        style={{ backgroundColor: color.value }}
+                                    />
+                                ))}
+                                <label className={`relative flex h-11 min-w-[132px] items-center justify-center gap-2 rounded-full border px-4 text-xs font-semibold transition-colors ${user.premium ? "cursor-pointer border-[#343434] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white" : "cursor-not-allowed border-[#262626] text-neutral-600"}`}>
+                                    <Palette size={13} /> Sur mesure
+                                    <input
+                                        type="color"
+                                        disabled={!user.premium}
+                                        value={form.profile_background_color || "#050505"}
+                                        onChange={(event) => setForm((current) => ({ ...current, profile_background_color: event.target.value.toUpperCase() }))}
+                                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                                        aria-label="Choisir une couleur de fond personnalisée"
+                                    />
+                                </label>
+                            </div>
+                            <div className="mt-4 flex items-center gap-3 rounded-md border border-[#262626] bg-black/20 p-3">
+                                <span className="h-7 w-7 rounded-full border border-white/10" style={{ backgroundColor: form.profile_background_color || "#050505" }} />
+                                <span className="text-xs text-neutral-400">Aperçu : <span className="font-mono text-neutral-200">{form.profile_background_color || "#050505"}</span></span>
                             </div>
                         </div>
 
