@@ -141,6 +141,7 @@ class MediaBase(BaseModel):
     seasons: List[dict] = []
     featured: bool = False
     featured_order: Optional[int] = None
+    in_theaters: bool = False
 
 class MediaUpdate(BaseModel):
     title: Optional[str] = None
@@ -166,6 +167,7 @@ class MediaUpdate(BaseModel):
     seasons: Optional[List[dict]] = None
     featured: Optional[bool] = None
     featured_order: Optional[int] = None
+    in_theaters: Optional[bool] = None
 
 class MediaCreate(MediaBase):
     pass
@@ -1810,14 +1812,171 @@ async def set_admin_pricing(inp: PricingInput, admin: dict = Depends(require_lev
         await db.settings.update_one({"id": "pricing"}, {"$set": update}, upsert=True)
     return await _pricing_payload()
 
-# Les paiements en ligne et leurs webhooks ont été supprimés.
-# Les abonnements et la cagnotte sont administrés manuellement via Discord.
+class CheckoutRequest(BaseModel):
+    lookup_key: str
+    origin_url: str
+
+def _plan_price_from_lookup(lookup_key: str):
+    plan_id = lookup_key.replace("ym_", "").rsplit("_", 1)[0]  # basic/standard/premium
+    interval = "yearly" if lookup_key.endswith("_yearly") else "monthly"
+    plan = next((p for p in PLANS if p["id"] == plan_id), None)
+    if not plan:
+        return None, plan_id, interval, 0, "eur"
+    price = plan["prices"].get(interval, {})
+    return plan, plan_id, interval, float(price.get("amount", 0) or 0), price.get("currency", "eur")
+
+@api_router.post("/payments/checkout")
+async def create_checkout(req: CheckoutRequest, user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Le paiement en ligne a été retiré. Les abonnements sont gérés via Discord.")
+    if not STRIPE_CONFIGURED:
+        raise HTTPException(status_code=503, detail="Paiement indisponible : Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante).")
+    plan, plan_id, interval, amount, currency = _plan_price_from_lookup(req.lookup_key)
+    if not plan or amount <= 0:
+        raise HTTPException(status_code=400, detail=f"Plan inconnu : {req.lookup_key}")
+    try:
+        unit_amount = int(round(amount * 100))
+        session = await run_in_threadpool(lambda: stripe.checkout.Session.create(
+            line_items=[{
+                "price_data": {
+                    "currency": currency,
+                    "unit_amount": unit_amount,
+                    "product_data": {"name": f"YourMovie's {plan['name']} ({'annuel' if interval == 'yearly' else 'mensuel'})"},
+                    "recurring": {"interval": "year" if interval == "yearly" else "month"},
+                },
+                "quantity": 1,
+            }],
+            mode="subscription",
+            success_url=f"{req.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{req.origin_url}/pricing",
+            metadata={"user_id": user["user_id"], "lookup_key": req.lookup_key, "kind": "subscription"},
+        ))
+        await db.payment_transactions.insert_one({
+            "session_id": session.id,
+            "user_id": user["user_id"],
+            "lookup_key": req.lookup_key,
+            "kind": "subscription",
+            "amount": unit_amount,
+            "currency": currency,
+            "status": "initiated",
+            "payment_status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"checkout_url": session.url, "session_id": session.id}
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:
+        logger.error(f"Checkout failed: {e}")
+        raise HTTPException(status_code=400, detail=(getattr(e, "user_message", "") or "Échec de l'initialisation du paiement."))
+    except Exception as e:
+        logger.error(f"Checkout failed: {e}")
+        raise HTTPException(status_code=500, detail="Payment initialization failed")
+
+async def _apply_paid_subscription(session_id: str, user_id: Optional[str] = None, lookup_key: Optional[str] = None, subscription_id: Optional[str] = None):
+    if not user_id or not lookup_key:
+        tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+        if tx:
+            user_id = user_id or tx.get("user_id")
+            lookup_key = lookup_key or tx.get("lookup_key")
+    if not user_id or not lookup_key:
+        return
+    # Determine plan_id and interval from lookup_key
+    plan_id = lookup_key.replace("ym_", "").split("_")[0]  # basic/standard/premium
+    interval = "yearly" if lookup_key.endswith("_yearly") else "monthly"
+    days = 365 if interval == "yearly" else 31
+    premium_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "premium_plan": plan_id,
+        "premium_until": premium_until,
+        "premium_interval": interval,
+        "stripe_subscription_id": subscription_id,
+    }})
+
+async def _on_payment_paid(session_id: str, subscription_id: Optional[str] = None):
+    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not tx:
+        return
+    if tx.get("kind") == "donation":
+        if not tx.get("credited"):
+            await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"credited": True}})
+            amount_eur = round((tx.get("amount") or 0) / 100, 2)
+            await db.cagnotte.update_one({"id": "main"}, {"$inc": {"total": amount_eur}}, upsert=True)
+    else:
+        await _apply_paid_subscription(session_id, subscription_id=subscription_id or tx.get("stripe_subscription_id"))
+
+@api_router.get("/payments/status/{session_id}")
+async def get_payment_status(session_id: str, user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Le système Stripe a été retiré.")
+    record = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    # seul le propriétaire de la transaction (ou un admin) peut consulter son statut
+    if record.get("user_id") != user["user_id"] and not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if record.get("payment_status") != "paid":
+        try:
+            s = await run_in_threadpool(lambda: stripe.checkout.Session.retrieve(session_id))
+            if s.payment_status == "paid" or s.status == "complete":
+                await db.payment_transactions.update_one(
+                    {"session_id": session_id, "payment_status": {"$ne": "paid"}},
+                    {"$set": {
+                        "status": "completed",
+                        "payment_status": "paid",
+                        "stripe_subscription_id": s.subscription,
+                        "stripe_payment_intent_id": s.payment_intent,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+                await _on_payment_paid(session_id, subscription_id=s.subscription)
+                record = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+        except stripe.error.StripeError:
+            pass
+    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"], "kind": record.get("kind", "subscription")}
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    raise HTTPException(status_code=410, detail="Le système Stripe a été retiré.")
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    obj = event["data"]["object"]
+    t = event["type"]
+    if t == "checkout.session.completed":
+        await db.payment_transactions.update_one(
+            {"session_id": obj["id"], "payment_status": {"$ne": "paid"}},
+            {"$set": {
+                "status": "completed",
+                "payment_status": obj.get("payment_status", "paid"),
+                "stripe_subscription_id": obj.get("subscription"),
+                "stripe_payment_intent_id": obj.get("payment_intent"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        await _on_payment_paid(obj["id"], subscription_id=obj.get("subscription"))
+    elif t == "checkout.session.async_payment_succeeded":
+        await db.payment_transactions.update_one({"session_id": obj["id"]},
+            {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}})
+        await _on_payment_paid(obj["id"])
+    elif t == "checkout.session.async_payment_failed":
+        await db.payment_transactions.update_one({"session_id": obj["id"]},
+            {"$set": {"status": "failed", "payment_status": "failed", "updated_at": datetime.now(timezone.utc).isoformat()}})
+    elif t == "checkout.session.expired":
+        await db.payment_transactions.update_one({"session_id": obj["id"]},
+            {"$set": {"status": "expired", "payment_status": "expired", "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"status": "ok"}
 
 # ---------- Cagnotte ----------
 CAGNOTTE_GOAL = 1000.0
 
 class CagnotteSetInput(BaseModel):
     total: float
+
+class ContributeInput(BaseModel):
+    amount: float
+    origin_url: str
 
 def _refund_pct(total: float, goal: float) -> float:
     # remboursement équitable si l'objectif n'est pas atteint : croît avec le manque à gagner,
@@ -1845,7 +2004,46 @@ async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_leve
     await db.cagnotte.update_one({"id": "main"}, {"$set": {"total": total, "goal": CAGNOTTE_GOAL}}, upsert=True)
     return await _get_cagnotte()
 
-# Les contributions sont enregistrées manuellement par les administrateurs.
+@api_router.post("/cagnotte/contribute")
+async def contribute_cagnotte(inp: ContributeInput, user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="La cagnotte est désormais gérée manuellement via Discord.")
+    if not STRIPE_CONFIGURED:
+        raise HTTPException(status_code=503, detail="Contributions indisponibles : Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante).")
+    amount = round(float(inp.amount), 2)
+    if amount < 1:
+        raise HTTPException(status_code=400, detail="Montant minimum : 1 €.")
+    try:
+        unit_amount = int(round(amount * 100))
+        session = await run_in_threadpool(lambda: stripe.checkout.Session.create(
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "unit_amount": unit_amount,
+                    "product_data": {"name": "Contribution à la cagnotte YourMovie's"},
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{inp.origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{inp.origin_url}/cagnotte",
+            metadata={"user_id": user["user_id"], "kind": "donation"},
+        ))
+        await db.payment_transactions.insert_one({
+            "session_id": session.id,
+            "user_id": user["user_id"],
+            "kind": "donation",
+            "amount": unit_amount,
+            "currency": "eur",
+            "status": "initiated",
+            "payment_status": "pending",
+            "credited": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"checkout_url": session.url, "session_id": session.id}
+    except stripe.error.StripeError as e:
+        logger.error(f"Donation checkout failed: {e}")
+        raise HTTPException(status_code=400, detail=(getattr(e, "user_message", "") or "Échec de l'initialisation du paiement."))
 
 # ---------- Watch Progress ----------
 class WatchProgressInput(BaseModel):
@@ -1926,10 +2124,34 @@ async def current_subscription(user: dict = Depends(get_current_user)):
         "amount": None,
         "currency": None,
         "status": None,
+        "stripe_subscription_id": None,
     }
     return result
 
-# La modification et l'annulation des abonnements sont gérées via Discord.
+@api_router.post("/subscription/cancel")
+async def cancel_subscription(user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Les abonnements sont gérés manuellement via Discord.")
+    sub_id = user.get("stripe_subscription_id")
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="No active subscription")
+    try:
+        sub = await run_in_threadpool(lambda: stripe.Subscription.modify(sub_id, cancel_at_period_end=True))
+        return {"ok": True, "cancel_at_period_end": bool(sub.cancel_at_period_end)}
+    except Exception as e:
+        logger.error(f"Cancel subscription failed: {e}")
+        raise HTTPException(status_code=500, detail="Cancellation failed")
+
+@api_router.post("/subscription/resume")
+async def resume_subscription(user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Les abonnements sont gérés manuellement via Discord.")
+    sub_id = user.get("stripe_subscription_id")
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="No active subscription")
+    try:
+        await run_in_threadpool(lambda: stripe.Subscription.modify(sub_id, cancel_at_period_end=False))
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Resume failed")
 
 # ---------- Profiles (Premium multi-profile) ----------
 class ProfileInput(BaseModel):
