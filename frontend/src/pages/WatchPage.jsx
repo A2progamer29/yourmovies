@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, Users, Play } from "lucide-react";
+import { ChevronLeft, Users, Play, Film } from "lucide-react";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -45,7 +45,7 @@ export default function WatchPage() {
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
-    const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress}
+    const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress, libraryId}
     const [adDone, setAdDone] = useState(false);
 
     useEffect(() => {
@@ -59,8 +59,9 @@ export default function WatchPage() {
                 if (!active) return;
                 const st = Number(s.data.status);
                 const hasRes = !!(s.data.availableResolutions && String(s.data.availableResolutions).length);
-                if (st >= 4 || hasRes) { setBunnyReady({ ready: true }); return; }
-                setBunnyReady({ ready: false, encodeProgress: s.data.encodeProgress || 0 });
+                const libraryId = String(s.data.libraryId || media?.bunny_library_id || BUNNY_LIBRARY_ID);
+                if (st >= 4 || hasRes) { setBunnyReady({ ready: true, libraryId }); return; }
+                setBunnyReady({ ready: false, encodeProgress: s.data.encodeProgress || 0, libraryId });
                 timer = setTimeout(check, 5000);
             } catch {
                 if (active) setBunnyReady({ ready: true });
@@ -68,7 +69,7 @@ export default function WatchPage() {
         };
         check();
         return () => { active = false; clearTimeout(timer); };
-    }, [media?.bunny_video_id]);
+    }, [media?.bunny_video_id, media?.bunny_library_id]);
 
     useEffect(() => {
         (async () => {
@@ -209,7 +210,7 @@ export default function WatchPage() {
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <iframe
                                     data-testid="bunny-player"
-                                    src={`https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${media.bunny_video_id}?autoplay=true&preload=true`}
+                                    src={`https://iframe.mediadelivery.net/embed/${bunnyReady?.libraryId || media.bunny_library_id || BUNNY_LIBRARY_ID}/${media.bunny_video_id}?autoplay=true&preload=true`}
                                     loading="lazy"
                                     className="absolute inset-0 w-full h-full"
                                     allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
