@@ -62,7 +62,7 @@ export default function PublicProfilePage() {
     const initial = profile.name?.[0]?.toUpperCase() || "U";
 
     return (
-        <div className="min-h-screen bg-[#050505] text-white">
+        <div className="min-h-screen text-white" style={{ backgroundColor: profile.profile_background_color || "#050505" }}>
             <div className="noise-overlay" />
             <Header />
             <section className="relative isolate min-h-[300px] overflow-hidden border-b border-[#262626]">
@@ -72,7 +72,7 @@ export default function PublicProfilePage() {
                     <div className="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_20%_20%,rgba(232,210,166,0.16),transparent_38%),linear-gradient(135deg,#17130d_0%,#050505_58%,#101010_100%)]" />
                 )}
                 <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/90 via-black/60 to-black/30" />
-                <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#050505] via-transparent to-black/30" />
+                <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[var(--profile-bg)] via-transparent to-black/30" style={{ "--profile-bg": profile.profile_background_color || "#050505" }} />
                 <div className="mx-auto flex min-h-[300px] max-w-7xl items-end px-6 pb-10 pt-20">
                 <div className="flex w-full flex-col gap-5 sm:flex-row sm:items-end">
                     {profile.picture ? (
@@ -192,4 +192,3 @@ export default function PublicProfilePage() {
         </div>
     );
 }
-
