@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import { FavoritesProvider } from "@/context/FavoritesContext";
+import { UploadProvider } from "@/context/UploadContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Splash from "@/components/Splash";
 import HomePage from "@/pages/HomePage";
@@ -32,6 +33,7 @@ import PrivacyPage from "@/pages/PrivacyPage";
 import Footer from "@/components/Footer";
 import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
+import GlobalUploadManager from "@/components/GlobalUploadManager";
 
 function AppRouter() {
     const location = useLocation();
@@ -80,12 +82,15 @@ function App() {
             <BrowserRouter>
                 <ErrorBoundary>
                     <AuthProvider>
-                        <FavoritesProvider>
-                            <AppRouter />
-                            <VersionChecker />
-                            <BetaNoticeDialog />
-                            <Toaster theme="dark" richColors position="top-right" />
-                        </FavoritesProvider>
+                        <UploadProvider>
+                            <FavoritesProvider>
+                                <AppRouter />
+                                <GlobalUploadManager />
+                                <VersionChecker />
+                                <BetaNoticeDialog />
+                                <Toaster theme="dark" richColors position="top-right" />
+                            </FavoritesProvider>
+                        </UploadProvider>
                     </AuthProvider>
                 </ErrorBoundary>
             </BrowserRouter>
