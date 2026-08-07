@@ -252,6 +252,34 @@ export default function AdminMediaForm() {
         }
     };
 
+    const mergeImportedSeasons = (currentSeasons = [], importedSeasons = []) => {
+        const existingSeasons = new Map(
+            currentSeasons.map((season) => [Number(season.season_number), season]),
+        );
+        return importedSeasons.map((season) => {
+            const existingSeason = existingSeasons.get(Number(season.season_number)) || {};
+            const existingEpisodes = new Map(
+                (existingSeason.episodes || []).map((episode) => [Number(episode.ep_number), episode]),
+            );
+            return {
+                ...existingSeason,
+                ...season,
+                episodes: (season.episodes || []).map((episode) => {
+                    const existingEpisode = existingEpisodes.get(Number(episode.ep_number)) || {};
+                    return {
+                        ...existingEpisode,
+                        ...episode,
+                        // Un nouvel import TMDB ne remplace jamais le fichier vidéo ajouté par l'admin.
+                        video_url: existingEpisode.video_url || episode.video_url || "",
+                        video_file_path: existingEpisode.video_file_path || episode.video_file_path || "",
+                        bunny_video_id: existingEpisode.bunny_video_id || episode.bunny_video_id || "",
+                        bunny_library_id: existingEpisode.bunny_library_id || episode.bunny_library_id || "",
+                    };
+                }),
+            };
+        });
+    };
+
     const importTmdb = async (result) => {
         setTmdbImporting(result.tmdb_id);
         try {
@@ -265,7 +293,9 @@ export default function AdminMediaForm() {
                 year: data.year ?? "",
                 duration_minutes: data.duration_minutes ?? "",
                 rating: data.rating ?? "",
-                seasons: data.seasons || current.seasons || [],
+                seasons: data.seasons?.length
+                    ? mergeImportedSeasons(current.seasons || [], data.seasons)
+                    : (current.seasons || []),
                 // Ne jamais remplacer les vidéos déjà ajoutées au catalogue.
                 video_file_path: current.video_file_path,
                 video_url: current.video_url,
@@ -319,7 +349,16 @@ export default function AdminMediaForm() {
         setForm((f) => {
             const seasons = [...(f.seasons || [])];
             const eps = [...(seasons[i].episodes || [])];
-            eps.push({ ep_number: eps.length + 1, title: "", duration: "" });
+            eps.push({
+                ep_number: eps.length + 1,
+                title: "",
+                duration: "",
+                description: "",
+                air_date: "",
+                still_url: "",
+                video_url: "",
+                video_file_path: "",
+            });
             seasons[i] = { ...seasons[i], episodes: eps };
             return { ...f, seasons };
         });
@@ -722,14 +761,53 @@ export default function AdminMediaForm() {
                                             <Button variant="ghost" size="icon" onClick={() => removeSeason(i)} className="text-red-400 hover:bg-white/5"><X size={14} /></Button>
                                         </div>
                                         <div className="space-y-2">
-                                            {(s.episodes || []).map((ep, j) => (
-                                                <div key={j} className="flex items-center gap-2">
-                                                    <Input type="number" value={ep.ep_number} onChange={(e) => updateEpisode(i, j, { ep_number: Number(e.target.value) })} className="w-20 bg-[#0a0a0a] border-[#262626] text-white" placeholder="Ep" />
-                                                    <Input value={ep.title || ""} onChange={(e) => updateEpisode(i, j, { title: e.target.value })} className="bg-[#0a0a0a] border-[#262626] text-white flex-1" placeholder="Titre" />
-                                                    <Input type="number" value={ep.duration || ""} onChange={(e) => updateEpisode(i, j, { duration: Number(e.target.value) })} className="w-24 bg-[#0a0a0a] border-[#262626] text-white" placeholder="min" />
-                                                    <Button variant="ghost" size="icon" onClick={() => removeEpisode(i, j)} className="text-neutral-400 hover:text-red-400"><X size={12} /></Button>
-                                                </div>
-                                            ))}
+                                            {(s.episodes || []).map((ep, j) => {
+                                                const episodeKey = `episode:${s.season_number || i + 1}:${ep.ep_number || j + 1}`;
+                                                return (
+                                                    <div key={ep.tmdb_id || j} className="rounded-lg border border-[#222] bg-[#080808] p-3 space-y-3">
+                                                        <div className="flex items-center gap-2">
+                                                            {ep.still_url && <img src={ep.still_url} alt="" className="w-24 h-14 rounded object-cover shrink-0" />}
+                                                            <Input type="number" value={ep.ep_number} onChange={(e) => updateEpisode(i, j, { ep_number: Number(e.target.value) })} className="w-20 bg-[#0a0a0a] border-[#262626] text-white" placeholder="Ep" />
+                                                            <Input value={ep.title || ""} onChange={(e) => updateEpisode(i, j, { title: e.target.value })} className="bg-[#0a0a0a] border-[#262626] text-white flex-1" placeholder="Nom de l'épisode" />
+                                                            <Input type="number" value={ep.duration || ""} onChange={(e) => updateEpisode(i, j, { duration: Number(e.target.value) })} className="w-24 bg-[#0a0a0a] border-[#262626] text-white" placeholder="min" />
+                                                            <Button variant="ghost" size="icon" onClick={() => removeEpisode(i, j)} className="text-neutral-400 hover:text-red-400"><X size={12} /></Button>
+                                                        </div>
+                                                        <Textarea
+                                                            value={ep.description || ""}
+                                                            onChange={(e) => updateEpisode(i, j, { description: e.target.value })}
+                                                            className="bg-[#0a0a0a] border-[#262626] text-white min-h-16"
+                                                            placeholder="Synopsis de l'épisode"
+                                                        />
+                                                        <div className="flex flex-col sm:flex-row gap-2">
+                                                            <Input
+                                                                value={ep.video_url || ""}
+                                                                onChange={(e) => updateEpisode(i, j, { video_url: e.target.value })}
+                                                                className="bg-[#0a0a0a] border-[#262626] text-white flex-1"
+                                                                placeholder="URL du fichier MP4 de cet épisode"
+                                                            />
+                                                            <label className="cursor-pointer shrink-0">
+                                                                <input
+                                                                    type="file"
+                                                                    accept="video/mp4,video/webm,video/quicktime"
+                                                                    className="hidden"
+                                                                    onChange={(e) => e.target.files?.[0] && uploadFile(
+                                                                        e.target.files[0],
+                                                                        "video",
+                                                                        episodeKey,
+                                                                        (url, filePath) => updateEpisode(i, j, { video_url: url, video_file_path: filePath }),
+                                                                    )}
+                                                                />
+                                                                <span className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">
+                                                                    {activeUpload(episodeKey)
+                                                                        ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(episodeKey)}%</>
+                                                                        : <><Upload size={12} /> Ajouter le MP4</>}
+                                                                </span>
+                                                            </label>
+                                                        </div>
+                                                        {ep.air_date && <div className="text-[11px] text-neutral-600">Diffusé le {ep.air_date}</div>}
+                                                    </div>
+                                                );
+                                            })}
                                             <Button variant="ghost" size="sm" onClick={() => addEpisode(i)} className="text-[#E8D2A6] hover:bg-white/5">
                                                 <Plus size={12} className="mr-1" /> Ajouter épisode
                                             </Button>
