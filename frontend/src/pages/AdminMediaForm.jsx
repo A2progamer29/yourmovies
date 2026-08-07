@@ -6,6 +6,7 @@ import axios from "axios";
 import * as tus from "tus-js-client";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useUploads } from "@/context/UploadContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,23 +63,9 @@ export default function AdminMediaForm() {
     const { id } = useParams();
     const isEdit = Boolean(id);
     const [form, setForm] = useState(EMPTY);
-    const [uploads, setUploads] = useState([]);
-    const [uploadsMinimized, setUploadsMinimized] = useState(false);
+    const { beginUpload, updateUpload, completeUpload, failUpload, activeUpload } = useUploads();
     const [dragTrailer, setDragTrailer] = useState(false);
     const [dragBunny, setDragBunny] = useState(false);
-
-    const beginUpload = (file, key, stage = "Préparation") => {
-        const id = `${key}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setUploads((current) => [...current, { id, key, name: file?.name || "Fichier", progress: 0, stage, status: "uploading" }]);
-        return id;
-    };
-    const updateUpload = (id, patch) => setUploads((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
-    const completeUpload = (id) => {
-        updateUpload(id, { progress: 100, stage: "Terminé", status: "success" });
-        window.setTimeout(() => setUploads((current) => current.filter((item) => item.id !== id)), 8000);
-    };
-    const failUpload = (id) => updateUpload(id, { stage: "Échec du téléversement", status: "error" });
-    const activeUpload = (key) => uploads.find((item) => item.key === key && item.status === "uploading");
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
     const uploadStage = (key) => activeUpload(key)?.stage || "";
     const [saving, setSaving] = useState(false);
@@ -725,25 +712,6 @@ export default function AdminMediaForm() {
                 </div>
             </div>
 
-            {uploads.length > 0 && (
-                <aside className="fixed bottom-5 right-5 z-[100] w-[min(380px,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-[#E8D2A6]/25 bg-[#090909]/95 text-white shadow-2xl shadow-black/60 backdrop-blur-xl">
-                    <button type="button" onClick={() => setUploadsMinimized((value) => !value)} className="flex w-full items-center justify-between gap-4 border-b border-[#262626] px-4 py-3 text-left hover:bg-white/[0.03]" aria-expanded={!uploadsMinimized}>
-                        <span><span className="block text-[10px] uppercase tracking-[0.2em] text-[#E8D2A6]">Téléversements admin</span><span className="mt-0.5 block text-xs text-neutral-500">{uploads.filter((item) => item.status === "uploading").length} en cours · {uploads.length} au total</span></span>
-                        <span className="text-lg text-neutral-400">{uploadsMinimized ? "＋" : "−"}</span>
-                    </button>
-                    {!uploadsMinimized && (
-                        <div className="max-h-[360px] space-y-2 overflow-y-auto p-3">
-                            {uploads.map((item) => (
-                                <div key={item.id} className="rounded-xl border border-[#242424] bg-[#101010] p-3">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0"><div className="truncate text-sm text-neutral-100" title={item.name}>{item.name}</div><div className={`mt-0.5 text-xs ${item.status === "error" ? "text-red-400" : item.status === "success" ? "text-emerald-400" : "text-neutral-500"}`}>{item.stage}</div></div>
-                                        <div className="flex shrink-0 items-center gap-2"><span className="text-xs font-semibold tabular-nums text-[#E8D2A6]">{Math.round(item.progress)}%</span>{item.status !== "uploading" && (<button type="button" onClick={() => setUploads((current) => current.filter((upload) => upload.id !== item.id))} className="text-neutral-600 hover:text-white" aria-label="Retirer ce téléversement"><X size={14} /></button>)}</div>
-                                    </div>
-                                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#252525]"><div className={`h-full rounded-full transition-[width] duration-300 ${item.status === "error" ? "bg-red-500" : item.status === "success" ? "bg-emerald-500" : "bg-[#E8D2A6]"}`} style={{ width: `${Math.max(2, Math.min(100, item.progress))}%` }} /></div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
                 </aside>
             )}
         </div>
