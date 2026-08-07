@@ -62,11 +62,25 @@ export default function AdminMediaForm() {
     const { id } = useParams();
     const isEdit = Boolean(id);
     const [form, setForm] = useState(EMPTY);
-    const [uploading, setUploading] = useState(null); // key currently uploading
-    const [progress, setProgress] = useState(0);
+    const [uploads, setUploads] = useState([]);
+    const [uploadsMinimized, setUploadsMinimized] = useState(false);
     const [dragTrailer, setDragTrailer] = useState(false);
     const [dragBunny, setDragBunny] = useState(false);
-    const [bunnyStage, setBunnyStage] = useState("");
+
+    const beginUpload = (file, key, stage = "Préparation") => {
+        const id = `${key}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        setUploads((current) => [...current, { id, key, name: file?.name || "Fichier", progress: 0, stage, status: "uploading" }]);
+        return id;
+    };
+    const updateUpload = (id, patch) => setUploads((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
+    const completeUpload = (id) => {
+        updateUpload(id, { progress: 100, stage: "Terminé", status: "success" });
+        window.setTimeout(() => setUploads((current) => current.filter((item) => item.id !== id)), 8000);
+    };
+    const failUpload = (id) => updateUpload(id, { stage: "Échec du téléversement", status: "error" });
+    const activeUpload = (key) => uploads.find((item) => item.key === key && item.status === "uploading");
+    const uploadProgress = (key) => activeUpload(key)?.progress || 0;
+    const uploadStage = (key) => activeUpload(key)?.stage || "";
     const [saving, setSaving] = useState(false);
     const [tmdbQuery, setTmdbQuery] = useState("");
     const [tmdbResults, setTmdbResults] = useState([]);
@@ -101,8 +115,7 @@ export default function AdminMediaForm() {
     const buildFileUrl = (p) => !p ? "" : (/^https?:\/\//.test(p) ? p : `${process.env.REACT_APP_BACKEND_URL}/api/files/${p}`);
 
     const uploadFile = async (file, kind, key, cb) => {
-        setUploading(key);
-        setProgress(0);
+        const uploadId = beginUpload(file, key, "Préparation");
         try {
             // 1. Signature sécurisée depuis notre backend
             const sigForm = new FormData();
@@ -119,30 +132,27 @@ export default function AdminMediaForm() {
             const r = await axios.post(
                 `https://api.cloudinary.com/v1_1/${cloud_name}/${resource_type}/upload`,
                 fd,
-                { onUploadProgress: (e) => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)); } },
+                { onUploadProgress: (e) => { if (e.total) updateUpload(uploadId, { stage: "Envoi", progress: Math.round((e.loaded / e.total) * 100) }); } },
             );
             const url = r.data.secure_url;
             cb(url, url);
+            completeUpload(uploadId);
             toast.success("Fichier téléversé");
         } catch (e) {
+            failUpload(uploadId);
             showError(toast, e, "Téléversement impossible");
-        } finally {
-            setUploading(null);
-            setProgress(0);
         }
     };
 
     const uploadToBunny = async (file) => {
-        setUploading("bunny");
-        setProgress(0);
-        setBunnyStage("Préparation");
+        const uploadId = beginUpload(file, "bunny", "Préparation Bunny");
         try {
             const fd = new FormData();
             fd.append("title", form.title || file.name);
             const r = await api.post("/bunny/create-video", fd);
             const { videoId, libraryId, signature, expire } = r.data;
             // Étape 1 : envoi du fichier
-            setBunnyStage("Envoi");
+            updateUpload(uploadId, { stage: "Envoi vers Bunny", progress: 0 });
             await new Promise((resolve, reject) => {
                 const upload = new tus.Upload(file, {
                     endpoint: "https://video.bunnycdn.com/tusupload",
@@ -155,7 +165,7 @@ export default function AdminMediaForm() {
                     },
                     metadata: { filetype: file.type, title: form.title || file.name },
                     onError: reject,
-                    onProgress: (loaded, total) => setProgress(Math.round((loaded / total) * 100)),
+                    onProgress: (loaded, total) => updateUpload(uploadId, { progress: Math.round((loaded / total) * 100) }),
                     onSuccess: resolve,
                 });
                 upload.start();
@@ -163,24 +173,20 @@ export default function AdminMediaForm() {
             // La vidéo est enregistrée dès l'envoi terminé
             setForm((f) => ({ ...f, bunny_video_id: videoId, bunny_library_id: String(libraryId) }));
             // Étape 2 : encodage (on suit l'avancement)
-            setBunnyStage("Encodage");
-            setProgress(0);
+            updateUpload(uploadId, { stage: "Encodage Bunny", progress: 0 });
             for (let i = 0; i < 200; i++) {
                 try {
                     const s = await api.get(`/bunny/video-status/${videoId}`);
-                    setProgress(s.data.encodeProgress || 0);
+                    updateUpload(uploadId, { progress: s.data.encodeProgress || 0 });
                     if (s.data.status >= 4) break;
                 } catch { /* on réessaie */ }
                 await new Promise((res) => setTimeout(res, 3000));
             }
-            setBunnyStage("Prêt");
+            completeUpload(uploadId);
             toast.success("Vidéo prête");
         } catch (e) {
+            failUpload(uploadId);
             showError(toast, e, "Téléversement impossible");
-        } finally {
-            setUploading(null);
-            setProgress(0);
-            setBunnyStage("");
         }
     };
 
@@ -476,7 +482,7 @@ export default function AdminMediaForm() {
                                     <Input value={form.poster_url} onChange={(e) => setForm({ ...form, poster_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "poster", (p) => setForm((f) => ({ ...f, poster_url: buildFileUrl(p) })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {uploading === "poster" ? "..." : "Upload"}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("poster") ? "..." : "Upload"}</span>
                                     </label>
                                 </div>
                                 {form.poster_url && <img src={form.poster_url} alt="" className="mt-2 h-20 rounded" />}
@@ -488,7 +494,7 @@ export default function AdminMediaForm() {
                                     <Input value={form.banner_url} onChange={(e) => setForm({ ...form, banner_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "banner", (p) => setForm((f) => ({ ...f, banner_url: buildFileUrl(p) })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {uploading === "banner" ? "..." : "Upload"}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("banner") ? "..." : "Upload"}</span>
                                     </label>
                                 </div>
                             </div>
@@ -499,7 +505,7 @@ export default function AdminMediaForm() {
                                     <Input data-testid="form-title-logo" value={form.title_logo_url} onChange={(e) => setForm({ ...form, title_logo_url: e.target.value })} placeholder="https://... (superposé au hero à la place du texte)" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "title_logo", (p) => setForm((f) => ({ ...f, title_logo_url: buildFileUrl(p) })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {uploading === "title_logo" ? "..." : "Upload"}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("title_logo") ? "..." : "Upload"}</span>
                                     </label>
                                 </div>
                                 {form.title_logo_url && (
@@ -521,8 +527,8 @@ export default function AdminMediaForm() {
                                     className={`mt-1.5 block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragTrailer ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
                                 >
                                     <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url })))} />
-                                    {uploading === "trailer" ? (
-                                        <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {progress}%</div>
+                                    {activeUpload("trailer") ? (
+                                        <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadProgress("trailer")}%</div>
                                     ) : form.trailer_video_url ? (
                                         <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
                                     ) : (
@@ -572,8 +578,8 @@ export default function AdminMediaForm() {
                                 className={`block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragBunny ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
                             >
                                 <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
-                                {uploading === "bunny" ? (
-                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {bunnyStage}{(bunnyStage === "Envoi" || bunnyStage === "Encodage") ? ` ${progress}%` : "…"}</div>
+                                {activeUpload("bunny") ? (
+                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadStage("bunny")} {uploadProgress("bunny")}%</div>
                                 ) : form.bunny_video_id ? (
                                     <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
                                 ) : (
@@ -592,7 +598,7 @@ export default function AdminMediaForm() {
                                 <Input value={form.video_url} onChange={(e) => setForm({ ...form, video_url: e.target.value })} placeholder="URL MP4/HLS externe" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "default_video", (p, url) => setForm((f) => ({ ...f, video_file_path: p, video_url: f.video_url || url })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300">{uploading === "default_video" ? <><Loader2 size={14} className="animate-spin" /> {progress}%</> : <><Upload size={14} /> Upload MP4</>}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300">{activeUpload("default_video") ? <><Loader2 size={14} className="animate-spin" /> {uploadProgress("default_video")}%</> : <><Upload size={14} /> Upload MP4</>}</span>
                                     </label>
                             </div>
                             {form.video_file_path && <div className="text-xs text-neutral-500 mt-1.5">Fichier: {form.video_file_path}</div>}
@@ -621,7 +627,7 @@ export default function AdminMediaForm() {
                                     <Input value={q.url || ""} onChange={(e) => updateQuality(i, { url: e.target.value })} placeholder="URL MP4/HLS" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
                                         <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", `q${i}`, (p) => updateQuality(i, { url: buildFileUrl(p), file_path: p }))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-3 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">{uploading === `q${i}` ? <><Loader2 size={12} className="animate-spin" /> {progress}%</> : <><Upload size={12} /> Upload</>}</span>
+                                        <span className="inline-flex items-center gap-2 h-10 px-3 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">{activeUpload(`q${i}`) ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(`q${i}`)}%</> : <><Upload size={12} /> Upload</>}</span>
                                     </label>
                                     <Button variant="ghost" size="icon" onClick={() => removeQuality(i)} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><X size={14} /></Button>
                                 </div>
@@ -718,6 +724,28 @@ export default function AdminMediaForm() {
                     </Button>
                 </div>
             </div>
+
+            {uploads.length > 0 && (
+                <aside className="fixed bottom-5 right-5 z-[100] w-[min(380px,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-[#E8D2A6]/25 bg-[#090909]/95 text-white shadow-2xl shadow-black/60 backdrop-blur-xl">
+                    <button type="button" onClick={() => setUploadsMinimized((value) => !value)} className="flex w-full items-center justify-between gap-4 border-b border-[#262626] px-4 py-3 text-left hover:bg-white/[0.03]" aria-expanded={!uploadsMinimized}>
+                        <span><span className="block text-[10px] uppercase tracking-[0.2em] text-[#E8D2A6]">Téléversements admin</span><span className="mt-0.5 block text-xs text-neutral-500">{uploads.filter((item) => item.status === "uploading").length} en cours · {uploads.length} au total</span></span>
+                        <span className="text-lg text-neutral-400">{uploadsMinimized ? "＋" : "−"}</span>
+                    </button>
+                    {!uploadsMinimized && (
+                        <div className="max-h-[360px] space-y-2 overflow-y-auto p-3">
+                            {uploads.map((item) => (
+                                <div key={item.id} className="rounded-xl border border-[#242424] bg-[#101010] p-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0"><div className="truncate text-sm text-neutral-100" title={item.name}>{item.name}</div><div className={`mt-0.5 text-xs ${item.status === "error" ? "text-red-400" : item.status === "success" ? "text-emerald-400" : "text-neutral-500"}`}>{item.stage}</div></div>
+                                        <div className="flex shrink-0 items-center gap-2"><span className="text-xs font-semibold tabular-nums text-[#E8D2A6]">{Math.round(item.progress)}%</span>{item.status !== "uploading" && (<button type="button" onClick={() => setUploads((current) => current.filter((upload) => upload.id !== item.id))} className="text-neutral-600 hover:text-white" aria-label="Retirer ce téléversement"><X size={14} /></button>)}</div>
+                                    </div>
+                                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#252525]"><div className={`h-full rounded-full transition-[width] duration-300 ${item.status === "error" ? "bg-red-500" : item.status === "success" ? "bg-emerald-500" : "bg-[#E8D2A6]"}`} style={{ width: `${Math.max(2, Math.min(100, item.progress))}%` }} /></div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </aside>
+            )}
         </div>
     );
 }
