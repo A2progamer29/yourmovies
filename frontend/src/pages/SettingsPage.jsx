@@ -110,6 +110,8 @@ export default function SettingsPage() {
             checking = true;
             try {
                 await refresh();
+            } catch {
+                // Une vérification suivante sera retentée automatiquement.
             } finally {
                 checking = false;
             }
