@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw } from "lucide-react";
+import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -34,6 +34,10 @@ export default function SettingsPage() {
     const [currentPin, setCurrentPin] = useState("");
     const [sub, setSub] = useState(null);
     const [subBusy, setSubBusy] = useState(false);
+    const [discordCode, setDiscordCode] = useState(null);
+    const [discordCodeExpiresAt, setDiscordCodeExpiresAt] = useState(null);
+    const [discordBusy, setDiscordBusy] = useState(false);
+    const [discordSecondsLeft, setDiscordSecondsLeft] = useState(0);
 
     useEffect(() => {
         if (user?.premium) api.get("/subscription/current").then((r) => setSub(r.data)).catch(() => {});
@@ -54,6 +58,77 @@ export default function SettingsPage() {
             });
         }
     }, [user]);
+
+    useEffect(() => {
+        if (tab !== "discord" || !user || user.discord_linked) return undefined;
+
+        let active = true;
+        let generating = false;
+
+        const generateCode = async () => {
+            if (generating) return;
+            generating = true;
+            setDiscordBusy(true);
+            try {
+                const response = await api.post("/discord/link-code");
+                if (!active) return;
+                setDiscordCode(response.data.code);
+                setDiscordCodeExpiresAt(response.data.expires_at);
+                setDiscordSecondsLeft(Math.max(0, Math.ceil((new Date(response.data.expires_at).getTime() - Date.now()) / 1000)));
+            } catch (error) {
+                if (active) showError(toast, error, "Impossible de générer le code Discord");
+            } finally {
+                generating = false;
+                if (active) setDiscordBusy(false);
+            }
+        };
+
+        generateCode();
+        const timer = window.setInterval(() => {
+            setDiscordCodeExpiresAt((expiresAt) => {
+                if (!expiresAt) return expiresAt;
+                const secondsLeft = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+                setDiscordSecondsLeft(secondsLeft);
+                if (secondsLeft === 0) generateCode();
+                return expiresAt;
+            });
+        }, 1000);
+
+        return () => {
+            active = false;
+            window.clearInterval(timer);
+        };
+    }, [tab, user?.user_id, user?.discord_linked]);
+
+    useEffect(() => {
+        if (tab !== "discord" || !user || user.discord_linked) return undefined;
+
+        let active = true;
+        let checking = false;
+        const checkDiscordLink = async () => {
+            if (checking || document.visibilityState !== "visible") return;
+            checking = true;
+            try {
+                await refresh();
+            } catch {
+                // Une vérification suivante sera retentée automatiquement.
+            } finally {
+                checking = false;
+            }
+        };
+
+        const timer = window.setInterval(checkDiscordLink, 2000);
+        const onVisibilityChange = () => {
+            if (active && document.visibilityState === "visible") checkDiscordLink();
+        };
+        document.addEventListener("visibilitychange", onVisibilityChange);
+
+        return () => {
+            active = false;
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+        };
+    }, [tab, user?.user_id, user?.discord_linked, refresh]);
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
@@ -157,10 +232,45 @@ export default function SettingsPage() {
         } catch (e) { showError(toast, e, "Impossible de désactiver le PIN"); }
     };
 
+    const createDiscordCode = async () => {
+        setDiscordBusy(true);
+        try {
+            const r = await api.post("/discord/link-code");
+            setDiscordCode(r.data.code);
+            setDiscordCodeExpiresAt(r.data.expires_at);
+            setDiscordSecondsLeft(Math.max(0, Math.ceil((new Date(r.data.expires_at).getTime() - Date.now()) / 1000)));
+            toast.success("Nouveau code Discord généré");
+        } catch (e) { showError(toast, e, "Impossible de générer le code"); }
+        finally { setDiscordBusy(false); }
+    };
+
+    const copyDiscordCode = async () => {
+        if (!discordCode) return;
+        try {
+            await navigator.clipboard.writeText(discordCode);
+            toast.success("Code copié");
+        } catch {
+            toast.error("Copie impossible : sélectionnez le code manuellement");
+        }
+    };
+
+    const unlinkDiscord = async () => {
+        if (!window.confirm("Délier votre compte Discord ? Le bonus de boost Discord sera retiré.")) return;
+        setDiscordBusy(true);
+        try {
+            await api.delete("/discord/link");
+            setDiscordCode(null);
+            await refresh();
+            toast.success("Compte Discord délié");
+        } catch (e) { showError(toast, e, "Impossible de délier le compte"); }
+        finally { setDiscordBusy(false); }
+    };
+
     const TABS = [
         { id: "profile", label: "Profil", icon: <UserIcon size={14} /> },
         { id: "preferences", label: "Préférences", icon: <Play size={14} /> },
         { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
+        { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
         { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
 
@@ -407,7 +517,77 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {tab !== "security" && tab !== "subscription" && (
+                {tab === "discord" && (
+                    <div className="space-y-6">
+                        <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Link2 size={16} className="text-[#E8D2A6]" />
+                                <div className="text-white font-medium">Liaison avec Discord</div>
+                            </div>
+                            <p className="text-sm text-neutral-400 mb-5">
+                                Liez votre compte pour recevoir des YM Coins grâce à votre activité et activer les avantages liés aux boosts.
+                            </p>
+
+                            {user.discord_linked ? (
+                                <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                                    <div>
+                                        <div className="text-emerald-400 font-medium">Compte Discord lié</div>
+                                        <div className="text-xs text-neutral-500 mt-1">Les récompenses sont maintenant créditées automatiquement.</div>
+                                    </div>
+                                    <Button
+                                        onClick={unlinkDiscord}
+                                        disabled={discordBusy}
+                                        variant="outline"
+                                        className="border-red-500/40 text-red-400 hover:bg-red-500/10 rounded-full bg-transparent"
+                                    >
+                                        <Unlink size={14} className="mr-2" /> Délier
+                                    </Button>
+                                </div>
+                            ) : (
+                                <>
+                                    <ol className="text-sm text-neutral-300 space-y-2 mb-5 list-decimal list-inside">
+                                        <li>Copiez le code temporaire affiché ci-dessous.</li>
+                                        <li>Sur le serveur Discord, utilisez la commande <code className="text-[#E8D2A6]">/lier CODE</code>.</li>
+                                        <li>La liaison sera détectée et affichée automatiquement sur cette page.</li>
+                                    </ol>
+                                    {discordCode ? (
+                                        <div className="p-5 rounded-lg border border-[#E8D2A6]/30 bg-[#E8D2A6]/5">
+                                            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Code temporaire</div>
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <code className="text-2xl tracking-[0.25em] text-[#E8D2A6] select-all">{discordCode}</code>
+                                                <Button onClick={copyDiscordCode} variant="outline" className="border-[#262626] bg-transparent">
+                                                    <Copy size={14} className="mr-2" /> Copier
+                                                </Button>
+                                            </div>
+                                            <div className="text-xs text-neutral-500 mt-3">
+                                                Renouvellement automatique dans {String(Math.floor(discordSecondsLeft / 60)).padStart(2, "0")}:{String(discordSecondsLeft % 60).padStart(2, "0")}. Ne partagez ce code avec personne.
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={createDiscordCode}
+                                                disabled={discordBusy}
+                                                className="mt-3 inline-flex items-center gap-1.5 text-xs text-neutral-400 transition-colors hover:text-[#E8D2A6] disabled:opacity-50"
+                                            >
+                                                <RefreshCw size={12} className={discordBusy ? "animate-spin" : ""} />
+                                                Renouveler maintenant
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <Button
+                                            onClick={createDiscordCode}
+                                            disabled={discordBusy}
+                                            className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold"
+                                        >
+                                            <RefreshCw size={14} className="mr-2 animate-spin" /> Génération du code…
+                                        </Button>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {tab !== "security" && tab !== "subscription" && tab !== "discord" && (
                     <div className="mt-10 flex justify-end gap-2 border-t border-[#262626] pt-6">
                         <Button
                             onClick={save}

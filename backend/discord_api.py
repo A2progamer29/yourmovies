@@ -97,6 +97,7 @@ def create_discord_router(
     bump_cooldown = _env_int("DISCORD_BUMP_COOLDOWN_SECONDS", 7200, 60)
     bump_daily_cap = _env_int("DISCORD_BUMP_DAILY_CAP", 15, 1)
     link_ttl_minutes = 5
+<<<<<<< HEAD
     def active_subscription_plan(user: dict | None, now: datetime) -> str | None:
         """Détecte un abonnement YourMovie's actif (payé ou acheté en YM Coins)."""
         if not user:
@@ -111,6 +112,10 @@ def create_discord_router(
         except (TypeError, ValueError):
             return None
         return plan if until > now else None
+=======
+    activity_policy = RewardPolicy(activity_min, activity_max, activity_cooldown, activity_daily_cap)
+    bump_policy = RewardPolicy(bump_reward, bump_reward, bump_cooldown, bump_daily_cap)
+>>>>>>> 5d88c3ca8a9c93c9cf52d65c11d42fe5d6b9727c
 
     async def ensure_indexes() -> None:
         nonlocal indexes_ready
