@@ -30,6 +30,7 @@ export default function MediaDetailPage() {
     const [editingReview, setEditingReview] = useState(false);
     const [replyTo, setReplyTo] = useState(null);
     const [replyInput, setReplyInput] = useState("");
+    const [qualityWarningOpen, setQualityWarningOpen] = useState(false);
     const formRef = useRef(null);
 
     const load = async () => {
@@ -148,6 +149,20 @@ export default function MediaDetailPage() {
             <div className="noise-overlay" />
             <Header />
 
+            {qualityWarningOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4" role="dialog" aria-modal="true" aria-labelledby="cinema-warning-title">
+                    <div className="w-full max-w-lg rounded-2xl border border-[#E8D2A6]/30 bg-[#0a0a0a] p-7 text-center shadow-2xl">
+                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-[#E8D2A6]/40 bg-[#E8D2A6]/10"><FilmIcon size={25} className="text-[#E8D2A6]" /></div>
+                        <h2 id="cinema-warning-title" className="mt-5 font-display text-3xl tracking-tight">Film actuellement au cinéma</h2>
+                        <p className="mt-3 text-sm leading-relaxed text-neutral-400">Ce film vient de sortir au cinéma. La version disponible peut donc ne pas être proposée dans une qualité optimale.</p>
+                        <div className="mt-7 flex flex-col-reverse justify-center gap-3 sm:flex-row">
+                            <Button variant="outline" onClick={() => setQualityWarningOpen(false)} className="rounded-full border-[#333] bg-transparent px-6 text-white hover:bg-white/5">Retour à la fiche</Button>
+                            <Button onClick={() => navigate(`/watch/${media.id}?cinema-warning=accepted`)} className="rounded-full bg-[#E8D2A6] px-6 font-semibold text-black hover:bg-[#D4BB8B]">Continuer quand même</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Immersive banner */}
             <section className="relative w-full h-[52vh] min-h-[390px] md:h-[60vh] md:min-h-[520px] overflow-hidden">
                 <img src={banner} alt={media.title} className="w-full h-full object-cover"
@@ -209,7 +224,7 @@ export default function MediaDetailPage() {
                             <p className="mt-5 text-sm sm:text-base text-neutral-300 leading-relaxed max-w-3xl line-clamp-4 sm:line-clamp-none">{media.description}</p>
                             <div className="mt-6 flex flex-wrap items-center gap-3">
                                 <Button
-                                    onClick={() => navigate(`/watch/${media.id}`)}
+                                    onClick={() => media.in_theaters ? setQualityWarningOpen(true) : navigate(`/watch/${media.id}`)}
                                     data-testid="watch-btn"
                                     className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12 px-6"
                                 >
