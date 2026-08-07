@@ -100,6 +100,34 @@ export default function SettingsPage() {
         };
     }, [tab, user?.user_id, user?.discord_linked]);
 
+    useEffect(() => {
+        if (tab !== "discord" || !user || user.discord_linked) return undefined;
+
+        let active = true;
+        let checking = false;
+        const checkDiscordLink = async () => {
+            if (checking || document.visibilityState !== "visible") return;
+            checking = true;
+            try {
+                await refresh();
+            } finally {
+                checking = false;
+            }
+        };
+
+        const timer = window.setInterval(checkDiscordLink, 2000);
+        const onVisibilityChange = () => {
+            if (active && document.visibilityState === "visible") checkDiscordLink();
+        };
+        document.addEventListener("visibilitychange", onVisibilityChange);
+
+        return () => {
+            active = false;
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+        };
+    }, [tab, user?.user_id, user?.discord_linked, refresh]);
+
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
 
@@ -518,7 +546,7 @@ export default function SettingsPage() {
                                     <ol className="text-sm text-neutral-300 space-y-2 mb-5 list-decimal list-inside">
                                         <li>Copiez le code temporaire affiché ci-dessous.</li>
                                         <li>Sur le serveur Discord, utilisez la commande <code className="text-[#E8D2A6]">/lier CODE</code>.</li>
-                                        <li>Revenez sur cette page et actualisez-la pour voir la liaison.</li>
+                                        <li>La liaison sera détectée et affichée automatiquement sur cette page.</li>
                                     </ol>
                                     {discordCode ? (
                                         <div className="p-5 rounded-lg border border-[#E8D2A6]/30 bg-[#E8D2A6]/5">
