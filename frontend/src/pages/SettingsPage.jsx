@@ -47,6 +47,23 @@ const PREMIUM_AUTOSAVE_FIELDS = [
     "autoplay_hero",
 ];
 
+const AUTOSAVE_SUCCESS_MESSAGES = {
+    name: "Nom enregistré",
+    bio: "Bio enregistrée",
+    preferred_quality: "Qualité préférée enregistrée",
+    profile_public: "Visibilité du profil enregistrée",
+    reviews_public: "Visibilité des avis enregistrée",
+    history_public: "Visibilité de l’historique enregistrée",
+    accent_color: "Couleur d’accent enregistrée",
+    profile_background_color: "Fond du profil enregistré",
+    autoplay_hero: "Préférence de bande-annonce enregistrée",
+};
+
+const getAutosaveSuccessMessage = (fields) => {
+    if (fields.length !== 1) return "Modifications enregistrées";
+    return AUTOSAVE_SUCCESS_MESSAGES[fields[0]] || "Modification enregistrée";
+};
+
 export default function SettingsPage() {
     const { user, loading, refresh } = useAuth();
     const navigate = useNavigate();
@@ -131,7 +148,12 @@ export default function SettingsPage() {
                     });
                     return synchronized;
                 });
-                if (requestId === saveRequest.current) setSaveStatus("saved");
+                if (requestId === saveRequest.current) {
+                    setSaveStatus("saved");
+                    toast.success(getAutosaveSuccessMessage(changedFields), {
+                        id: "settings-autosave-success",
+                    });
+                }
             } catch (error) {
                 if (requestId !== saveRequest.current) return;
                 setForm((current) => {
