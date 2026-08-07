@@ -351,6 +351,7 @@ def user_public_dict(user: dict) -> dict:
         "email": user.get("email"),
         "name": user.get("name"),
         "picture": user.get("picture"),
+        "banner": user.get("banner"),
         "is_admin": _admin_level(user) >= 1,
         "admin_role": _admin_role(user),
         "admin_level": _admin_level(user),
@@ -1221,6 +1222,7 @@ async def user_public_profile(user_id: str, viewer: Optional[dict] = Depends(get
         "user_id": uid,
         "name": u.get("name"),
         "picture": u.get("picture"),
+        "banner": u.get("banner"),
         "premium": _is_premium(u),
         "online": _is_online(u),
         "created_at": u.get("created_at"),
@@ -2236,6 +2238,7 @@ class SettingsInput(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     picture: Optional[str] = None
+    banner: Optional[str] = None
     preferred_quality: Optional[str] = None
     autoplay_hero: Optional[bool] = None
     accent_color: Optional[str] = None
@@ -2260,9 +2263,13 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
         upd["bio"] = inp.bio.strip()
     if inp.picture is not None:
         upd["picture"] = inp.picture
+    if inp.banner is not None:
+        upd["banner"] = inp.banner
     if inp.preferred_quality is not None:
         upd["preferred_quality"] = inp.preferred_quality
     if inp.autoplay_hero is not None:
+        if not user_public_dict(user)["premium"]:
+            raise HTTPException(status_code=403, detail="Bande-annonce cinéma réservée aux abonnés Premium")
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
     if inp.profile_public is not None:
         upd["profile_public"] = bool(inp.profile_public)
