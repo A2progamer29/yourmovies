@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import GivePremiumDialog from "@/components/GivePremiumDialog";
@@ -34,6 +35,7 @@ export default function AdminPage() {
     const [roleUser, setRoleUser] = useState(null);
     const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
+    const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
 
@@ -176,12 +178,33 @@ export default function AdminPage() {
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
 
+    const toggleMediaFlag = async (media, field) => {
+        const key = media.id + ":" + field;
+        if (mediaFlagSaving[key]) return;
+        const value = !media[field];
+        setMediaFlagSaving((current) => ({ ...current, [key]: true }));
+        setItems((current) => current.map((item) => item.id === media.id ? { ...item, [field]: value } : item));
+        try {
+            const response = await api.put("/media/" + media.id, { [field]: value });
+            setItems((current) => current.map((item) => item.id === media.id ? { ...item, ...response.data } : item));
+            toast.success(field === "featured"
+                ? "À l’affiche " + (value ? "activé" : "désactivé")
+                : "Statut cinéma " + (value ? "activé" : "désactivé"));
+        } catch (e) {
+            setItems((current) => current.map((item) => item.id === media.id ? { ...item, [field]: !value } : item));
+            showError(toast, e, "Mise à jour impossible");
+        } finally {
+            setMediaFlagSaving((current) => ({ ...current, [key]: false }));
+        }
+    };
+
     const stats = {
         total: items.length,
         movies: items.filter((i) => i.type === "movie").length,
         series: items.filter((i) => i.type === "series").length,
         animes: items.filter((i) => i.type === "anime").length,
         featured: items.filter((i) => i.featured).length,
+        inTheaters: items.filter((i) => i.type === "movie" && i.in_theaters).length,
         users: users.length,
         premium: users.filter((u) => u.premium).length,
         comments: reviews.length,
@@ -228,13 +251,14 @@ export default function AdminPage() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-10">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4 mb-10">
                     {[
                         { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
                         { label: "Films", val: stats.movies, icon: <Film size={14} /> },
                         { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
                         { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
                         { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
+                        { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
                         { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
                         { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
                         { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
@@ -297,29 +321,51 @@ export default function AdminPage() {
 
                         <div className="border border-[#262626] rounded-lg overflow-hidden">
                             <div className="grid grid-cols-12 text-xs uppercase tracking-widest text-neutral-500 px-5 py-3 border-b border-[#262626] bg-[#0a0a0a]">
-                                <div className="col-span-5">Titre</div>
-                                <div className="col-span-2">Type</div>
+                                <div className="col-span-4">Titre</div>
+                                <div className="col-span-1">Type</div>
                                 <div className="col-span-1">Année</div>
-                                <div className="col-span-1">Affiche</div>
-                                <div className="col-span-1">Note</div>
+                                <div className="col-span-2 text-center">Au cinéma</div>
+                                <div className="col-span-2 text-center">À l&apos;affiche</div>
                                 <div className="col-span-2 text-right">Actions</div>
                             </div>
                             {filteredItems.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun contenu.</div>}
                             {filteredItems.map((m) => (
                                 <div key={m.id} className="grid grid-cols-12 px-5 py-4 border-b border-[#1a1a1a] items-center text-sm hover:bg-white/[0.02]">
-                                    <div className="col-span-5 flex items-center gap-3">
+                                    <div className="col-span-4 flex items-center gap-3">
                                         {m.poster_url && <img src={m.poster_url} alt="" className="w-8 h-12 object-cover rounded" />}
                                         <div>
                                             <div className="text-white">{m.title}</div>
                                             <div className="text-xs text-neutral-500">{(m.genres || []).slice(0, 3).join(" · ")}</div>
                                         </div>
                                     </div>
-                                    <div className="col-span-2 text-neutral-300 capitalize">{m.type}</div>
+                                    <div className="col-span-1 text-neutral-300 capitalize">{m.type}</div>
                                     <div className="col-span-1 text-neutral-400">{m.year || "—"}</div>
-                                    <div className="col-span-1">
-                                        {m.featured ? <span className="text-[#E8D2A6] text-xs">★ #{m.featured_order ?? "—"}</span> : <span className="text-neutral-600 text-xs">—</span>}
+                                    <div className="col-span-2 flex justify-center">
+                                        {m.type === "movie" ? (
+                                            <div className="flex items-center gap-2">
+                                                <Switch
+                                                    checked={!!m.in_theaters}
+                                                    disabled={!!mediaFlagSaving[m.id + ":in_theaters"] || level < 2}
+                                                    onCheckedChange={() => toggleMediaFlag(m, "in_theaters")}
+                                                    aria-label={"Statut cinéma de " + m.title}
+                                                    data-testid={"toggle-in-theaters-" + m.id}
+                                                />
+                                                <span className={"text-[10px] uppercase tracking-wide " + (m.in_theaters ? "text-[#E8D2A6]" : "text-neutral-600")}>{m.in_theaters ? "Activé" : "Désactivé"}</span>
+                                            </div>
+                                        ) : <span className="text-neutral-700">—</span>}
                                     </div>
-                                    <div className="col-span-1 text-[#E8D2A6]">{m.rating ? m.rating.toFixed(1) : "—"}</div>
+                                    <div className="col-span-2 flex justify-center">
+                                        <div className="flex items-center gap-2">
+                                            <Switch
+                                                checked={!!m.featured}
+                                                disabled={!!mediaFlagSaving[m.id + ":featured"] || level < 2}
+                                                onCheckedChange={() => toggleMediaFlag(m, "featured")}
+                                                aria-label={"Mise à l’affiche de " + m.title}
+                                                data-testid={"toggle-featured-" + m.id}
+                                            />
+                                            <span className={"text-[10px] uppercase tracking-wide " + (m.featured ? "text-[#E8D2A6]" : "text-neutral-600")}>{m.featured ? "Activé" : "Désactivé"}</span>
+                                        </div>
+                                    </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
                                         {level >= 2 && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
                                         {level >= 3 && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
