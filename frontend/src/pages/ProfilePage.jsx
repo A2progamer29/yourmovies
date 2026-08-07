@@ -39,13 +39,20 @@ export default function ProfilePage() {
                 <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[var(--profile-bg)] via-transparent to-black/30" style={{ "--profile-bg": user.profile_background_color || "#050505" }} />
                 <div className="mx-auto flex min-h-[280px] max-w-7xl items-end px-6 pb-10 pt-20">
                 <div className="flex items-center gap-5">
-                    {user.picture ? (
-                        <img src={user.picture} alt={user.name} className="w-16 h-16 rounded-full" />
-                    ) : (
-                        <div className="w-16 h-16 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-2xl font-semibold">
-                            {user.name?.[0]?.toUpperCase()}
-                        </div>
-                    )}
+                    <div className="relative shrink-0">
+                        {user.picture ? (
+                            <img src={user.picture} alt={user.name} className="w-16 h-16 rounded-full object-cover border border-[#262626]" />
+                        ) : (
+                            <div className="w-16 h-16 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-2xl font-semibold">
+                                {user.name?.[0]?.toUpperCase()}
+                            </div>
+                        )}
+                        <span
+                            className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-[#080808] bg-emerald-400"
+                            aria-label="En ligne"
+                            title="En ligne"
+                        />
+                    </div>
                     <div>
                         <div className="text-xs uppercase tracking-widest text-neutral-500">Profil</div>
                         <h1 className="font-display text-3xl tracking-tighter" data-testid="profile-name">{user.name}</h1>
