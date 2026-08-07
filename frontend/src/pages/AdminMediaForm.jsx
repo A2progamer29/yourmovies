@@ -636,7 +636,17 @@ export default function AdminMediaForm() {
                                         <div className="text-white">Actuellement au cinéma</div>
                                         <div className="text-xs text-neutral-500">Avertit les spectateurs que la qualité disponible peut être réduite.</div>
                                     </div>
-                                    <Switch checked={!!form.in_theaters} onCheckedChange={(v) => setForm({ ...form, in_theaters: v })} data-testid="form-in-theaters" />
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={!!form.in_theaters}
+                                        onClick={() => setForm((current) => ({ ...current, in_theaters: !current.in_theaters }))}
+                                        data-testid="form-in-theaters"
+                                        className={`inline-flex h-10 min-w-[130px] shrink-0 items-center justify-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors ${form.in_theaters ? "border-[#E8D2A6] bg-[#E8D2A6] text-black" : "border-[#3a3a3a] bg-[#111] text-neutral-400 hover:border-neutral-500"}`}
+                                    >
+                                        <span className={`h-2.5 w-2.5 rounded-full ${form.in_theaters ? "bg-black" : "bg-neutral-600"}`} />
+                                        {form.in_theaters ? "Activé" : "Désactivé"}
+                                    </button>
                                 </div>
                             )}
                             <div className="flex items-center justify-between">
@@ -644,7 +654,17 @@ export default function AdminMediaForm() {
                                     <div className="text-white">À l&apos;affiche sur l&apos;accueil</div>
                                     <div className="text-xs text-neutral-500">Ce contenu apparaîtra dans le carrousel du hero (défilement auto).</div>
                                 </div>
-                                <Switch checked={form.featured} onCheckedChange={(v) => setForm({ ...form, featured: v })} data-testid="form-featured" />
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={!!form.featured}
+                                    onClick={() => setForm((current) => ({ ...current, featured: !current.featured }))}
+                                    data-testid="form-featured"
+                                    className={`inline-flex h-10 min-w-[130px] shrink-0 items-center justify-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors ${form.featured ? "border-[#E8D2A6] bg-[#E8D2A6] text-black" : "border-[#3a3a3a] bg-[#111] text-neutral-400 hover:border-neutral-500"}`}
+                                >
+                                    <span className={`h-2.5 w-2.5 rounded-full ${form.featured ? "bg-black" : "bg-neutral-600"}`} />
+                                    {form.featured ? "Activé" : "Désactivé"}
+                                </button>
                             </div>
                             {form.featured && (
                                 <div>
