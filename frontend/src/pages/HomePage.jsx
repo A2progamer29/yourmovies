@@ -154,7 +154,7 @@ export default function HomePage() {
                                 <img
                                     src={current.title_logo_url}
                                     alt={current.title}
-                                    className="max-h-40 sm:max-h-52 lg:max-h-64 w-auto object-contain drop-shadow-2xl"
+                                    className="w-64 sm:w-72 lg:w-80 h-24 sm:h-28 lg:h-32 object-contain object-left drop-shadow-2xl"
                                     data-testid="hero-title-logo"
                                 />
                             ) : (
