@@ -736,9 +736,6 @@ export default function AdminMediaForm() {
                     </Button>
                 </div>
             </div>
-
-                </aside>
-            )}
         </div>
     );
 }
