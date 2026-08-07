@@ -87,6 +87,13 @@ BUNNY_CONFIGURED = bool(BUNNY_LIBRARY_ID and BUNNY_API_KEY)
 # OMDb (données IMDb) — clé gratuite sur https://www.omdbapi.com/apikey.aspx
 OMDB_API_KEY = os.environ.get("OMDB_API_KEY")
 
+# TMDB — métadonnées et images officielles (clé gratuite)
+# Accepte soit le jeton API Read Access (recommandé), soit la clé API v3.
+TMDB_API_TOKEN = os.environ.get("TMDB_API_TOKEN")
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
+TMDB_BASE_URL = "https://api.themoviedb.org/3"
+TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/original"
+
 # ---------- Models ----------
 class UserPublic(BaseModel):
     user_id: str
@@ -1084,6 +1091,159 @@ def _wish_out(doc: dict, user_id: Optional[str]) -> dict:
         "voted": bool(user_id and user_id in voters),
         "created_at": doc.get("created_at"),
     }
+
+def _tmdb_headers() -> dict:
+    return {"Authorization": f"Bearer {TMDB_API_TOKEN}"} if TMDB_API_TOKEN else {}
+
+
+def _tmdb_params(extra: Optional[dict] = None) -> dict:
+    params = dict(extra or {})
+    if not TMDB_API_TOKEN and TMDB_API_KEY:
+        params["api_key"] = TMDB_API_KEY
+    return params
+
+
+def _tmdb_request(path: str, params: Optional[dict] = None) -> dict:
+    if not (TMDB_API_TOKEN or TMDB_API_KEY):
+        raise HTTPException(status_code=503, detail="Import TMDB non configuré.")
+    try:
+        response = requests.get(
+            f"{TMDB_BASE_URL}{path}",
+            headers=_tmdb_headers(),
+            params=_tmdb_params(params),
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as exc:
+        logger.warning("TMDB HTTP error: %s", exc)
+        raise HTTPException(status_code=502, detail="TMDB a refusé la requête.")
+    except requests.RequestException as exc:
+        logger.warning("TMDB unavailable: %s", exc)
+        raise HTTPException(status_code=502, detail="TMDB est momentanément indisponible.")
+
+
+def _tmdb_image(path: Optional[str]) -> Optional[str]:
+    return f"{TMDB_IMAGE_URL}{path}" if path else None
+
+
+def _tmdb_year(value: Optional[str]) -> Optional[int]:
+    try:
+        return int((value or "")[:4]) or None
+    except (TypeError, ValueError):
+        return None
+
+
+@api_router.get("/admin/tmdb/search")
+async def admin_tmdb_search(
+    q: str = Query(min_length=2, max_length=120),
+    kind: Literal["movie", "series", "anime"] = "movie",
+    admin: dict = Depends(require_admin),
+):
+    tmdb_kind = "movie" if kind == "movie" else "tv"
+    data = await run_in_threadpool(
+        _tmdb_request,
+        f"/search/{tmdb_kind}",
+        {"query": q.strip(), "language": "fr-FR", "include_adult": "false", "page": 1},
+    )
+    results = []
+    for item in data.get("results", [])[:10]:
+        title = item.get("title") or item.get("name")
+        date = item.get("release_date") or item.get("first_air_date")
+        if not title:
+            continue
+        results.append({
+            "tmdb_id": item.get("id"),
+            "media_type": tmdb_kind,
+            "title": title,
+            "original_title": item.get("original_title") or item.get("original_name"),
+            "year": _tmdb_year(date),
+            "description": item.get("overview") or "",
+            "poster_url": _tmdb_image(item.get("poster_path")),
+            "banner_url": _tmdb_image(item.get("backdrop_path")),
+            "rating": item.get("vote_average"),
+        })
+    return results
+
+
+@api_router.get("/admin/tmdb/import/{tmdb_kind}/{tmdb_id}")
+async def admin_tmdb_import(
+    tmdb_kind: Literal["movie", "tv"],
+    tmdb_id: int,
+    kind: Literal["movie", "series", "anime"] = "movie",
+    admin: dict = Depends(require_admin),
+):
+    append = "credits,videos,images,release_dates" if tmdb_kind == "movie" else "credits,videos,images,content_ratings"
+    data = await run_in_threadpool(
+        _tmdb_request,
+        f"/{tmdb_kind}/{tmdb_id}",
+        {
+            "language": "fr-FR",
+            "append_to_response": append,
+            "include_image_language": "fr,en,null",
+        },
+    )
+    videos = (data.get("videos") or {}).get("results", [])
+    trailer = next(
+        (v for v in videos if v.get("site") == "YouTube" and v.get("type") == "Trailer" and v.get("official")),
+        None,
+    ) or next((v for v in videos if v.get("site") == "YouTube" and v.get("type") == "Trailer"), None)
+    credits = data.get("credits") or {}
+    crew = credits.get("crew") or []
+    if tmdb_kind == "movie":
+        director = next((p.get("name") for p in crew if p.get("job") == "Director"), None)
+    else:
+        creators = data.get("created_by") or []
+        director = ", ".join(p.get("name") for p in creators if p.get("name")) or None
+    countries = data.get("production_countries") or data.get("origin_country") or []
+    country = ", ".join(
+        (item.get("name") if isinstance(item, dict) else str(item)) for item in countries
+    )
+    certifications = []
+    if tmdb_kind == "movie":
+        for release in (data.get("release_dates") or {}).get("results", []):
+            if release.get("iso_3166_1") == "FR":
+                certifications = [x.get("certification") for x in release.get("release_dates", []) if x.get("certification")]
+                break
+    else:
+        for rating in (data.get("content_ratings") or {}).get("results", []):
+            if rating.get("iso_3166_1") == "FR" and rating.get("rating"):
+                certifications = [rating["rating"]]
+                break
+    logos = (data.get("images") or {}).get("logos", [])
+    logo = next((image for image in logos if image.get("iso_639_1") == "fr"), None) or (logos[0] if logos else None)
+    release_date = data.get("release_date") or data.get("first_air_date")
+    runtime = data.get("runtime")
+    if not runtime:
+        runtimes = data.get("episode_run_time") or []
+        runtime = runtimes[0] if runtimes else None
+    seasons = []
+    if tmdb_kind == "tv":
+        seasons = [{
+            "season_number": season.get("season_number"),
+            "title": season.get("name") or "",
+            "episodes": [],
+        } for season in data.get("seasons", []) if season.get("season_number", 0) > 0]
+    return {
+        "tmdb_id": tmdb_id,
+        "title": data.get("title") or data.get("name") or "",
+        "description": data.get("overview") or "",
+        "type": kind,
+        "year": _tmdb_year(release_date),
+        "duration_minutes": runtime,
+        "genres": [genre.get("name") for genre in data.get("genres", []) if genre.get("name")],
+        "poster_url": _tmdb_image(data.get("poster_path")),
+        "banner_url": _tmdb_image(data.get("backdrop_path")),
+        "title_logo_url": _tmdb_image(logo.get("file_path")) if logo else None,
+        "age_rating": certifications[0] if certifications else None,
+        "trailer_youtube_id": trailer.get("key") if trailer else None,
+        "cast": [person.get("name") for person in (credits.get("cast") or [])[:15] if person.get("name")],
+        "director": director,
+        "country": country or None,
+        "rating": round(float(data.get("vote_average") or 0), 1) or None,
+        "seasons": seasons,
+    }
+
 
 @api_router.get("/imdb/search")
 async def imdb_search(q: str, user: dict = Depends(get_current_user)):
