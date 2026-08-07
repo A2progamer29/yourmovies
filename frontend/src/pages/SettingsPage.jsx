@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink } from "lucide-react";
+import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
 
@@ -49,6 +48,7 @@ export default function SettingsPage() {
                 name: user.name || "",
                 bio: user.bio || "",
                 picture: user.picture || "",
+                banner: user.banner || "",
                 preferred_quality: user.preferred_quality || "auto",
                 autoplay_hero: user.autoplay_hero !== false,
                 accent_color: user.accent_color || "#E8D2A6",
@@ -140,14 +140,15 @@ export default function SettingsPage() {
                 name: form.name,
                 bio: form.bio,
                 picture: form.picture || null,
+                banner: form.banner || null,
                 preferred_quality: form.preferred_quality,
-                autoplay_hero: form.autoplay_hero,
                 profile_public: form.profile_public,
                 reviews_public: form.reviews_public,
                 history_public: form.history_public,
             };
             if (user.premium) {
                 payload.accent_color = form.accent_color;
+                payload.autoplay_hero = form.autoplay_hero;
             }
             await api.patch("/settings", payload);
             await refresh();
@@ -208,6 +209,28 @@ export default function SettingsPage() {
             await api.patch("/settings", { picture: null });
             await refresh();
         } catch (e) { showError(toast, e, "Erreur"); }
+    };
+
+    const uploadBanner = async (file) => {
+        try {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("kind", "image");
+            const r = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+            setForm((f) => ({ ...f, banner: r.data.url }));
+            await api.patch("/settings", { banner: r.data.url });
+            await refresh();
+            toast.success("Bannière mise à jour");
+        } catch (e) { showError(toast, e, "Téléversement de la bannière impossible"); }
+    };
+
+    const removeBanner = async () => {
+        setForm((f) => ({ ...f, banner: "" }));
+        try {
+            await api.patch("/settings", { banner: "" });
+            await refresh();
+            toast.success("Bannière retirée");
+        } catch (e) { showError(toast, e, "Impossible de retirer la bannière"); }
     };
 
     const setPinNow = async () => {
@@ -323,6 +346,37 @@ export default function SettingsPage() {
                             </div>
                         </div>
 
+                        <div className="overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                            <div className="relative aspect-[4/1] min-h-[120px] bg-[#111]">
+                                {form.banner ? (
+                                    <img src={form.banner} alt="Aperçu de la bannière" className="absolute inset-0 h-full w-full object-cover" />
+                                ) : (
+                                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(232,210,166,0.16),transparent_38%),linear-gradient(135deg,#17130d_0%,#0a0a0a_52%,#111_100%)]" />
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
+                                <div className="absolute bottom-4 left-5">
+                                    <div className="text-sm font-medium text-white">Bannière du profil</div>
+                                    <div className="mt-0.5 text-xs text-white/55">Visible en arrière-plan dans la partie haute de votre profil.</div>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div className="text-xs text-neutral-400">Format recommandé : 1600 × 400 px (4:1)</div>
+                                    <div className="mt-1 text-[11px] text-neutral-600">JPG, PNG ou WebP. Le centre de l’image reste visible sur mobile.</div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border border-[#E8D2A6] px-4 text-xs font-semibold text-[#E8D2A6] transition-colors hover:bg-[#E8D2A6] hover:text-black">
+                                        <Upload size={12} />
+                                        <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && uploadBanner(e.target.files[0])} />
+                                        {form.banner ? "Changer" : "Ajouter"}
+                                    </label>
+                                    {form.banner && (
+                                        <button type="button" onClick={removeBanner} className="text-xs text-neutral-500 transition-colors hover:text-red-400">Retirer</button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         <div>
                             <Label className="text-neutral-300">Nom affiché *</Label>
                             <Input data-testid="settings-name" value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
@@ -336,20 +390,29 @@ export default function SettingsPage() {
                         <div className="pt-4 border-t border-[#262626]">
                             <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Confidentialité du profil</div>
                             {[
-                                { key: "profile_public", title: "Profil public", desc: "Si désactivé, votre profil est privé : les autres ne voient rien." },
-                                { key: "history_public", title: "Historique visible", desc: "Affiche votre top 10 des derniers visionnages sur votre profil." },
-                                { key: "reviews_public", title: "Avis visibles", desc: "Affiche vos avis publiés sur votre profil." },
+                                { key: "profile_public", title: "Visibilité du profil", desc: "Choisissez si les autres membres peuvent consulter votre profil." },
+                                { key: "history_public", title: "Visibilité de l’historique", desc: "Choisissez si votre top 10 des derniers visionnages apparaît sur votre profil." },
+                                { key: "reviews_public", title: "Visibilité des avis", desc: "Choisissez si vos avis publiés apparaissent sur votre profil." },
                             ].map((row) => (
-                                <div key={row.key} className="flex items-center justify-between gap-3 p-3 rounded-md border border-[#262626] bg-[#111] mb-2">
+                                <div key={row.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-b border-[#262626] last:border-b-0">
                                     <div className="min-w-0">
-                                        <div className="text-white text-sm">{row.title}</div>
-                                        <div className="text-xs text-neutral-500">{row.desc}</div>
+                                        <div className="text-white text-sm font-medium">{row.title}</div>
+                                        <div className="text-xs text-neutral-500 mt-1">{row.desc}</div>
                                     </div>
-                                    <Switch
-                                        checked={form[row.key] !== false}
-                                        onCheckedChange={(v) => setForm({ ...form, [row.key]: v })}
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={form[row.key] !== false}
+                                        onClick={() => setForm((current) => ({ ...current, [row.key]: current[row.key] === false }))}
                                         data-testid={`toggle-${row.key}`}
-                                    />
+                                        className={`inline-flex h-10 min-w-[112px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]/60 ${form[row.key] !== false
+                                            ? "border-[#E8D2A6] bg-[#E8D2A6] text-black shadow-[0_0_24px_rgba(232,210,166,0.12)] hover:bg-[#D4BB8B]"
+                                            : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                            }`}
+                                    >
+                                        {form[row.key] !== false ? <Eye size={14} /> : <EyeOff size={14} />}
+                                        {form[row.key] !== false ? "Public" : "Privé"}
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -372,20 +435,33 @@ export default function SettingsPage() {
                             <div className="text-xs text-neutral-500 mt-1">La qualité de départ dans le lecteur. Vous pouvez la changer à tout moment.</div>
                         </div>
 
-                        <div className="flex items-center justify-between p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            <div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5 border-y border-[#262626]">
+                            <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
                                     Bande-annonce cinéma sur l&apos;accueil
                                     {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </div>
-                                <div className="text-xs text-neutral-500 mt-1">La vidéo de mise en avant se lit automatiquement en fond du hero.</div>
+                                <div className="text-xs text-neutral-500 mt-1">
+                                    {user.premium
+                                        ? "Activez ou désactivez la lecture automatique de la vidéo en fond de l’accueil."
+                                        : "Cette préférence est réservée aux abonnés Premium."}
+                                </div>
                             </div>
-                            <Switch
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!!form.autoplay_hero}
                                 data-testid="settings-autoplay"
-                                checked={!!form.autoplay_hero}
                                 disabled={!user.premium}
-                                onCheckedChange={(v) => setForm({ ...form, autoplay_hero: v })}
-                            />
+                                onClick={() => setForm((current) => ({ ...current, autoplay_hero: !current.autoplay_hero }))}
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]/60 disabled:cursor-not-allowed disabled:opacity-40 ${form.autoplay_hero
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black shadow-[0_0_24px_rgba(232,210,166,0.12)] hover:bg-[#D4BB8B]"
+                                    : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                    }`}
+                            >
+                                <Play size={14} fill={form.autoplay_hero ? "currentColor" : "none"} />
+                                {form.autoplay_hero ? "Activée" : "Désactivée"}
+                            </button>
                         </div>
 
                         <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a]">
