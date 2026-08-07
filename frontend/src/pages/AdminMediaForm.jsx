@@ -363,9 +363,31 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <h2 className="font-display text-xl text-[#E8D2A6]">Import intelligent</h2>
-                                <p className="text-xs text-neutral-400 mt-1">Recherche un film ou une série et remplit automatiquement les informations, l'affiche, la bannière, le casting et la bande-annonce.</p>
+                                <p className="text-xs text-neutral-400 mt-1">Choisis Film, Série ou Anime, puis recherche le titre pour remplir automatiquement les informations, l'affiche, la bannière, le casting et la bande-annonce.</p>
                             </div>
                         </div>
+                        <div className="grid grid-cols-3 gap-2 mb-3" data-testid="tmdb-kind-selector">
+                            {[
+                                { value: "movie", label: "Film", icon: Film },
+                                { value: "series", label: "Série", icon: Tv },
+                                { value: "anime", label: "Anime", icon: Sparkles },
+                            ].map(({ value, label, icon: KindIcon }) => (
+                                <button
+                                    key={value}
+                                    type="button"
+                                    onClick={() => {
+                                        setForm((current) => ({ ...current, type: value }));
+                                        setTmdbResults([]);
+                                    }}
+                                    aria-pressed={form.type === value}
+                                    className={`h-10 rounded-lg border flex items-center justify-center gap-2 text-sm font-medium transition-colors ${form.type === value ? "border-[#E8D2A6] bg-[#E8D2A6] text-black" : "border-[#262626] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/60"}`}
+                                >
+                                    <KindIcon size={15} />
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-neutral-500 mb-2">Recherche actuelle : <span className="text-[#E8D2A6]">{form.type === "movie" ? "Films" : form.type === "series" ? "Séries" : "Animes"}</span></p>
                         <div className="flex flex-col sm:flex-row gap-2">
                             <Input
                                 value={tmdbQuery}
@@ -418,7 +440,10 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <Label className="text-neutral-300">Type *</Label>
-                                <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                                <Select value={form.type} onValueChange={(v) => {
+                                    setForm((current) => ({ ...current, type: v }));
+                                    setTmdbResults([]);
+                                }}>
                                     <SelectTrigger data-testid="form-type" className="bg-[#111] border-[#262626] text-white mt-1.5"><SelectValue /></SelectTrigger>
                                     <SelectContent className="bg-[#111] border-[#262626] text-white">
                                         <SelectItem value="movie">Film</SelectItem>
