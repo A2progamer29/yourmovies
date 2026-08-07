@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Save, Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -32,12 +32,30 @@ const PROFILE_BACKGROUND_PRESETS = [
     { name: "Violet nuit", value: "#120B1C" },
 ];
 
+const AUTOSAVE_FIELDS = [
+    "name",
+    "bio",
+    "preferred_quality",
+    "profile_public",
+    "reviews_public",
+    "history_public",
+];
+
+const PREMIUM_AUTOSAVE_FIELDS = [
+    "accent_color",
+    "profile_background_color",
+    "autoplay_hero",
+];
+
 export default function SettingsPage() {
     const { user, loading, refresh } = useAuth();
     const navigate = useNavigate();
     const [tab, setTab] = useState("profile"); // profile | preferences | security
     const [form, setForm] = useState({});
-    const [saving, setSaving] = useState(false);
+    const [, setSaveStatus] = useState("idle");
+    const lastSavedForm = useRef({});
+    const formReady = useRef(false);
+    const saveRequest = useRef(0);
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
     const [sub, setSub] = useState(null);
@@ -53,7 +71,7 @@ export default function SettingsPage() {
 
     useEffect(() => {
         if (user) {
-            setForm({
+            const nextForm = {
                 name: user.name || "",
                 bio: user.bio || "",
                 picture: user.picture || "",
@@ -65,9 +83,56 @@ export default function SettingsPage() {
                 profile_public: user.profile_public !== false,
                 reviews_public: user.reviews_public !== false,
                 history_public: user.history_public !== false,
-            });
+            };
+            lastSavedForm.current = nextForm;
+            formReady.current = true;
+            setForm(nextForm);
         }
     }, [user]);
+
+    useEffect(() => {
+        if (!user || !formReady.current || !Object.keys(form).length) return undefined;
+
+        const allowedFields = user.premium
+            ? [...AUTOSAVE_FIELDS, ...PREMIUM_AUTOSAVE_FIELDS]
+            : AUTOSAVE_FIELDS;
+        const changedFields = allowedFields.filter(
+            (field) => form[field] !== lastSavedForm.current[field],
+        );
+
+        if (!changedFields.length) return undefined;
+
+        const previousValues = Object.fromEntries(
+            changedFields.map((field) => [field, lastSavedForm.current[field]]),
+        );
+        const payload = Object.fromEntries(
+            changedFields.map((field) => [field, form[field]]),
+        );
+        const requestId = ++saveRequest.current;
+        setSaveStatus("pending");
+
+        const timer = window.setTimeout(async () => {
+            setSaveStatus("saving");
+            try {
+                await api.patch("/settings", payload);
+                lastSavedForm.current = { ...lastSavedForm.current, ...payload };
+                if (requestId === saveRequest.current) setSaveStatus("saved");
+            } catch (error) {
+                if (requestId !== saveRequest.current) return;
+                setForm((current) => {
+                    const restored = { ...current };
+                    changedFields.forEach((field) => {
+                        if (current[field] === payload[field]) restored[field] = previousValues[field];
+                    });
+                    return restored;
+                });
+                setSaveStatus("error");
+                showError(toast, error, "Modification non enregistrée");
+            }
+        }, 650);
+
+        return () => window.clearTimeout(timer);
+    }, [form, user]);
 
     useEffect(() => {
         if (tab !== "discord" || !user || user.discord_linked) return undefined;
@@ -142,34 +207,6 @@ export default function SettingsPage() {
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
-
-    const save = async () => {
-        setSaving(true);
-        try {
-            const payload = {
-                name: form.name,
-                bio: form.bio,
-                picture: form.picture || null,
-                banner: form.banner || null,
-                preferred_quality: form.preferred_quality,
-                profile_public: form.profile_public,
-                reviews_public: form.reviews_public,
-                history_public: form.history_public,
-            };
-            if (user.premium) {
-                payload.accent_color = form.accent_color;
-                payload.profile_background_color = form.profile_background_color;
-                payload.autoplay_hero = form.autoplay_hero;
-            }
-            await api.patch("/settings", payload);
-            await refresh();
-            toast.success("Paramètres enregistrés");
-        } catch (e) {
-            showError(toast, e, "Enregistrement impossible");
-        } finally {
-            setSaving(false);
-        }
-    };
 
     // Applique la couleur immédiatement (aperçu en direct), en plus de l'enregistrer.
     const pickAccent = (color) => {
@@ -313,7 +350,9 @@ export default function SettingsPage() {
             <Header />
             <div className="max-w-4xl mx-auto px-6 py-12">
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Compte</div>
-                <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-10">Paramètres</h1>
+                <div className="mb-10 flex min-h-14 flex-wrap items-end justify-between gap-3">
+                    <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Paramètres</h1>
+                </div>
 
                 <div className="flex gap-2 mb-8 border-b border-[#262626]">
                     {TABS.map((t) => (
@@ -405,7 +444,7 @@ export default function SettingsPage() {
                                         data-testid={`profile-background-${color.value.slice(1)}`}
                                         aria-label={color.name}
                                         title={color.name}
-                                        className={`h-11 w-11 rounded-full border-2 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35 ${form.profile_background_color === color.value ? "border-[#E8D2A6] ring-2 ring-[#E8D2A6]/25" : "border-[#343434]"}`}
+                                        className={`h-11 w-11 rounded-full border-2 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35 ${form.profile_background_color === color.value ? "border-[#E8D2A6]" : "border-[#343434]"}`}
                                         style={{ backgroundColor: color.value }}
                                     />
                                 ))}
@@ -455,8 +494,8 @@ export default function SettingsPage() {
                                         aria-checked={form[row.key] !== false}
                                         onClick={() => setForm((current) => ({ ...current, [row.key]: current[row.key] === false }))}
                                         data-testid={`toggle-${row.key}`}
-                                        className={`inline-flex h-10 min-w-[112px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]/60 ${form[row.key] !== false
-                                            ? "border-[#E8D2A6] bg-[#E8D2A6] text-black shadow-[0_0_24px_rgba(232,210,166,0.12)] hover:bg-[#D4BB8B]"
+                                        className={`inline-flex h-10 min-w-[112px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white ${form[row.key] !== false
+                                            ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
                                             : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                             }`}
                                     >
@@ -504,8 +543,8 @@ export default function SettingsPage() {
                                 data-testid="settings-autoplay"
                                 disabled={!user.premium}
                                 onClick={() => setForm((current) => ({ ...current, autoplay_hero: !current.autoplay_hero }))}
-                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]/60 disabled:cursor-not-allowed disabled:opacity-40 ${form.autoplay_hero
-                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black shadow-[0_0_24px_rgba(232,210,166,0.12)] hover:bg-[#D4BB8B]"
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white disabled:cursor-not-allowed disabled:opacity-40 ${form.autoplay_hero
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
                                     : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                     }`}
                             >
@@ -528,7 +567,7 @@ export default function SettingsPage() {
                                         disabled={!user.premium}
                                         onClick={() => pickAccent(c.value)}
                                         data-testid={`accent-${c.value.replace('#', '')}`}
-                                        className={`aspect-square rounded-lg border-2 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${form.accent_color === c.value ? "border-white ring-2 ring-white/40" : "border-transparent"}`}
+                                        className={`aspect-square rounded-lg border-2 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${form.accent_color === c.value ? "border-white" : "border-transparent"}`}
                                         style={{ background: c.value }}
                                         title={c.name}
                                     />
@@ -713,18 +752,6 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {tab !== "security" && tab !== "subscription" && tab !== "discord" && (
-                    <div className="mt-10 flex justify-end gap-2 border-t border-[#262626] pt-6">
-                        <Button
-                            onClick={save}
-                            disabled={saving}
-                            data-testid="save-settings-btn"
-                            className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold"
-                        >
-                            <Save size={14} className="mr-2" /> {saving ? "..." : "Enregistrer"}
-                        </Button>
-                    </div>
-                )}
             </div>
         </div>
     );
