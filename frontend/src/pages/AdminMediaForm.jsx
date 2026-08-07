@@ -63,7 +63,19 @@ export default function AdminMediaForm() {
     const { id } = useParams();
     const isEdit = Boolean(id);
     const [form, setForm] = useState(EMPTY);
-    const { beginUpload, updateUpload, completeUpload, failUpload, activeUpload } = useUploads();
+    const { beginUpload, updateUpload, completeUpload, failUpload, activeUpload: findActiveUpload } = useUploads();
+    const [uploadScope] = useState(() => {
+        if (isEdit) return `media:${id}`;
+        const storageKey = "yourmovies_admin_media_draft_scope";
+        let scope = window.sessionStorage.getItem(storageKey);
+        if (!scope) {
+            scope = `draft:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+            window.sessionStorage.setItem(storageKey, scope);
+        }
+        return scope;
+    });
+    const scopedUploadKey = (key) => `${uploadScope}:${key}`;
+    const activeUpload = (key) => findActiveUpload(scopedUploadKey(key));
     const [dragTrailer, setDragTrailer] = useState(false);
     const [dragBunny, setDragBunny] = useState(false);
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
@@ -102,7 +114,7 @@ export default function AdminMediaForm() {
     const buildFileUrl = (p) => !p ? "" : (/^https?:\/\//.test(p) ? p : `${process.env.REACT_APP_BACKEND_URL}/api/files/${p}`);
 
     const uploadFile = async (file, kind, key, cb) => {
-        const uploadId = beginUpload(file, key, "Préparation");
+        const uploadId = beginUpload(file, scopedUploadKey(key), "Préparation");
         try {
             // 1. Signature sécurisée depuis notre backend
             const sigForm = new FormData();
@@ -132,7 +144,7 @@ export default function AdminMediaForm() {
     };
 
     const uploadToBunny = async (file) => {
-        const uploadId = beginUpload(file, "bunny", "Préparation Bunny");
+        const uploadId = beginUpload(file, scopedUploadKey("bunny"), "Préparation Bunny");
         try {
             const fd = new FormData();
             fd.append("title", form.title || file.name);
