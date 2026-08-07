@@ -105,6 +105,7 @@ export default function WatchPage() {
     };
 
     const joinParty = () => {
+        if (!user) { navigate("/login"); return; }
         if (!joinInput.trim()) return;
         const code = joinInput.trim().toUpperCase();
         setPartyCode(code);
