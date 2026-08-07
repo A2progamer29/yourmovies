@@ -15,7 +15,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -171,6 +171,8 @@ def create_discord_router(
 
     async def apply_boost_entitlement(link: dict, guild_id: str, count: int, active: bool) -> dict:
         now = datetime.now(timezone.utc)
+        previous_count = int(link.get("boost_count", 0) or 0)
+        previous_plan = premium_plan_for_boosts(previous_count) if link.get("is_boosting") else None
         count = max(0, count) if active else 0
         plan = premium_plan_for_boosts(count)
         link_update = {
@@ -200,7 +202,14 @@ def create_discord_router(
                     "discord_premium_boost_count": 0,
                 }},
             )
-        return {"plan": plan, "boost_count": count, "premium_until": until}
+        return {
+            "plan": plan,
+            "boost_count": count,
+            "premium_until": until,
+            "previous_plan": previous_plan,
+            "previous_boost_count": previous_count,
+            "changed": previous_plan != plan or previous_count != count,
+        }
 
     @router.post("/discord/link-code")
     async def create_link_code(user: dict = Depends(get_current_user)):
@@ -273,15 +282,106 @@ def create_discord_router(
         link = await linked_user(discord_user_id)
         if not link:
             raise api_error(404, "YM-MEMBER-NOT-LINKED", "Ton compte Discord n’est pas lié à YourMovie's.", "Va dans Paramètres > Discord, génère un code puis utilise /lier.")
-        user = await db.users.find_one({"user_id": link["user_id"]}, {"_id": 0, "name": 1, "coins": 1})
+        user = await db.users.find_one(
+            {"user_id": link["user_id"]},
+            {"_id": 0, "name": 1, "coins": 1, "premium_plan": 1, "premium_until": 1,
+             "discord_premium_plan": 1, "discord_premium_until": 1},
+        )
         if not user:
             raise api_error(404, "YM-MEMBER-NOT-FOUND", "Le compte YourMovie's associé est introuvable.", "Dissocie puis relie à nouveau Discord, ou contacte le staff.")
+        now = datetime.now(timezone.utc)
+        day = now.date().isoformat()
+        activity_window = await db.discord_reward_windows.find_one(
+            {"_id": f"{link.get('guild_id')}:{discord_user_id}:activity:{day}"},
+            {"_id": 0, "earned": 1},
+        )
+        bump_window = await db.discord_reward_windows.find_one(
+            {"_id": f"{link.get('guild_id')}:{discord_user_id}:bump:{day}"},
+            {"_id": 0, "earned": 1},
+        )
+        paid_plan = active_subscription_plan(user, now)
+        discord_plan = str(user.get("discord_premium_plan") or "").lower() or None
+        try:
+            discord_until = datetime.fromisoformat(
+                str(user.get("discord_premium_until") or "").replace("Z", "+00:00")
+            )
+            if discord_until.tzinfo is None:
+                discord_until = discord_until.replace(tzinfo=timezone.utc)
+            if discord_until <= now:
+                discord_plan = None
+        except (TypeError, ValueError):
+            discord_plan = None
+        plan_order = {None: 0, "basic": 1, "standard": 2, "premium": 3}
+        plan = max((paid_plan, discord_plan), key=lambda value: plan_order.get(value, 0))
+        coins = round(float(user.get("coins", 0) or 0), 1)
+        linked_user_ids = await db.discord_links.distinct("user_id")
+        richer = await db.users.count_documents({
+            "user_id": {"$in": linked_user_ids},
+            "coins": {"$gt": coins},
+        })
         return {
             "name": user.get("name"),
-            "coins": round(float(user.get("coins", 0) or 0), 1),
+            "coins": coins,
+            "coins_rank": richer + 1,
             "boost_count": int(link.get("boost_count", 0) or 0),
             "is_boosting": bool(link.get("is_boosting")),
+            "subscription_plan": plan,
+            "activity_today": round(float((activity_window or {}).get("earned", 0) or 0), 1),
+            "bumps_today": round(float((bump_window or {}).get("earned", 0) or 0), 1),
         }
+
+    @router.get("/internal/discord/leaderboard", dependencies=[Depends(require_service_key)])
+    async def discord_leaderboard(
+        metric: Literal["coins", "activity", "bumps", "boosts"] = Query("coins"),
+        limit: int = Query(10, ge=3, le=25),
+    ):
+        await ensure_indexes()
+        links = await db.discord_links.find({}, {"_id": 0}).to_list(10000)
+        if not links:
+            return {"metric": metric, "entries": []}
+
+        user_ids = [link.get("user_id") for link in links if link.get("user_id")]
+        users = await db.users.find(
+            {"user_id": {"$in": user_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "coins": 1},
+        ).to_list(10000)
+        users_by_id = {user["user_id"]: user for user in users}
+        values: dict[str, float] = {}
+
+        if metric in {"activity", "bumps"}:
+            group = "activity" if metric == "activity" else "bump"
+            day = datetime.now(timezone.utc).date().isoformat()
+            # Les anciennes fenêtres ne stockent pas toujours discord_user_id :
+            # l'identifiant est donc lu depuis la clé guild:user:group:date.
+            raw_windows = await db.discord_reward_windows.find(
+                {"day": day, "group": group},
+                {"_id": 1, "earned": 1},
+            ).to_list(20000)
+            for window in raw_windows:
+                parts = str(window.get("_id", "")).split(":")
+                if len(parts) >= 4:
+                    discord_id = parts[1]
+                    values[discord_id] = values.get(discord_id, 0) + float(window.get("earned", 0) or 0)
+
+        entries = []
+        for link in links:
+            discord_id = str(link.get("discord_user_id") or "")
+            user = users_by_id.get(link.get("user_id"))
+            if not discord_id or not user:
+                continue
+            if metric == "coins":
+                value = float(user.get("coins", 0) or 0)
+            elif metric == "boosts":
+                value = float(link.get("boost_count", 0) or 0)
+            else:
+                value = values.get(discord_id, 0)
+            entries.append({
+                "discord_user_id": discord_id,
+                "name": user.get("name") or link.get("discord_name") or "Membre",
+                "value": round(value, 1),
+            })
+        entries.sort(key=lambda entry: (-entry["value"], entry["name"].lower()))
+        return {"metric": metric, "entries": entries[:limit]}
 
     @router.get("/internal/discord/economy", dependencies=[Depends(require_service_key)])
     async def economy_config():
@@ -449,13 +549,25 @@ def create_discord_router(
         links = await db.discord_links.find({"guild_id": inp.guild_id}, {"_id": 0}).to_list(10000)
         activated = 0
         removed = 0
+        changes = []
         for link in links:
             active = link["discord_user_id"] in boosting
             count = max(1, int(link.get("boost_count", 0) or 0)) if active else 0
-            await apply_boost_entitlement(link, inp.guild_id, count, active)
+            entitlement = await apply_boost_entitlement(link, inp.guild_id, count, active)
+            if entitlement["changed"]:
+                changes.append({
+                    "discord_user_id": link["discord_user_id"],
+                    **entitlement,
+                })
             activated += int(active)
             removed += int(not active and bool(link.get("is_boosting")))
-        return {"ok": True, "linked": len(links), "activated": activated, "removed": removed}
+        return {
+            "ok": True,
+            "linked": len(links),
+            "activated": activated,
+            "removed": removed,
+            "changes": changes,
+        }
 
     @router.post("/internal/discord/boost/set", dependencies=[Depends(require_service_key)])
     async def set_boost_count(inp: BoostSetInput):
