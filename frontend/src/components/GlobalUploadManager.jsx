@@ -10,6 +10,7 @@ export default function GlobalUploadManager() {
         uploadsMinimized,
         setUploadsMinimized,
         removeUpload,
+        cancelUpload,
     } = useUploads();
 
     if (!user?.is_admin || uploads.length === 0) return null;
@@ -45,7 +46,18 @@ export default function GlobalUploadManager() {
                                 </div>
                                 <div className="flex shrink-0 items-center gap-2">
                                     <span className="text-xs font-semibold tabular-nums text-[#E8D2A6]">{Math.round(item.progress)}%</span>
-                                    {item.status !== "uploading" && (
+                                    {["uploading", "checking"].includes(item.status) ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => cancelUpload(item.id)}
+                                            className="rounded-md border border-red-500/30 px-2 py-1 text-[11px] text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                            aria-label="Annuler et supprimer ce téléversement de Bunny Stream"
+                                        >
+                                            Annuler
+                                        </button>
+                                    ) : item.status === "cancelling" ? (
+                                        <span className="text-[11px] text-neutral-500">Annulation…</span>
+                                    ) : (
                                         <button type="button" onClick={() => removeUpload(item.id)} className="text-neutral-600 hover:text-white" aria-label="Retirer ce téléversement">
                                             <X size={14} />
                                         </button>
