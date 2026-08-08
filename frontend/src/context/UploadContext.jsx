@@ -139,45 +139,85 @@ export function UploadProvider({ children }) {
 
     useEffect(() => {
         let stopped = false;
-        const verifyBunnyUploads = async () => {
-            const candidates = uploadsRef.current.filter((item) =>
-                item.videoId && ["uploading", "checking", "interrupted"].includes(item.status));
-            for (const item of candidates) {
-                try {
-                    const response = await api.get(`/bunny/video-status/${item.videoId}`, {
-                        params: item.libraryId ? { library_id: item.libraryId } : undefined,
-                    });
-                    if (stopped) return;
+        let timer = null;
+        let cursor = 0;
+        let requestInFlight = false;
+
+        const scheduleNextCheck = (delay = 30000) => {
+            if (stopped) return;
+            if (timer) window.clearTimeout(timer);
+            timer = window.setTimeout(verifyUploads, delay);
+        };
+
+        const verifyUploads = async () => {
+            if (stopped || requestInFlight) return;
+            requestInFlight = true;
+
+            const seen = new Set();
+            const candidates = uploadsRef.current.filter((item) => {
+                if (!item.videoId || !["uploading", "checking", "interrupted"].includes(item.status)) return false;
+                const reference = `${item.libraryId || "default"}:${item.videoId}`;
+                if (seen.has(reference)) return false;
+                seen.add(reference);
+                return true;
+            });
+
+            if (!candidates.length) {
+                requestInFlight = false;
+                scheduleNextCheck(60000);
+                return;
+            }
+
+            const item = candidates[cursor % candidates.length];
+            cursor = (cursor + 1) % candidates.length;
+
+            try {
+                const response = await api.get(`/bunny/video-status/${item.videoId}`, {
+                    params: item.libraryId ? { library_id: item.libraryId } : undefined,
+                });
+                if (stopped) return;
+                const complete = response.data.status >= 4;
+                setUploads((current) => current.map((entry) =>
+                    entry.videoId === item.videoId && (entry.libraryId || null) === (item.libraryId || null)
+                        ? {
+                            ...entry,
+                            status: complete ? "success" : "checking",
+                            stage: complete ? "Encodage terminé" : "Encodage en cours",
+                            progress: complete ? 100 : (response.data.encodeProgress || entry.progress),
+                            updatedAt: Date.now(),
+                        }
+                        : entry));
+                scheduleNextCheck(complete ? 1000 : 5000);
+            } catch (error) {
+                if (stopped) return;
+                const status = error?.response?.status;
+                if (status === 400 || status === 404) {
+                    cancelHandlers.current.delete(item.id);
                     setUploads((current) => current.map((entry) => entry.id === item.id ? {
                         ...entry,
-                        status: response.data.status >= 4 ? "success" : "checking",
-                        stage: response.data.status >= 4 ? "Encodage terminé" : "Encodage Bunny",
-                        progress: response.data.status >= 4 ? 100 : (response.data.encodeProgress || entry.progress),
+                        status: status === 404 ? "cancelled" : "error",
+                        stage: status === 404
+                            ? "Vidéo supprimée — téléversement annulé"
+                            : "Référence vidéo invalide — tu peux relancer ce téléversement",
+                        progress: 0,
                         updatedAt: Date.now(),
                     } : entry));
-                } catch (error) {
-                    if (stopped) return;
-                    const status = error?.response?.status;
-                    if (status === 400 || status === 404) {
-                        cancelHandlers.current.delete(item.id);
-                        setUploads((current) => current.map((entry) => entry.id === item.id ? {
-                            ...entry,
-                            status: status === 404 ? "cancelled" : "error",
-                            stage: status === 404
-                                ? "Supprimé depuis Bunny Stream — téléversement annulé"
-                                : "Référence Bunny invalide — tu peux relancer ce téléversement",
-                            progress: 0,
-                            updatedAt: Date.now(),
-                        } : entry));
-                    }
+                    scheduleNextCheck(1000);
+                } else if (status === 429) {
+                    const retryAfter = Number(error?.response?.headers?.["retry-after"]) || 60;
+                    scheduleNextCheck(Math.max(retryAfter * 1000, 60000));
+                } else {
+                    scheduleNextCheck(30000);
                 }
+            } finally {
+                requestInFlight = false;
             }
         };
-        verifyBunnyUploads();
-        const timer = window.setInterval(verifyBunnyUploads, 10000);
+
+        verifyUploads();
         return () => {
             stopped = true;
-            window.clearInterval(timer);
+            if (timer) window.clearTimeout(timer);
         };
     }, []);
 
