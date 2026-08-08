@@ -193,3 +193,59 @@ html[style*="--accent"] .border-\[\#E8D2A6\] {
     outline: none;
     box-shadow: 0 0 0 2px rgba(232, 210, 166, 0.6);
 }
+
+
+/* YourMovie's page motion — subtle, cinematic and accessible */
+@keyframes ymPageEnter {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+        filter: blur(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+}
+
+.ym-page-enter {
+    animation: ymPageEnter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+button,
+a,
+[role="button"] {
+    transition:
+        color 180ms ease,
+        background-color 180ms ease,
+        border-color 180ms ease,
+        opacity 180ms ease,
+        transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 220ms ease;
+}
+
+button:active,
+a[role="button"]:active {
+    transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    .ym-page-enter,
+    .fade-slide-up {
+        animation: none !important;
+    }
+
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
