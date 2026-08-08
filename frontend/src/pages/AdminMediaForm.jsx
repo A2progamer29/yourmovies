@@ -63,7 +63,7 @@ export default function AdminMediaForm() {
     const { id } = useParams();
     const isEdit = Boolean(id);
     const [form, setForm] = useState(EMPTY);
-    const { beginUpload, updateUpload, completeUpload, failUpload, activeUpload: findActiveUpload } = useUploads();
+    const { uploads, beginUpload, updateUpload, completeUpload, failUpload, activeUpload: findActiveUpload } = useUploads();
     const [uploadScope] = useState(() => {
         if (isEdit) return `media:${id}`;
         const storageKey = "yourmovies_admin_media_draft_scope";
@@ -80,6 +80,7 @@ export default function AdminMediaForm() {
     const [dragBunny, setDragBunny] = useState(false);
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
     const uploadStage = (key) => activeUpload(key)?.stage || "";
+    const hasPendingUpload = uploads.some((item) => item.key?.startsWith(`${uploadScope}:`) && item.status === "uploading");
     const [saving, setSaving] = useState(false);
     const [tmdbQuery, setTmdbQuery] = useState("");
     const [tmdbResults, setTmdbResults] = useState([]);
@@ -150,6 +151,9 @@ export default function AdminMediaForm() {
             fd.append("title", form.title || file.name);
             const r = await api.post("/bunny/create-video", fd);
             const { videoId, libraryId, signature, expire } = r.data;
+            // Conserver immédiatement la référence. Le bouton Enregistrer reste bloqué
+            // jusqu’à la fin afin qu’un nouveau média ne puisse jamais être créé sans sa vidéo.
+            setForm((f) => ({ ...f, bunny_video_id: videoId, bunny_library_id: String(libraryId) }));
             // Étape 1 : envoi du fichier
             updateUpload(uploadId, { stage: "Envoi vers Bunny", progress: 0 });
             await new Promise((resolve, reject) => {
@@ -169,8 +173,6 @@ export default function AdminMediaForm() {
                 });
                 upload.start();
             });
-            // La vidéo est enregistrée dès l'envoi terminé
-            setForm((f) => ({ ...f, bunny_video_id: videoId, bunny_library_id: String(libraryId) }));
             // Sur un contenu existant, rattacher immédiatement la vidéo au média.
             // Ainsi un refresh ou une navigation ne peut pas perdre la référence Bunny.
             if (isEdit) {
@@ -198,6 +200,10 @@ export default function AdminMediaForm() {
     };
 
     const save = async () => {
+        if (hasPendingUpload) {
+            toast.error("Attends la fin de tous les téléversements avant d’enregistrer.");
+            return;
+        }
         const payload = {
             title: form.title,
             description: form.description,
@@ -408,8 +414,8 @@ export default function AdminMediaForm() {
                             {isEdit ? "Modifier" : "Nouveau contenu"}
                         </h1>
                     </div>
-                    <Button onClick={save} disabled={!form.title || saving} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : "Enregistrer"}
+                    <Button onClick={save} disabled={!form.title || saving || hasPendingUpload} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasPendingUpload ? "Téléversement en cours…" : "Enregistrer"}
                     </Button>
                 </div>
 
@@ -829,8 +835,8 @@ export default function AdminMediaForm() {
 
                 <div className="mt-12 flex justify-end gap-2 border-t border-[#262626] pt-6">
                     <Button variant="outline" onClick={() => navigate("/admin?tab=media")} className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">Annuler</Button>
-                    <Button onClick={save} disabled={!form.title || saving} data-testid="save-media-btn-bottom" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : "Enregistrer"}
+                    <Button onClick={save} disabled={!form.title || saving || hasPendingUpload} data-testid="save-media-btn-bottom" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasPendingUpload ? "Téléversement en cours…" : "Enregistrer"}
                     </Button>
                 </div>
             </div>
