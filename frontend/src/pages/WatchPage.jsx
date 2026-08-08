@@ -85,6 +85,7 @@ export default function WatchPage() {
     const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress, libraryId}
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
+    const [bunnyPlayerLoaded, setBunnyPlayerLoaded] = useState(false);
     const [adDone, setAdDone] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
@@ -108,6 +109,7 @@ export default function WatchPage() {
         let active = true;
         setBunnyPlaybackUrl(null);
         setBunnyPlaybackError(null);
+        setBunnyPlayerLoaded(false);
         api.get(`/bunny/playback/${id}`, { silent: true })
             .then((response) => {
                 if (!active) return;
@@ -343,6 +345,7 @@ export default function WatchPage() {
                                         allowFullScreen
                                         referrerPolicy="strict-origin-when-cross-origin"
                                         title={media.title}
+                                        onLoad={() => setBunnyPlayerLoaded(true)}
                                     />
                                 ) : (
                                     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505]">
@@ -352,7 +355,7 @@ export default function WatchPage() {
                                         </div>
                                     </div>
                                 )}
-                                {bunnyReady && bunnyReady.ready === false && (
+                                {bunnyReady && bunnyReady.ready === false && !bunnyPlayerLoaded && (
                                     <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] to-[#050505] flex items-center justify-center">
                                         <div className="text-center px-6 w-full max-w-sm">
                                             <div className="relative w-20 h-20 mx-auto mb-5">
