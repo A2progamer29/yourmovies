@@ -150,19 +150,22 @@ export function UploadProvider({ children }) {
                     if (stopped) return;
                     setUploads((current) => current.map((entry) => entry.id === item.id ? {
                         ...entry,
-                        status: entry.status === "checking" ? "uploading" : entry.status,
+                        status: response.data.status >= 4 ? "success" : "checking",
                         stage: response.data.status >= 4 ? "Encodage terminé" : "Encodage Bunny",
                         progress: response.data.status >= 4 ? 100 : (response.data.encodeProgress || entry.progress),
                         updatedAt: Date.now(),
                     } : entry));
                 } catch (error) {
                     if (stopped) return;
-                    if (error?.response?.status === 404) {
+                    const status = error?.response?.status;
+                    if (status === 400 || status === 404) {
                         cancelHandlers.current.delete(item.id);
                         setUploads((current) => current.map((entry) => entry.id === item.id ? {
                             ...entry,
-                            status: "cancelled",
-                            stage: "Supprimé depuis Bunny Stream — téléversement annulé",
+                            status: status === 404 ? "cancelled" : "error",
+                            stage: status === 404
+                                ? "Supprimé depuis Bunny Stream — téléversement annulé"
+                                : "Référence Bunny invalide — tu peux relancer ce téléversement",
                             progress: 0,
                             updatedAt: Date.now(),
                         } : entry));
