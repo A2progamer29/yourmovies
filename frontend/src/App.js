@@ -35,6 +35,18 @@ import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
 
+function ScrollToTop() {
+    const { pathname } = useLocation();
+
+    React.useEffect(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+    }, [pathname]);
+
+    return null;
+}
+
 function AppRouter() {
     const location = useLocation();
     if (location.hash?.includes("session_id=")) {
@@ -45,6 +57,8 @@ function AppRouter() {
         || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique";
     return (
         <>
+        <ScrollToTop />
+        <main key={location.pathname} className="ym-page-enter">
         <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/browse" element={<BrowsePage />} />
@@ -70,6 +84,7 @@ function AppRouter() {
             <Route path="/admin/users/:id" element={<AdminUserPage />} />
             <Route path="/pricing" element={<PricingPage />} />
         </Routes>
+        </main>
         {!noFooter && <Footer />}
         </>
     );
