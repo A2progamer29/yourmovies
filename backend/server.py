@@ -1951,7 +1951,7 @@ async def _remove_bunny_reference(video_id: str, library_id: str) -> None:
 
 def _validated_bunny_library_id(library_id: Optional[str]) -> str:
     resolved = str(library_id or BUNNY_LIBRARY_ID or "").strip()
-    if not resolved or not re.fullmatch(r"\\d+", resolved):
+    if not resolved or not re.fullmatch(r"\d+", resolved):
         raise HTTPException(status_code=400, detail="Bibliothèque Bunny invalide")
     return resolved
 
