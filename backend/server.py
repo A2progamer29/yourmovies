@@ -58,9 +58,16 @@ async def security_and_abuse_guard(request: Request, call_next):
         origin = request.headers.get("origin")
         if origin and origin not in allowed:
             return FastAPIResponse(content='{"detail":"Origine non autorisée"}', status_code=403, media_type="application/json")
-        scope = "mutation" if request.method in {"POST", "PUT", "PATCH", "DELETE"} else "read"
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            scope, limit = "mutation", 40
+        elif request.url.path.startswith("/api/bunny/video-status/"):
+            # Les contrôles d'encodage ont leur propre quota : ils ne doivent jamais
+            # empêcher le catalogue, les messages ou les notifications de charger.
+            scope, limit = "video-status", 60
+        else:
+            scope, limit = "read", 180
         try:
-            await _enforce_rate_limit(request, scope, 40 if scope == "mutation" else 180, 60)
+            await _enforce_rate_limit(request, scope, limit, 60)
         except HTTPException as exc:
             return FastAPIResponse(content='{"detail":"Trop de requêtes"}', status_code=429, media_type="application/json", headers=exc.headers)
     response = await call_next(request)
