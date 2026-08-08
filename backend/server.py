@@ -2020,14 +2020,50 @@ def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 @api_router.get("/bunny/playback/{media_id}")
-async def bunny_playback(media_id: str):
-    """Retourne une URL d'embed courte durée. Cette route est publique pour permettre la lecture sans compte."""
+async def bunny_playback(
+    media_id: str,
+    season_number: Optional[str] = Query(None),
+    episode_number: Optional[str] = Query(None),
+):
+    """Retourne l'URL temporaire du film ou de l'épisode demandé."""
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
-    library_id, video_id = _resolve_bunny_reference(doc)
+
+    playback_doc = doc
+    if doc.get("type") in {"series", "anime"}:
+        requested_episode = None
+        if season_number is not None and episode_number is not None:
+            for season in doc.get("seasons") or []:
+                if str(season.get("season_number")) != str(season_number):
+                    continue
+                requested_episode = next(
+                    (
+                        episode for episode in season.get("episodes") or []
+                        if str(episode.get("ep_number")) == str(episode_number)
+                    ),
+                    None,
+                )
+                break
+            if not requested_episode:
+                raise HTTPException(status_code=404, detail="Épisode introuvable")
+        else:
+            requested_episode = next(
+                (
+                    episode
+                    for season in doc.get("seasons") or []
+                    for episode in season.get("episodes") or []
+                    if _resolve_bunny_reference(episode)[1]
+                ),
+                None,
+            )
+        if not requested_episode:
+            raise HTTPException(status_code=404, detail="Aucun fichier vidéo associé à cet épisode")
+        playback_doc = requested_episode
+
+    library_id, video_id = _resolve_bunny_reference(playback_doc)
     if not library_id or not video_id:
-        raise HTTPException(status_code=404, detail="Aucune vidéo Bunny associée à ce contenu")
+        raise HTTPException(status_code=404, detail="Aucun fichier vidéo associé à ce contenu")
 
     expires = int(time.time()) + 4 * 60 * 60
     params = "autoplay=true&preload=true&responsive=true"
