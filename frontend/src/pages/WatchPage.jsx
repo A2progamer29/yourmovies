@@ -22,6 +22,42 @@ const PLAN_MAX_QUALITY = {
 
 const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
 
+
+function resolveBunnySource(media) {
+    if (!media) return null;
+    const candidates = [media.bunny_video_id, media.video_url].filter(Boolean);
+
+    for (const value of candidates) {
+        const raw = String(value).trim();
+        if (!raw) continue;
+
+        try {
+            const url = new URL(raw);
+            const match = url.pathname.match(/\/(?:embed|play)\/(\d+)\/([a-zA-Z0-9-]+)/);
+            if (match) return { libraryId: match[1], videoId: match[2] };
+            const videoId = url.searchParams.get("videoId") || url.searchParams.get("video_id");
+            const libraryId = url.searchParams.get("libraryId") || url.searchParams.get("library_id");
+            if (videoId) {
+                return {
+                    libraryId: String(libraryId || media.bunny_library_id || BUNNY_LIBRARY_ID),
+                    videoId,
+                };
+            }
+        } catch {
+            // A raw Bunny GUID is the preferred stored format.
+        }
+
+        if (/^[a-zA-Z0-9-]{12,}$/.test(raw) && !raw.includes("/")) {
+            return {
+                libraryId: String(media.bunny_library_id || BUNNY_LIBRARY_ID),
+                videoId: raw,
+            };
+        }
+    }
+
+    return null;
+}
+
 function fallbackQualities(media) {
     if (media.qualities && media.qualities.length > 0) {
         return media.qualities.map((q) => ({
@@ -47,9 +83,10 @@ export default function WatchPage() {
     const videoElRef = useRef(null);
     const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress, libraryId}
     const [adDone, setAdDone] = useState(false);
+    const bunnySource = resolveBunnySource(media);
 
     useEffect(() => {
-        const vid = media?.bunny_video_id;
+        const vid = bunnySource?.videoId;
         if (!vid) { setBunnyReady(null); return; }
         let active = true;
         let timer;
@@ -59,7 +96,7 @@ export default function WatchPage() {
                 if (!active) return;
                 const st = Number(s.data.status);
                 const hasRes = !!(s.data.availableResolutions && String(s.data.availableResolutions).length);
-                const libraryId = String(s.data.libraryId || media?.bunny_library_id || BUNNY_LIBRARY_ID);
+                const libraryId = String(bunnySource?.libraryId || s.data.libraryId || BUNNY_LIBRARY_ID);
                 if (st >= 4 || hasRes) { setBunnyReady({ ready: true, libraryId }); return; }
                 setBunnyReady({ ready: false, encodeProgress: s.data.encodeProgress || 0, libraryId });
                 timer = setTimeout(check, 5000);
@@ -69,7 +106,7 @@ export default function WatchPage() {
         };
         check();
         return () => { active = false; clearTimeout(timer); };
-    }, [media?.bunny_video_id, media?.bunny_library_id]);
+    }, [bunnySource?.videoId, bunnySource?.libraryId]);
 
     useEffect(() => {
         (async () => {
@@ -155,7 +192,7 @@ export default function WatchPage() {
     const qualities = fallbackQualities(media);
     const userMaxQuality = "4k";
     const runAds = !user?.premium;
-    const hasVideo = !!(media.bunny_video_id || qualities.length > 0);
+    const hasVideo = !!(bunnySource || qualities.length > 0);
     const showAd = runAds && !partyOpen && !adDone && hasVideo;
     const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
 
@@ -180,7 +217,7 @@ export default function WatchPage() {
                                     data-testid="party-create-btn"
                                     className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-10 px-5"
                                 >
-                                    <Users size={14} className="mr-2" /> Watch Party
+                                    <Users size={14} className="mr-2" /> {user ? "Watch Party" : "Se connecter pour une Watch Party"}
                                 </Button>
                                 <div className="flex items-center gap-2">
                                     <Input
@@ -206,11 +243,11 @@ export default function WatchPage() {
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
                             </div>
-                        ) : media.bunny_video_id ? (
+                        ) : bunnySource ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <iframe
                                     data-testid="bunny-player"
-                                    src={`https://iframe.mediadelivery.net/embed/${bunnyReady?.libraryId || media.bunny_library_id || BUNNY_LIBRARY_ID}/${media.bunny_video_id}?autoplay=true&preload=true`}
+                                    src={`https://iframe.mediadelivery.net/embed/${bunnyReady?.libraryId || bunnySource.libraryId}/${bunnySource.videoId}?autoplay=true&preload=true&responsive=true`}
                                     loading="lazy"
                                     className="absolute inset-0 w-full h-full"
                                     allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
@@ -251,7 +288,7 @@ export default function WatchPage() {
                             />
                         )}
 
-                        {resumeAt > 0 && !media.bunny_video_id && (
+                        {resumeAt > 0 && !bunnySource && (
                             <div className="mt-4 text-xs text-neutral-500">
                                 Reprise à {Math.floor(resumeAt / 60)}m {Math.floor(resumeAt % 60)}s
                             </div>
