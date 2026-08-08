@@ -82,10 +82,8 @@ export default function WatchPage() {
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
-    const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress, libraryId}
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
-    const [bunnyPlayerLoaded, setBunnyPlayerLoaded] = useState(false);
     const [adDone, setAdDone] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
@@ -109,7 +107,6 @@ export default function WatchPage() {
         let active = true;
         setBunnyPlaybackUrl(null);
         setBunnyPlaybackError(null);
-        setBunnyPlayerLoaded(false);
         api.get(`/bunny/playback/${id}`, { silent: true })
             .then((response) => {
                 if (!active) return;
@@ -136,29 +133,6 @@ export default function WatchPage() {
             });
         return () => { active = false; };
     }, [id, bunnySource?.videoId, bunnySource?.libraryId]);
-
-    useEffect(() => {
-        const vid = bunnySource?.videoId;
-        if (!vid) { setBunnyReady(null); return; }
-        let active = true;
-        let timer;
-        const check = async () => {
-            try {
-                const s = await api.get(`/bunny/video-status/${vid}`, { silent: true });
-                if (!active) return;
-                const st = Number(s.data.status);
-                const hasRes = !!(s.data.availableResolutions && String(s.data.availableResolutions).length);
-                const libraryId = String(bunnySource?.libraryId || s.data.libraryId || BUNNY_LIBRARY_ID);
-                if (st >= 4 || hasRes) { setBunnyReady({ ready: true, libraryId }); return; }
-                setBunnyReady({ ready: false, encodeProgress: s.data.encodeProgress || 0, libraryId });
-                timer = setTimeout(check, 5000);
-            } catch {
-                if (active) setBunnyReady({ ready: true });
-            }
-        };
-        check();
-        return () => { active = false; clearTimeout(timer); };
-    }, [bunnySource?.videoId, bunnySource?.libraryId]);
 
     useEffect(() => {
         (async () => {
@@ -344,7 +318,6 @@ export default function WatchPage() {
                                         allowFullScreen
                                         referrerPolicy="strict-origin-when-cross-origin"
                                         title={media.title}
-                                        onLoad={() => setBunnyPlayerLoaded(true)}
                                     />
                                 ) : (
                                     <div className="absolute inset-0 bg-black" aria-hidden="true" />
