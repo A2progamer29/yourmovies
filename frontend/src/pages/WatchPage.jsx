@@ -76,6 +76,7 @@ export default function WatchPage() {
     const { user, activeProfile } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const [media, setMedia] = useState(null);
+    const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
     const [resumeAt, setResumeAt] = useState(0);
     const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
     const [joinInput, setJoinInput] = useState("");
@@ -85,7 +86,19 @@ export default function WatchPage() {
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     const [adDone, setAdDone] = useState(false);
-    const bunnySource = resolveBunnySource(media);
+    const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
+        (season.episodes || []).map((episode) => ({
+            ...episode,
+            season_number: season.season_number,
+            _key: `${season.season_number}:${episode.ep_number}`,
+        }))
+    ), [media]);
+    const selectedEpisode = episodes.find((episode) => episode._key === selectedEpisodeKey)
+        || episodes.find((episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path)
+        || episodes[0]
+        || null;
+    const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
+    const bunnySource = resolveBunnySource(playbackMedia);
 
     useEffect(() => {
         if (!bunnySource?.videoId) {
@@ -149,6 +162,12 @@ export default function WatchPage() {
         (async () => {
             const r = await api.get(`/media/${id}`);
             setMedia(r.data);
+            if (r.data.type !== "movie") {
+                const firstPlayable = (r.data.seasons || []).flatMap((season) =>
+                    (season.episodes || []).map((episode) => ({ ...episode, season_number: season.season_number }))
+                ).find((episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path);
+                if (firstPlayable) setSelectedEpisodeKey(`${firstPlayable.season_number}:${firstPlayable.ep_number}`);
+            }
             if (user) {
                 try {
                     const p = await api.get("/watch-progress");
@@ -226,7 +245,7 @@ export default function WatchPage() {
         );
     }
 
-    const qualities = fallbackQualities(media);
+    const qualities = fallbackQualities(playbackMedia);
     const userMaxQuality = "4k";
     const runAds = !user?.premium;
     const hasVideo = !!(bunnySource || qualities.length > 0);
@@ -276,6 +295,30 @@ export default function WatchPage() {
 
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
+                        {media.type !== "movie" && episodes.length > 0 && (
+                            <div className="mb-5 rounded-xl border border-[#262626] bg-[#0a0a0a] p-4">
+                                <div className="mb-3 text-sm font-semibold text-[#E8D2A6]">Choisir un épisode</div>
+                                <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto">
+                                    {episodes.map((episode) => {
+                                        const playable = !!(episode.bunny_video_id || episode.video_url || episode.video_file_path);
+                                        return (
+                                            <button
+                                                key={episode._key}
+                                                type="button"
+                                                disabled={!playable}
+                                                onClick={() => { setSelectedEpisodeKey(episode._key); setAdDone(false); }}
+                                                className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${selectedEpisode?._key === episode._key
+                                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
+                                                    : playable ? "border-[#333] text-neutral-300 hover:border-[#E8D2A6]/60" : "cursor-not-allowed border-[#222] text-neutral-600"}`}
+                                                title={playable ? episode.title : "Aucun fichier vidéo pour cet épisode"}
+                                            >
+                                                S{episode.season_number} E{episode.ep_number}{episode.title ? ` · ${episode.title}` : ""}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                         {showAd ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
@@ -349,8 +392,8 @@ export default function WatchPage() {
                             </div>
                         )}
 
-                        {media.description && (
-                            <p className="mt-8 text-neutral-300 leading-relaxed max-w-3xl">{media.description}</p>
+                        {(selectedEpisode?.description || media.description) && (
+                            <p className="mt-8 text-neutral-300 leading-relaxed max-w-3xl">{selectedEpisode?.description || media.description}</p>
                         )}
                     </div>
 
