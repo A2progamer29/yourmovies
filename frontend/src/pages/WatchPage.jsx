@@ -330,9 +330,8 @@ export default function WatchPage() {
                                 {bunnyPlaybackError ? (
                                     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505] p-6">
                                         <div className="max-w-xl text-center">
-                                            <div className="font-display text-2xl text-white">Lecture Bunny indisponible</div>
-                                            <p className="mt-3 text-sm leading-relaxed text-neutral-400">{bunnyPlaybackError}</p>
-                                            <p className="mt-3 text-xs text-[#E8D2A6]">Dans Bunny Stream → Security, autorise yourmovies.space et www.yourmovies.space sans https://. Si Embed View Token Authentication est activé, BUNNY_TOKEN_AUTH_KEY doit contenir exactement la Token Authentication Key de cette même bibliothèque.</p>
+                                            <div className="font-display text-2xl text-white">Lecture indisponible</div>
+                                            <p className="mt-3 text-sm leading-relaxed text-neutral-400">La vidéo ne peut pas être lancée pour le moment. Réessaie dans quelques instants.</p>
                                         </div>
                                     </div>
                                 ) : bunnyPlaybackUrl ? (
@@ -348,28 +347,7 @@ export default function WatchPage() {
                                         onLoad={() => setBunnyPlayerLoaded(true)}
                                     />
                                 ) : (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505]">
-                                        <div className="text-center text-sm text-neutral-400">
-                                            <div className="mx-auto mb-3 h-8 w-8 rounded-full border-2 border-transparent border-t-[#E8D2A6] animate-spin" />
-                                            Autorisation du lecteur…
-                                        </div>
-                                    </div>
-                                )}
-                                {bunnyReady && bunnyReady.ready === false && !bunnyPlayerLoaded && (
-                                    <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] to-[#050505] flex items-center justify-center">
-                                        <div className="text-center px-6 w-full max-w-sm">
-                                            <div className="relative w-20 h-20 mx-auto mb-5">
-                                                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#E8D2A6] border-r-[#E8D2A6]/30 animate-spin" />
-                                                <img src="/logo.png" alt="" className="absolute inset-[7px] rounded-full object-cover" />
-                                            </div>
-                                            <div className="font-display text-xl sm:text-2xl text-white mb-1.5">Préparation de la vidéo…</div>
-                                            <div className="text-sm text-neutral-400 mb-4">Encodage en cours — la lecture démarrera automatiquement</div>
-                                            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-                                                <div className="h-full bg-[#E8D2A6] transition-all duration-500" style={{ width: `${Math.max(3, bunnyReady.encodeProgress || 0)}%` }} />
-                                            </div>
-                                            <div className="text-xs text-[#E8D2A6] mt-2">{bunnyReady.encodeProgress || 0}%</div>
-                                        </div>
-                                    </div>
+                                    <div className="absolute inset-0 bg-black" aria-hidden="true" />
                                 )}
                             </div>
                         ) : qualities.length === 0 ? (
