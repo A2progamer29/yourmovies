@@ -131,7 +131,11 @@ export default function WatchPage() {
         let active = true;
         setBunnyPlaybackUrl(null);
         setBunnyPlaybackError(null);
-        api.get(`/bunny/playback/${id}`, { silent: true })
+        const playbackParams = media?.type === "movie" ? undefined : {
+            season_number: selectedEpisode?.season_number,
+            episode_number: selectedEpisode?.ep_number,
+        };
+        api.get(`/bunny/playback/${id}`, { params: playbackParams, silent: true })
             .then((response) => {
                 if (!active) return;
                 const data = response.data || {};
@@ -156,7 +160,14 @@ export default function WatchPage() {
                 );
             });
         return () => { active = false; };
-    }, [id, bunnySource?.videoId, bunnySource?.libraryId]);
+    }, [
+        id,
+        media?.type,
+        selectedEpisode?.season_number,
+        selectedEpisode?.ep_number,
+        bunnySource?.videoId,
+        bunnySource?.libraryId,
+    ]);
 
     useEffect(() => {
         (async () => {
