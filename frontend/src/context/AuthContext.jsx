@@ -76,11 +76,28 @@ export function AuthProvider({ children }) {
     }, []);
 
     const checkAuth = useCallback(async () => {
+        // A visitor without a token is a valid anonymous session. Avoid probing
+        // /auth/me in that case: the endpoint is protected and would correctly
+        // answer 401 even though public playback remains available.
+        const token = localStorage.getItem("ym_token");
+        if (!token) {
+            setUser(null);
+            setLoading(false);
+            return;
+        }
+
         try {
             const res = await api.get("/auth/me", { silent: true });
             setUser(res.data);
             claimDaily();
         } catch (e) {
+            // Discard expired/revoked credentials so subsequent page loads stay
+            // anonymous instead of repeatedly sending an invalid token.
+            if (e?.response?.status === 401) {
+                localStorage.removeItem("ym_token");
+                ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+                setActiveProfileState(null);
+            }
             setUser(null);
         } finally {
             setLoading(false);
