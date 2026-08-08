@@ -144,16 +144,26 @@ export default function AdminMediaForm() {
         }
     };
 
-    const uploadToBunny = async (file) => {
-        const uploadId = beginUpload(file, scopedUploadKey("bunny"), "Préparation Bunny");
+    const uploadToBunny = async (file, options = {}) => {
+        const {
+            key = "bunny",
+            title = form.title || file.name,
+            onReference = (reference) => setForm((f) => ({ ...f, ...reference })),
+        } = options;
+        const uploadId = beginUpload(file, scopedUploadKey(key), "Préparation Bunny");
         try {
             const fd = new FormData();
-            fd.append("title", form.title || file.name);
+            fd.append("title", title);
             const r = await api.post("/bunny/create-video", fd);
             const { videoId, libraryId, signature, expire } = r.data;
-            // Conserver immédiatement la référence. Le bouton Enregistrer reste bloqué
-            // jusqu’à la fin afin qu’un nouveau média ne puisse jamais être créé sans sa vidéo.
-            setForm((f) => ({ ...f, bunny_video_id: videoId, bunny_library_id: String(libraryId) }));
+            // Conserver immédiatement la référence dans le film ou l'épisode ciblé.
+            const reference = {
+                bunny_video_id: videoId,
+                bunny_library_id: String(libraryId),
+                video_url: "",
+                video_file_path: "",
+            };
+            onReference(reference);
             // Étape 1 : envoi du fichier
             updateUpload(uploadId, { stage: "Envoi vers Bunny", progress: 0 });
             await new Promise((resolve, reject) => {
@@ -166,7 +176,7 @@ export default function AdminMediaForm() {
                         VideoId: videoId,
                         LibraryId: libraryId,
                     },
-                    metadata: { filetype: file.type, title: form.title || file.name },
+                    metadata: { filetype: file.type, title },
                     onError: reject,
                     onProgress: (loaded, total) => updateUpload(uploadId, { progress: Math.round((loaded / total) * 100) }),
                     onSuccess: resolve,
@@ -175,11 +185,8 @@ export default function AdminMediaForm() {
             });
             // Sur un contenu existant, rattacher immédiatement la vidéo au média.
             // Ainsi un refresh ou une navigation ne peut pas perdre la référence Bunny.
-            if (isEdit) {
-                await api.put(`/media/${id}`, {
-                    bunny_video_id: videoId,
-                    bunny_library_id: String(libraryId),
-                });
+            if (isEdit && key === "bunny") {
+                await api.put(`/media/${id}`, reference);
             }
             // Étape 2 : encodage (on suit l'avancement)
             updateUpload(uploadId, { stage: "Encodage Bunny", progress: 0 });
@@ -674,7 +681,7 @@ export default function AdminMediaForm() {
                             <div className="flex gap-2 mt-1.5">
                                 <Input value={form.video_url} onChange={(e) => setForm({ ...form, video_url: e.target.value })} placeholder="URL MP4/HLS externe" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
-                                        <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "default_video", (p, url) => setForm((f) => ({ ...f, video_file_path: p, video_url: f.video_url || url })))} />
+                                        <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0], { key: "default_video" })} />
                                         <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300">{activeUpload("default_video") ? <><Loader2 size={14} className="animate-spin" /> {uploadProgress("default_video")}%</> : <><Upload size={14} /> Upload MP4</>}</span>
                                     </label>
                             </div>
@@ -804,11 +811,13 @@ export default function AdminMediaForm() {
                                                                     type="file"
                                                                     accept="video/mp4,video/webm,video/quicktime"
                                                                     className="hidden"
-                                                                    onChange={(e) => e.target.files?.[0] && uploadFile(
+                                                                    onChange={(e) => e.target.files?.[0] && uploadToBunny(
                                                                         e.target.files[0],
-                                                                        "video",
-                                                                        episodeKey,
-                                                                        (url, filePath) => updateEpisode(i, j, { video_url: url, video_file_path: filePath }),
+                                                                        {
+                                                                            key: episodeKey,
+                                                                            title: `${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`,
+                                                                            onReference: (reference) => updateEpisode(i, j, reference),
+                                                                        },
                                                                     )}
                                                                 />
                                                                 <span className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">
