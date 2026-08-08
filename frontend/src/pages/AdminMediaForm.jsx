@@ -80,7 +80,14 @@ export default function AdminMediaForm() {
     const [dragBunny, setDragBunny] = useState(false);
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
     const uploadStage = (key) => activeUpload(key)?.stage || "";
-    const hasPendingUpload = uploads.some((item) => item.key?.startsWith(`${uploadScope}:`) && item.status === "uploading");
+    // L'enregistrement est bloqué uniquement pendant les quelques secondes avant
+    // que Bunny fournisse une référence. Dès que videoId existe, le transfert peut
+    // continuer globalement pendant que l'admin crée un autre contenu.
+    const hasUploadWithoutReference = uploads.some((item) =>
+        item.key?.startsWith(`${uploadScope}:`)
+        && ["uploading", "cancelling"].includes(item.status)
+        && !item.videoId
+    );
     const [saving, setSaving] = useState(false);
     const [tmdbQuery, setTmdbQuery] = useState("");
     const [tmdbResults, setTmdbResults] = useState([]);
@@ -214,7 +221,7 @@ export default function AdminMediaForm() {
             if (isEdit && key === "bunny") {
                 await api.put(`/media/${id}`, reference);
             }
-            updateUpload(uploadId, { stage: "Encodage Bunny", progress: 0 });
+            updateUpload(uploadId, { status: "checking", stage: "Encodage Bunny", progress: 0 });
             for (let i = 0; i < 200 && !cancelled; i++) {
                 try {
                     const s = await api.get(`/bunny/video-status/${videoId}`, {
@@ -223,10 +230,16 @@ export default function AdminMediaForm() {
                     updateUpload(uploadId, { progress: s.data.encodeProgress || 0 });
                     if (s.data.status >= 4) break;
                 } catch (error) {
-                    if (error?.response?.status === 404) {
+                    const status = error?.response?.status;
+                    if (status === 400 || status === 404) {
                         cancelled = true;
-                        onReference(emptyReference);
-                        failUpload(uploadId, "Supprimé depuis Bunny Stream — téléversement annulé");
+                        if (status === 404) onReference(emptyReference);
+                        failUpload(
+                            uploadId,
+                            status === 404
+                                ? "Supprimé depuis Bunny Stream — téléversement annulé"
+                                : "Référence Bunny invalide — relance ce téléversement"
+                        );
                         return;
                     }
                 }
@@ -243,8 +256,8 @@ export default function AdminMediaForm() {
     };
 
     const save = async () => {
-        if (hasPendingUpload) {
-            toast.error("Attends la fin de tous les téléversements avant d’enregistrer.");
+        if (hasUploadWithoutReference) {
+            toast.error("Patiente quelques secondes, le temps que Bunny crée la référence vidéo.");
             return;
         }
         const payload = {
@@ -282,6 +295,9 @@ export default function AdminMediaForm() {
             } else {
                 await api.post("/media", payload);
                 toast.success("Contenu créé");
+            }
+            if (!isEdit) {
+                window.sessionStorage.removeItem("yourmovies_admin_media_draft_scope");
             }
             navigate("/admin?tab=media");
         } catch (e) {
@@ -457,8 +473,8 @@ export default function AdminMediaForm() {
                             {isEdit ? "Modifier" : "Nouveau contenu"}
                         </h1>
                     </div>
-                    <Button onClick={save} disabled={!form.title || saving || hasPendingUpload} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : hasPendingUpload ? "Téléversement en cours…" : "Enregistrer"}
+                    <Button onClick={save} disabled={!form.title || saving || hasUploadWithoutReference} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Préparation Bunny…" : "Enregistrer"}
                     </Button>
                 </div>
 
@@ -880,8 +896,8 @@ export default function AdminMediaForm() {
 
                 <div className="mt-12 flex justify-end gap-2 border-t border-[#262626] pt-6">
                     <Button variant="outline" onClick={() => navigate("/admin?tab=media")} className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">Annuler</Button>
-                    <Button onClick={save} disabled={!form.title || saving || hasPendingUpload} data-testid="save-media-btn-bottom" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : hasPendingUpload ? "Téléversement en cours…" : "Enregistrer"}
+                    <Button onClick={save} disabled={!form.title || saving || hasUploadWithoutReference} data-testid="save-media-btn-bottom" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold">
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Téléversement en cours…" : "Enregistrer"}
                     </Button>
                 </div>
             </div>
