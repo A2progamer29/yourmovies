@@ -171,6 +171,14 @@ export default function AdminMediaForm() {
             });
             // La vidéo est enregistrée dès l'envoi terminé
             setForm((f) => ({ ...f, bunny_video_id: videoId, bunny_library_id: String(libraryId) }));
+            // Sur un contenu existant, rattacher immédiatement la vidéo au média.
+            // Ainsi un refresh ou une navigation ne peut pas perdre la référence Bunny.
+            if (isEdit) {
+                await api.put(`/media/${id}`, {
+                    bunny_video_id: videoId,
+                    bunny_library_id: String(libraryId),
+                });
+            }
             // Étape 2 : encodage (on suit l'avancement)
             updateUpload(uploadId, { stage: "Encodage Bunny", progress: 0 });
             for (let i = 0; i < 200; i++) {
