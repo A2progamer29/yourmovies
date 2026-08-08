@@ -63,7 +63,7 @@ export default function AdminMediaForm() {
     const { id } = useParams();
     const isEdit = Boolean(id);
     const [form, setForm] = useState(EMPTY);
-    const { uploads, beginUpload, updateUpload, completeUpload, failUpload, activeUpload: findActiveUpload } = useUploads();
+    const { uploads, beginUpload, updateUpload, completeUpload, failUpload, setUploadCancelHandler, activeUpload: findActiveUpload } = useUploads();
     const [uploadScope] = useState(() => {
         if (isEdit) return `media:${id}`;
         const storageKey = "yourmovies_admin_media_draft_scope";
@@ -151,12 +151,19 @@ export default function AdminMediaForm() {
             onReference = (reference) => setForm((f) => ({ ...f, ...reference })),
         } = options;
         const uploadId = beginUpload(file, scopedUploadKey(key), "Préparation Bunny");
+        let cancelled = false;
+        let tusUpload = null;
         try {
             const fd = new FormData();
             fd.append("title", title);
             const r = await api.post("/bunny/create-video", fd);
             const { videoId, libraryId, signature, expire } = r.data;
-            // Conserver immédiatement la référence dans le film ou l'épisode ciblé.
+            const emptyReference = {
+                bunny_video_id: "",
+                bunny_library_id: "",
+                video_url: "",
+                video_file_path: "",
+            };
             const reference = {
                 bunny_video_id: videoId,
                 bunny_library_id: String(libraryId),
@@ -164,10 +171,28 @@ export default function AdminMediaForm() {
                 video_file_path: "",
             };
             onReference(reference);
-            // Étape 1 : envoi du fichier
-            updateUpload(uploadId, { stage: "Envoi vers Bunny", progress: 0 });
+            updateUpload(uploadId, {
+                stage: "Envoi vers Bunny",
+                progress: 0,
+                videoId,
+                libraryId: String(libraryId),
+            });
+            setUploadCancelHandler(uploadId, async () => {
+                cancelled = true;
+                if (tusUpload) {
+                    try {
+                        await tusUpload.abort(true);
+                    } catch {
+                        // Bunny sera quand même nettoyé par la route backend.
+                    }
+                }
+                await api.delete(`/bunny/videos/${videoId}`, {
+                    params: { library_id: String(libraryId) },
+                });
+                onReference(emptyReference);
+            });
             await new Promise((resolve, reject) => {
-                const upload = new tus.Upload(file, {
+                tusUpload = new tus.Upload(file, {
                     endpoint: "https://video.bunnycdn.com/tusupload",
                     retryDelays: [0, 3000, 5000, 10000, 20000],
                     headers: {
@@ -178,29 +203,40 @@ export default function AdminMediaForm() {
                     },
                     metadata: { filetype: file.type, title },
                     onError: reject,
-                    onProgress: (loaded, total) => updateUpload(uploadId, { progress: Math.round((loaded / total) * 100) }),
+                    onProgress: (loaded, total) => {
+                        if (!cancelled) updateUpload(uploadId, { progress: Math.round((loaded / total) * 100) });
+                    },
                     onSuccess: resolve,
                 });
-                upload.start();
+                tusUpload.start();
             });
-            // Sur un contenu existant, rattacher immédiatement la vidéo au média.
-            // Ainsi un refresh ou une navigation ne peut pas perdre la référence Bunny.
+            if (cancelled) return;
             if (isEdit && key === "bunny") {
                 await api.put(`/media/${id}`, reference);
             }
-            // Étape 2 : encodage (on suit l'avancement)
             updateUpload(uploadId, { stage: "Encodage Bunny", progress: 0 });
-            for (let i = 0; i < 200; i++) {
+            for (let i = 0; i < 200 && !cancelled; i++) {
                 try {
-                    const s = await api.get(`/bunny/video-status/${videoId}`);
+                    const s = await api.get(`/bunny/video-status/${videoId}`, {
+                        params: { library_id: String(libraryId) },
+                    });
                     updateUpload(uploadId, { progress: s.data.encodeProgress || 0 });
                     if (s.data.status >= 4) break;
-                } catch { /* on réessaie */ }
+                } catch (error) {
+                    if (error?.response?.status === 404) {
+                        cancelled = true;
+                        onReference(emptyReference);
+                        failUpload(uploadId, "Supprimé depuis Bunny Stream — téléversement annulé");
+                        return;
+                    }
+                }
                 await new Promise((res) => setTimeout(res, 3000));
             }
+            if (cancelled) return;
             completeUpload(uploadId);
             toast.success("Vidéo prête");
         } catch (e) {
+            if (cancelled) return;
             failUpload(uploadId);
             showError(toast, e, "Téléversement impossible");
         }
