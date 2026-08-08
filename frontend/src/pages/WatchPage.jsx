@@ -83,6 +83,7 @@ export default function WatchPage() {
     const videoElRef = useRef(null);
     const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress, libraryId}
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
+    const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     const [adDone, setAdDone] = useState(false);
     const bunnySource = resolveBunnySource(media);
 
@@ -93,15 +94,29 @@ export default function WatchPage() {
         }
         let active = true;
         setBunnyPlaybackUrl(null);
+        setBunnyPlaybackError(null);
         api.get(`/bunny/playback/${id}`, { silent: true })
             .then((response) => {
-                if (active) setBunnyPlaybackUrl(response.data?.url || null);
-            })
-            .catch(() => {
                 if (!active) return;
-                // Compatibilité avec les anciennes bibliothèques Bunny publiques.
-                setBunnyPlaybackUrl(
-                    `https://iframe.mediadelivery.net/embed/${bunnySource.libraryId}/${bunnySource.videoId}?autoplay=true&preload=true&responsive=true`
+                const data = response.data || {};
+                if (!data.url) {
+                    setBunnyPlaybackError("Le backend n’a renvoyé aucune URL de lecture.");
+                    return;
+                }
+                if (data.libraryMatchesUploadConfig === false) {
+                    setBunnyPlaybackError(
+                        `Cette vidéo appartient à la bibliothèque Bunny ${data.libraryId}, mais Render est configuré pour une autre bibliothèque. Corrige BUNNY_LIBRARY_ID ou réimporte la vidéo.`
+                    );
+                    return;
+                }
+                setBunnyPlaybackUrl(data.url);
+            })
+            .catch((error) => {
+                if (!active) return;
+                const status = error?.response?.status;
+                const detail = error?.response?.data?.detail;
+                setBunnyPlaybackError(
+                    detail || `Impossible d’obtenir l’autorisation Bunny${status ? ` (HTTP ${status})` : ""}. Vérifie Render et la sécurité de la bibliothèque Bunny.`
                 );
             });
         return () => { active = false; };
@@ -267,7 +282,15 @@ export default function WatchPage() {
                             </div>
                         ) : bunnySource ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
-                                {bunnyPlaybackUrl ? (
+                                {bunnyPlaybackError ? (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505] p-6">
+                                        <div className="max-w-xl text-center">
+                                            <div className="font-display text-2xl text-white">Lecture Bunny indisponible</div>
+                                            <p className="mt-3 text-sm leading-relaxed text-neutral-400">{bunnyPlaybackError}</p>
+                                            <p className="mt-3 text-xs text-[#E8D2A6]">Dans Bunny Stream → Security, autorise yourmovies.space et www.yourmovies.space sans https://. Si Embed View Token Authentication est activé, BUNNY_TOKEN_AUTH_KEY doit contenir exactement la Token Authentication Key de cette même bibliothèque.</p>
+                                        </div>
+                                    </div>
+                                ) : bunnyPlaybackUrl ? (
                                     <iframe
                                         data-testid="bunny-player"
                                         src={bunnyPlaybackUrl}
