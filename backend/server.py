@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 @app.middleware("http")
 async def security_and_abuse_guard(request: Request, call_next):
     if request.url.path.startswith("/api"):
-        configured = os.environ.get("CORS_ORIGINS", "https://yourmovies.online")
+        configured = os.environ.get("CORS_ORIGINS", "https://yourmovies.space,https://www.yourmovies.space,https://yourmovies.online,https://yourmovies-eight.vercel.app")
         allowed = {value.strip() for value in configured.split(",") if value.strip() and value.strip() != "*"}
         origin = request.headers.get("origin")
         if origin and origin not in allowed:
@@ -1955,12 +1955,16 @@ async def bunny_playback(media_id: str):
         token = hashlib.sha256(f"{BUNNY_TOKEN_AUTH_KEY}{video_id}{expires}".encode()).hexdigest()
         params = f"token={token}&expires={expires}&{params}"
 
+    playback_url = f"https://iframe.mediadelivery.net/embed/{library_id}/{video_id}?{params}"
     return {
-        "url": f"https://iframe.mediadelivery.net/embed/{library_id}/{video_id}?{params}",
+        "url": playback_url,
         "expires": expires if BUNNY_TOKEN_AUTH_KEY else None,
         "signed": bool(BUNNY_TOKEN_AUTH_KEY),
         "libraryId": library_id,
         "videoId": video_id,
+        # Indications non sensibles utilisées par le lecteur pour afficher un diagnostic utile.
+        "tokenAuthenticationConfigured": bool(BUNNY_TOKEN_AUTH_KEY),
+        "libraryMatchesUploadConfig": str(library_id) == str(BUNNY_LIBRARY_ID or ""),
     }
 
 # ---------- Plans (abonnements gérés manuellement via Discord) ----------
