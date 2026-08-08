@@ -81,6 +81,9 @@ if CLOUDINARY_CONFIGURED:
 # ---------- Bunny Stream (hébergement des grosses vidéos) ----------
 BUNNY_LIBRARY_ID = os.environ.get("BUNNY_LIBRARY_ID")
 BUNNY_API_KEY = os.environ.get("BUNNY_API_KEY")
+# Clé distincte disponible dans Bunny Stream > Security > Token Authentication.
+# Elle sert uniquement à signer des URLs de lecture temporaires et ne quitte jamais le backend.
+BUNNY_TOKEN_AUTH_KEY = os.environ.get("BUNNY_TOKEN_AUTH_KEY")
 BUNNY_CDN_HOST = os.environ.get("BUNNY_CDN_HOST")
 BUNNY_CONFIGURED = bool(BUNNY_LIBRARY_ID and BUNNY_API_KEY)
 
@@ -1921,6 +1924,44 @@ async def bunny_video_status(video_id: str):
         raise HTTPException(status_code=500, detail="Statut vidéo indisponible")
     j = r.json()
     return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0), "availableResolutions": j.get("availableResolutions"), "libraryId": str(BUNNY_LIBRARY_ID)}
+
+def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
+    """Normalise un GUID ou une URL d'embed Bunny sans faire confiance au client."""
+    library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
+    for candidate in (doc.get("bunny_video_id"), doc.get("video_url")):
+        raw = str(candidate or "").strip()
+        if not raw:
+            continue
+        match = re.search(r"/(?:embed|play)/(\d+)/([A-Za-z0-9-]+)", raw)
+        if match:
+            return match.group(1), match.group(2)
+        if re.fullmatch(r"[A-Za-z0-9-]{12,}", raw):
+            return library_id or None, raw
+    return None, None
+
+@api_router.get("/bunny/playback/{media_id}")
+async def bunny_playback(media_id: str):
+    """Retourne une URL d'embed courte durée. Cette route est publique pour permettre la lecture sans compte."""
+    doc = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    library_id, video_id = _resolve_bunny_reference(doc)
+    if not library_id or not video_id:
+        raise HTTPException(status_code=404, detail="Aucune vidéo Bunny associée à ce contenu")
+
+    expires = int(time.time()) + 4 * 60 * 60
+    params = "autoplay=true&preload=true&responsive=true"
+    if BUNNY_TOKEN_AUTH_KEY:
+        token = hashlib.sha256(f"{BUNNY_TOKEN_AUTH_KEY}{video_id}{expires}".encode()).hexdigest()
+        params = f"token={token}&expires={expires}&{params}"
+
+    return {
+        "url": f"https://iframe.mediadelivery.net/embed/{library_id}/{video_id}?{params}",
+        "expires": expires if BUNNY_TOKEN_AUTH_KEY else None,
+        "signed": bool(BUNNY_TOKEN_AUTH_KEY),
+        "libraryId": library_id,
+        "videoId": video_id,
+    }
 
 # ---------- Plans (abonnements gérés manuellement via Discord) ----------
 
