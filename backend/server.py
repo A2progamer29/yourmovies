@@ -1912,18 +1912,98 @@ async def bunny_create_video(title: str = Form("video"), user: dict = Depends(re
     signature = hashlib.sha256(f"{BUNNY_LIBRARY_ID}{BUNNY_API_KEY}{expire}{video_id}".encode()).hexdigest()
     return {"videoId": video_id, "libraryId": str(BUNNY_LIBRARY_ID), "signature": signature, "expire": expire}
 
+async def _remove_bunny_reference(video_id: str, library_id: str) -> None:
+    """Retire une vidéo supprimée de tous les médias et épisodes qui la référencent."""
+    docs = await db.media.find(
+        {"$or": [
+            {"bunny_video_id": video_id},
+            {"seasons.episodes.bunny_video_id": video_id},
+        ]},
+        {"_id": 0},
+    ).to_list(10000)
+    for doc in docs:
+        updates = {}
+        if str(doc.get("bunny_video_id") or "") == video_id:
+            updates.update({
+                "bunny_video_id": "",
+                "bunny_library_id": "",
+                "video_url": "",
+                "video_file_path": "",
+            })
+        seasons = doc.get("seasons") or []
+        seasons_changed = False
+        for season in seasons:
+            for episode in season.get("episodes") or []:
+                if str(episode.get("bunny_video_id") or "") != video_id:
+                    continue
+                episode.update({
+                    "bunny_video_id": "",
+                    "bunny_library_id": "",
+                    "video_url": "",
+                    "video_file_path": "",
+                })
+                seasons_changed = True
+        if seasons_changed:
+            updates["seasons"] = seasons
+        if updates:
+            await db.media.update_one({"id": doc["id"]}, {"$set": updates})
+
+
+def _validated_bunny_library_id(library_id: Optional[str]) -> str:
+    resolved = str(library_id or BUNNY_LIBRARY_ID or "").strip()
+    if not resolved or not re.fullmatch(r"\\d+", resolved):
+        raise HTTPException(status_code=400, detail="Bibliothèque Bunny invalide")
+    return resolved
+
+
 @api_router.get("/bunny/video-status/{video_id}")
-async def bunny_video_status(video_id: str):
+async def bunny_video_status(
+    video_id: str,
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_admin),
+):
     if not BUNNY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    resolved_library_id = _validated_bunny_library_id(library_id)
     r = await run_in_threadpool(lambda: requests.get(
-        f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos/{video_id}",
+        f"https://video.bunnycdn.com/library/{resolved_library_id}/videos/{video_id}",
         headers={"AccessKey": BUNNY_API_KEY}, timeout=15,
     ))
+    if r.status_code == 404:
+        await _remove_bunny_reference(video_id, resolved_library_id)
+        raise HTTPException(status_code=404, detail="Vidéo supprimée de Bunny Stream")
     if not r.ok:
-        raise HTTPException(status_code=500, detail="Statut vidéo indisponible")
+        logger.error(f"Bunny status failed: {r.status_code} {r.text[:200]}")
+        raise HTTPException(status_code=502, detail="Statut vidéo Bunny indisponible")
     j = r.json()
-    return {"status": j.get("status"), "encodeProgress": j.get("encodeProgress", 0), "availableResolutions": j.get("availableResolutions"), "libraryId": str(BUNNY_LIBRARY_ID)}
+    return {
+        "exists": True,
+        "status": j.get("status"),
+        "encodeProgress": j.get("encodeProgress", 0),
+        "availableResolutions": j.get("availableResolutions"),
+        "libraryId": resolved_library_id,
+    }
+
+
+@api_router.delete("/bunny/videos/{video_id}")
+async def bunny_delete_video(
+    video_id: str,
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_admin),
+):
+    """Annule un téléversement YourMovie's et supprime sa vidéo Bunny, même partielle."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    resolved_library_id = _validated_bunny_library_id(library_id)
+    r = await run_in_threadpool(lambda: requests.delete(
+        f"https://video.bunnycdn.com/library/{resolved_library_id}/videos/{video_id}",
+        headers={"AccessKey": BUNNY_API_KEY}, timeout=30,
+    ))
+    if r.status_code not in (200, 204, 404):
+        logger.error(f"Bunny delete failed: {r.status_code} {r.text[:200]}")
+        raise HTTPException(status_code=502, detail="Suppression Bunny impossible")
+    await _remove_bunny_reference(video_id, resolved_library_id)
+    return {"ok": True, "alreadyDeleted": r.status_code == 404}
 
 def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
     """Normalise un GUID ou une URL d'embed Bunny sans faire confiance au client."""
