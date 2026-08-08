@@ -82,8 +82,30 @@ export default function WatchPage() {
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
     const [bunnyReady, setBunnyReady] = useState(null); // null=inconnu ; {ready, encodeProgress, libraryId}
+    const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [adDone, setAdDone] = useState(false);
     const bunnySource = resolveBunnySource(media);
+
+    useEffect(() => {
+        if (!bunnySource?.videoId) {
+            setBunnyPlaybackUrl(null);
+            return;
+        }
+        let active = true;
+        setBunnyPlaybackUrl(null);
+        api.get(`/bunny/playback/${id}`, { silent: true })
+            .then((response) => {
+                if (active) setBunnyPlaybackUrl(response.data?.url || null);
+            })
+            .catch(() => {
+                if (!active) return;
+                // Compatibilité avec les anciennes bibliothèques Bunny publiques.
+                setBunnyPlaybackUrl(
+                    `https://iframe.mediadelivery.net/embed/${bunnySource.libraryId}/${bunnySource.videoId}?autoplay=true&preload=true&responsive=true`
+                );
+            });
+        return () => { active = false; };
+    }, [id, bunnySource?.videoId, bunnySource?.libraryId]);
 
     useEffect(() => {
         const vid = bunnySource?.videoId;
@@ -245,15 +267,25 @@ export default function WatchPage() {
                             </div>
                         ) : bunnySource ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
-                                <iframe
-                                    data-testid="bunny-player"
-                                    src={`https://iframe.mediadelivery.net/embed/${bunnyReady?.libraryId || bunnySource.libraryId}/${bunnySource.videoId}?autoplay=true&preload=true&responsive=true`}
-                                    loading="lazy"
-                                    className="absolute inset-0 w-full h-full"
-                                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-                                    allowFullScreen
-                                    title={media.title}
-                                />
+                                {bunnyPlaybackUrl ? (
+                                    <iframe
+                                        data-testid="bunny-player"
+                                        src={bunnyPlaybackUrl}
+                                        loading="eager"
+                                        className="absolute inset-0 w-full h-full"
+                                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+                                        allowFullScreen
+                                        referrerPolicy="strict-origin-when-cross-origin"
+                                        title={media.title}
+                                    />
+                                ) : (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505]">
+                                        <div className="text-center text-sm text-neutral-400">
+                                            <div className="mx-auto mb-3 h-8 w-8 rounded-full border-2 border-transparent border-t-[#E8D2A6] animate-spin" />
+                                            Autorisation du lecteur…
+                                        </div>
+                                    </div>
+                                )}
                                 {bunnyReady && bunnyReady.ready === false && (
                                     <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] to-[#050505] flex items-center justify-center">
                                         <div className="text-center px-6 w-full max-w-sm">
