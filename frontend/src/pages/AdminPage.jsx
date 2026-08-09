@@ -185,7 +185,13 @@ export default function AdminPage() {
         setMediaFlagSaving((current) => ({ ...current, [key]: true }));
         setItems((current) => current.map((item) => item.id === media.id ? { ...item, [field]: value } : item));
         try {
-            const response = await api.patch("/admin/media/" + media.id + "/flags", { [field]: value });
+            let response;
+            try {
+                response = await api.patch("/admin/media/" + media.id + "/flags", { [field]: value });
+            } catch (requestError) {
+                if (![404, 405].includes(requestError?.response?.status)) throw requestError;
+                response = await api.put("/media/" + media.id, { [field]: value });
+            }
             setItems((current) => current.map((item) => item.id === media.id ? { ...item, ...response.data } : item));
             toast.success(field === "featured"
                 ? "À l’affiche " + (value ? "activé" : "désactivé")
