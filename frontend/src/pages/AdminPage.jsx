@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -37,6 +37,13 @@ export default function AdminPage() {
     const [q, setQ] = useState("");
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
+    const [licenseKeys, setLicenseKeys] = useState([]);
+    const [licenseStats, setLicenseStats] = useState({ total: 0, available: 0, redeemed: 0, revoked: 0 });
+    const [licenseInput, setLicenseInput] = useState("");
+    const [licenseRemoveInput, setLicenseRemoveInput] = useState("");
+    const [licensePlan, setLicensePlan] = useState("basic");
+    const [licenseCycle, setLicenseCycle] = useState("monthly");
+    const [licenseBusy, setLicenseBusy] = useState(false);
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
 
     const loadMedia = async () => {
@@ -74,6 +81,13 @@ export default function AdminPage() {
             setCagnotteInput(String(r.data.total));
         } catch (e) { showError(toast, e, "Chargement de la cagnotte impossible"); }
     };
+    const loadLicenseKeys = async () => {
+        try {
+            const r = await api.get("/admin/license-keys?limit=200");
+            setLicenseKeys(r.data.items || []);
+            setLicenseStats(r.data.stats || { total: 0, available: 0, redeemed: 0, revoked: 0 });
+        } catch (e) { showError(toast, e, "Chargement des clés impossible"); }
+    };
 
     useEffect(() => {
         if (user?.is_admin) {
@@ -83,6 +97,7 @@ export default function AdminPage() {
             if ((user?.admin_level || 0) >= 2) loadReviews();
             loadWishes();
             loadCagnotte();
+            if ((user?.admin_level || 0) >= 3) loadLicenseKeys();
         }
     }, [user]);
 
@@ -176,6 +191,33 @@ export default function AdminPage() {
             toast.success(`Solde de ${u.name} : ${r.data.coins} Freemium`);
             setCoinAmount((m) => ({ ...m, [u.user_id]: "" }));
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+    };
+
+    const addLicenseKeys = async () => {
+        const keys = licenseInput.trim();
+        if (!keys) { toast.error("Ajoute au moins une clé"); return; }
+        setLicenseBusy(true);
+        try {
+            const r = await api.post("/admin/license-keys", { keys, plan: licensePlan, billing_cycle: licenseCycle });
+            setLicenseInput("");
+            toast.success(`${r.data.added} clé${r.data.added > 1 ? "s" : ""} ajoutée${r.data.added > 1 ? "s" : ""}${r.data.duplicates ? ` · ${r.data.duplicates} doublon(s) ignoré(s)` : ""}`);
+            await loadLicenseKeys();
+        } catch (e) { showError(toast, e, "Import impossible"); }
+        finally { setLicenseBusy(false); }
+    };
+
+    const revokeLicenseKey = async (keyId = null) => {
+        if (!keyId && !licenseRemoveInput.trim()) { toast.error("Saisis la clé à retirer"); return; }
+        if (!window.confirm("Retirer cette clé de la whitelist ? Elle ne pourra plus être activée.")) return;
+        setLicenseBusy(true);
+        try {
+            if (keyId) await api.delete(`/admin/license-keys/${keyId}`);
+            else await api.post("/admin/license-keys/revoke", { key: licenseRemoveInput.trim() });
+            setLicenseRemoveInput("");
+            toast.success("Clé retirée de la whitelist");
+            await loadLicenseKeys();
+        } catch (e) { showError(toast, e, "Retrait impossible"); }
+        finally { setLicenseBusy(false); }
     };
 
     const toggleMediaFlag = async (media, field, checked) => {
@@ -277,7 +319,7 @@ export default function AdminPage() {
                 </div>
 
                 <Tabs value={tabParam} onValueChange={setTab}>
-                    <TabsList className="bg-[#111] border border-[#262626]">
+                    <TabsList className="h-auto flex flex-wrap justify-start bg-[#111] border border-[#262626]">
                         <TabsTrigger value="media" data-testid="admin-tab-media" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Film size={14} className="mr-2" /> Contenus
                         </TabsTrigger>
@@ -310,6 +352,11 @@ export default function AdminPage() {
                         {level >= 3 && (
                             <TabsTrigger value="pricing" data-testid="admin-tab-pricing" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Tag size={14} className="mr-2" /> Tarifs
+                            </TabsTrigger>
+                        )}
+                        {level >= 3 && (
+                            <TabsTrigger value="license-keys" data-testid="admin-tab-license-keys" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <KeyRound size={14} className="mr-2" /> Clés SellAuth
                             </TabsTrigger>
                         )}
                     </TabsList>
@@ -682,6 +729,140 @@ export default function AdminPage() {
                             </div>
                         </div>
                     </TabsContent>
+
+                    {level >= 3 && (
+                        <TabsContent value="license-keys" className="mt-8 space-y-6">
+                            <div>
+                                <div className="text-xs uppercase tracking-widest text-neutral-500">SellAuth</div>
+                                <h2 className="mt-1 font-display text-3xl">Whitelist des clés</h2>
+                                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-500">
+                                    Les clés sont transformées en empreintes non réversibles côté serveur. Elles ne sont jamais renvoyées ni affichées dans le panel.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                                {[
+                                    { label: "Total", value: licenseStats.total, color: "text-white" },
+                                    { label: "Disponibles", value: licenseStats.available, color: "text-emerald-400" },
+                                    { label: "Utilisées", value: licenseStats.redeemed, color: "text-[#E8D2A6]" },
+                                    { label: "Retirées", value: licenseStats.revoked, color: "text-red-400" },
+                                ].map((stat) => (
+                                    <div key={stat.label} className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-4">
+                                        <div className="text-[10px] uppercase tracking-widest text-neutral-500">{stat.label}</div>
+                                        <div className={`mt-1 font-display text-3xl ${stat.color}`}>{stat.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="grid gap-5 lg:grid-cols-2">
+                                <div className="rounded-2xl border border-[#E8D2A6]/25 bg-gradient-to-br from-[#151107] to-[#0a0a0a] p-5">
+                                    <div className="mb-1 flex items-center gap-2 text-white">
+                                        <Plus size={16} className="text-[#E8D2A6]" />
+                                        <h3 className="font-medium">Ajouter des clés</h3>
+                                    </div>
+                                    <p className="mb-4 text-xs text-neutral-500">Une clé par ligne. Les doublons sont ignorés automatiquement.</p>
+                                    <div className="grid grid-cols-2 gap-3 mb-3">
+                                        <select
+                                            value={licensePlan}
+                                            onChange={(e) => setLicensePlan(e.target.value)}
+                                            className="h-10 rounded-md border border-[#262626] bg-[#111] px-3 text-sm text-white outline-none focus:border-[#E8D2A6]"
+                                        >
+                                            <option value="basic">Basic</option>
+                                            <option value="standard">Standard</option>
+                                            <option value="premium">Premium</option>
+                                        </select>
+                                        <select
+                                            value={licenseCycle}
+                                            onChange={(e) => setLicenseCycle(e.target.value)}
+                                            className="h-10 rounded-md border border-[#262626] bg-[#111] px-3 text-sm text-white outline-none focus:border-[#E8D2A6]"
+                                        >
+                                            <option value="monthly">1 mois</option>
+                                            <option value="yearly">1 an</option>
+                                        </select>
+                                    </div>
+                                    <Textarea
+                                        value={licenseInput}
+                                        onChange={(e) => setLicenseInput(e.target.value)}
+                                        data-testid="admin-license-keys-input"
+                                        placeholder={"YM-XXX-…\nYM-XXX-…"}
+                                        spellCheck={false}
+                                        className="min-h-[150px] border-[#262626] bg-[#080808] font-mono text-sm text-white placeholder:text-neutral-700 focus-visible:border-[#E8D2A6] focus-visible:ring-[#E8D2A6]/20"
+                                    />
+                                    <Button
+                                        onClick={addLicenseKeys}
+                                        disabled={licenseBusy || !licenseInput.trim()}
+                                        className="mt-4 rounded-full bg-[#E8D2A6] px-6 font-semibold text-black hover:bg-[#D4BB8B]"
+                                    >
+                                        <Plus size={14} className="mr-2" /> Importer les clés
+                                    </Button>
+                                </div>
+
+                                <div className="rounded-2xl border border-[#262626] bg-[#0a0a0a] p-5">
+                                    <div className="mb-1 flex items-center gap-2 text-white">
+                                        <Trash2 size={16} className="text-red-400" />
+                                        <h3 className="font-medium">Retirer une clé</h3>
+                                    </div>
+                                    <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+                                        Saisissez la clé exacte à révoquer. Le panel ne peut pas récupérer sa valeur depuis l’empreinte enregistrée.
+                                    </p>
+                                    <Input
+                                        type="password"
+                                        value={licenseRemoveInput}
+                                        onChange={(e) => setLicenseRemoveInput(e.target.value)}
+                                        data-testid="admin-license-key-remove-input"
+                                        placeholder="Clé à retirer"
+                                        autoComplete="off"
+                                        spellCheck={false}
+                                        className="h-11 border-[#262626] bg-[#111] font-mono text-white placeholder:text-neutral-700 focus-visible:border-red-400/60"
+                                    />
+                                    <Button
+                                        onClick={() => revokeLicenseKey()}
+                                        disabled={licenseBusy || !licenseRemoveInput.trim()}
+                                        variant="outline"
+                                        className="mt-4 rounded-full border-red-500/40 bg-transparent px-6 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                                    >
+                                        <Trash2 size={14} className="mr-2" /> Retirer de la whitelist
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="overflow-hidden rounded-2xl border border-[#262626] bg-[#0a0a0a]">
+                                <div className="flex items-center justify-between border-b border-[#262626] px-5 py-4">
+                                    <div>
+                                        <div className="text-sm font-medium text-white">Clés enregistrées</div>
+                                        <div className="mt-0.5 text-xs text-neutral-600">200 entrées récentes maximum, sans aucune valeur sensible.</div>
+                                    </div>
+                                    <Button onClick={loadLicenseKeys} disabled={licenseBusy} variant="ghost" size="sm" className="text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]">
+                                        <RotateCcw size={13} className="mr-2" /> Actualiser
+                                    </Button>
+                                </div>
+                                <div className="divide-y divide-[#1a1a1a]">
+                                    {licenseKeys.length === 0 && <div className="p-6 text-center text-sm text-neutral-500">Aucune clé enregistrée.</div>}
+                                    {licenseKeys.map((item) => {
+                                        const statusLabel = item.status === "available" ? "Disponible" : item.status === "redeemed" ? "Utilisée" : "Retirée";
+                                        const statusClass = item.status === "available" ? "text-emerald-400 border-emerald-500/25 bg-emerald-500/5" : item.status === "redeemed" ? "text-[#E8D2A6] border-[#E8D2A6]/25 bg-[#E8D2A6]/5" : "text-red-400 border-red-500/25 bg-red-500/5";
+                                        return (
+                                            <div key={item.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+                                                <div className="flex min-w-0 flex-1 items-center gap-3">
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#262626] bg-[#111] text-[#E8D2A6]"><KeyRound size={15} /></div>
+                                                    <div>
+                                                        <div className="text-sm capitalize text-white">{item.plan} · {item.billing_cycle === "yearly" ? "1 an" : "1 mois"}</div>
+                                                        <div className="mt-0.5 text-xs text-neutral-600">Clé protégée · ajoutée {item.created_at ? new Date(item.created_at).toLocaleDateString("fr-FR") : "—"}</div>
+                                                    </div>
+                                                </div>
+                                                <span className={`w-fit rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-widest ${statusClass}`}>{statusLabel}</span>
+                                                {item.status === "available" && (
+                                                    <Button onClick={() => revokeLicenseKey(item.id)} disabled={licenseBusy} variant="ghost" size="sm" className="text-neutral-500 hover:bg-red-500/10 hover:text-red-400">
+                                                        <Trash2 size={13} className="mr-1.5" /> Retirer
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </TabsContent>
+                    )}
 
                     {level >= 3 && (
                         <TabsContent value="pricing" className="mt-8">
