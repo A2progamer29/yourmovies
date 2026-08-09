@@ -22,7 +22,7 @@ function seasonTitle(month) {
 
 export default function HomePage() {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, activeProfile } = useAuth();
     const [featured, setFeatured] = useState([]);
     const [heroIndex, setHeroIndex] = useState(0);
     const [movies, setMovies] = useState([]);
@@ -57,21 +57,26 @@ export default function HomePage() {
             try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
             if (user) {
-                try {
-                    const cw = await api.get("/watch-progress");
-                    setContinueWatching(Array.isArray(cw.data) ? cw.data : []);
-                } catch (e) {
-                    setContinueWatching([]);
-                }
-                try {
-                    const recs = await api.get("/recommendations?limit=20");
-                    setRecommendations(Array.isArray(recs.data) ? recs.data : []);
-                } catch (e) {
-                    setRecommendations([]);
-                }
+                const [watchResult, recommendationResult] = await Promise.allSettled([
+                    api.get("/watch-progress", { silent: true }),
+                    api.get("/recommendations?limit=20", { silent: true }),
+                ]);
+                setContinueWatching(
+                    watchResult.status === "fulfilled" && Array.isArray(watchResult.value.data)
+                        ? watchResult.value.data
+                        : []
+                );
+                setRecommendations(
+                    recommendationResult.status === "fulfilled" && Array.isArray(recommendationResult.value.data)
+                        ? recommendationResult.value.data
+                        : []
+                );
+            } else {
+                setContinueWatching([]);
+                setRecommendations([]);
             }
         })();
-    }, [user]);
+    }, [user, activeProfile?.id]);
 
     useEffect(() => {
         if (featured.length <= 1 || paused) return;
@@ -91,6 +96,17 @@ export default function HomePage() {
     const currentYear = now.getFullYear();
     const seasonCandidates = latest.filter((m) => m.year === currentYear);
     const seasonItems = (seasonCandidates.length >= 6 ? seasonCandidates : latest).slice(0, 15);
+    const continueIds = new Set(continueWatching.map((item) => item.id));
+    const recommendationSource = recommendations.length > 0
+        ? recommendations
+        : [...trending, ...latest];
+    const recommendationItems = recommendationSource
+        .filter((item, index, items) =>
+            item?.id
+            && !continueIds.has(item.id)
+            && items.findIndex((candidate) => candidate?.id === item.id) === index
+        )
+        .slice(0, 20);
 
     return (
         <div className="min-h-screen bg-[#050505] relative">
@@ -245,47 +261,61 @@ export default function HomePage() {
                 )}
             </section>
 
-            {continueWatching.length > 0 && (
-                <section className="max-w-7xl mx-auto px-6 mt-10">
+            {user && (
+                <section className="max-w-7xl mx-auto px-6 mt-10" data-testid="continue-watching-section">
                     <div className="mb-6">
                         <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Votre historique</div>
                         <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Continuer à regarder</h2>
                     </div>
-                    <HScroller testId="recently-watched-scroller">
-                        {continueWatching.map((m) => {
-                            const episodeQuery = m.season_number != null && m.episode_number != null
-                                ? `?season=${encodeURIComponent(m.season_number)}&episode=${encodeURIComponent(m.episode_number)}`
-                                : "";
-                            const progress = m.duration_seconds > 0
-                                ? Math.min(100, Math.max(0, (m.position_seconds / m.duration_seconds) * 100))
-                                : 0;
-                            return (
-                                <div key={m.id} className="shrink-0 w-64 snap-start">
-                                    <Link to={`/watch/${m.id}${episodeQuery}`} data-testid={`resume-${m.id}`} className="group block relative aspect-video rounded-xl overflow-hidden border border-[#262626] hover:border-[#E8D2A6]/60 transition-colors bg-[#111]">
-                                        <img src={m.banner_url || m.poster_url} alt={m.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
-                                        <div className="absolute bottom-0 left-0 right-0 p-3 pb-4">
-                                            <div className="text-white text-sm font-medium truncate">{m.title}</div>
-                                            {m.season_number != null && m.episode_number != null && (
-                                                <div className="mt-0.5 text-[11px] text-neutral-300">S{m.season_number} · E{m.episode_number}</div>
-                                            )}
-                                        </div>
-                                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-                                            <div className="h-full bg-[#E8D2A6] transition-[width]" style={{ width: `${progress}%` }} />
-                                        </div>
-                                    </Link>
-                                </div>
-                            );
-                        })}
-                    </HScroller>
+                    {continueWatching.length > 0 ? (
+                        <HScroller testId="recently-watched-scroller">
+                            {continueWatching.map((m) => {
+                                const episodeQuery = m.season_number != null && m.episode_number != null
+                                    ? `?season=${encodeURIComponent(m.season_number)}&episode=${encodeURIComponent(m.episode_number)}`
+                                    : "";
+                                const progress = m.duration_seconds > 0
+                                    ? Math.min(100, Math.max(0, (m.position_seconds / m.duration_seconds) * 100))
+                                    : 0;
+                                return (
+                                    <div key={m.id} className="shrink-0 w-64 snap-start">
+                                        <Link to={`/watch/${m.id}${episodeQuery}`} data-testid={`resume-${m.id}`} className="group block relative aspect-video rounded-xl overflow-hidden border border-[#262626] hover:border-[#E8D2A6]/60 transition-colors bg-[#111]">
+                                            <img src={m.banner_url || m.poster_url} alt={m.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
+                                            <div className="absolute bottom-0 left-0 right-0 p-3 pb-4">
+                                                <div className="text-white text-sm font-medium truncate">{m.title}</div>
+                                                {m.season_number != null && m.episode_number != null && (
+                                                    <div className="mt-0.5 text-[11px] text-neutral-300">S{m.season_number} · E{m.episode_number}</div>
+                                                )}
+                                            </div>
+                                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                                                <div className="h-full bg-[#E8D2A6] transition-[width]" style={{ width: `${progress}%` }} />
+                                            </div>
+                                        </Link>
+                                    </div>
+                                );
+                            })}
+                        </HScroller>
+                    ) : (
+                        <Link
+                            to="/browse"
+                            className="group flex min-h-28 items-center justify-between gap-5 rounded-2xl border border-[#262626] bg-[#0a0a0a] px-6 py-5 transition-colors hover:border-[#E8D2A6]/50"
+                            data-testid="continue-watching-empty"
+                        >
+                            <div>
+                                <div className="font-display text-xl text-white">Aucun visionnage à reprendre</div>
+                                <div className="mt-1 text-sm text-neutral-500">Lancez un film ou un épisode : il apparaîtra ensuite ici.</div>
+                            </div>
+                            <span className="shrink-0 text-sm font-semibold text-[#E8D2A6]">Explorer →</span>
+                        </Link>
+                    )}
                 </section>
             )}
 
-            {recommendations.length > 0 && (
+            {user && recommendationItems.length > 0 && (
                 <MediaCarousel
-                    title="Recommandations selon vos goûts"
-                    eyebrow="Parce que vous avez regardé"
-                    items={recommendations}
+                    title="Recommandations"
+                    eyebrow={continueWatching.length > 0 ? "Selon votre historique" : "À découvrir"}
+                    items={recommendationItems}
                     seeAllHref="/browse"
                     testId="carousel-recommendations"
                 />
