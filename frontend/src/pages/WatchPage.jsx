@@ -174,9 +174,19 @@ export default function WatchPage() {
             const r = await api.get(`/media/${id}`);
             setMedia(r.data);
             if (r.data.type !== "movie") {
-                const firstPlayable = (r.data.seasons || []).flatMap((season) =>
+                const allEpisodes = (r.data.seasons || []).flatMap((season) =>
                     (season.episodes || []).map((episode) => ({ ...episode, season_number: season.season_number }))
-                ).find((episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path);
+                );
+                const requestedSeason = searchParams.get("season");
+                const requestedEpisode = searchParams.get("episode");
+                const requested = allEpisodes.find((episode) =>
+                    String(episode.season_number) === String(requestedSeason)
+                    && String(episode.ep_number) === String(requestedEpisode)
+                    && (episode.bunny_video_id || episode.video_url || episode.video_file_path)
+                );
+                const firstPlayable = requested || allEpisodes.find((episode) =>
+                    episode.bunny_video_id || episode.video_url || episode.video_file_path
+                );
                 if (firstPlayable) {
                     setSelectedEpisodeKey(`${firstPlayable.season_number}:${firstPlayable.ep_number}`);
                     setSelectedSeason(String(firstPlayable.season_number));
@@ -196,9 +206,15 @@ export default function WatchPage() {
         if (!user) return;
         if (pos < 3) return;
         try {
-            await api.post("/watch-progress", { media_id: id, position_seconds: pos, duration_seconds: dur });
+            await api.post("/watch-progress", {
+                media_id: id,
+                position_seconds: pos,
+                duration_seconds: dur,
+                season_number: media?.type === "movie" ? null : selectedEpisode?.season_number,
+                episode_number: media?.type === "movie" ? null : selectedEpisode?.ep_number,
+            });
         } catch (e) { }
-    }, [id, user]);
+    }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
 
     const createParty = async () => {
         if (!user) { navigate("/login"); return; }
