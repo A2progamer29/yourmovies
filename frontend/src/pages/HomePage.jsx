@@ -57,20 +57,29 @@ export default function HomePage() {
             try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
             if (user) {
-                const [watchResult, recommendationResult] = await Promise.allSettled([
-                    api.get("/watch-progress", { silent: true }),
-                    api.get("/recommendations?limit=20", { silent: true }),
-                ]);
-                setContinueWatching(
-                    watchResult.status === "fulfilled" && Array.isArray(watchResult.value.data)
-                        ? watchResult.value.data
-                        : []
-                );
-                setRecommendations(
-                    recommendationResult.status === "fulfilled" && Array.isArray(recommendationResult.value.data)
-                        ? recommendationResult.value.data
-                        : []
-                );
+                try {
+                    const watchResult = await api.get("/watch-progress", { silent: true });
+                    const watchedItems = Array.isArray(watchResult.data) ? watchResult.data : [];
+                    setContinueWatching(watchedItems);
+
+                    if (watchedItems.length > 0) {
+                        try {
+                            const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
+                            setRecommendations(
+                                Array.isArray(recommendationResult.data)
+                                    ? recommendationResult.data
+                                    : []
+                            );
+                        } catch (e) {
+                            setRecommendations([]);
+                        }
+                    } else {
+                        setRecommendations([]);
+                    }
+                } catch (e) {
+                    setContinueWatching([]);
+                    setRecommendations([]);
+                }
             } else {
                 setContinueWatching([]);
                 setRecommendations([]);
@@ -97,10 +106,7 @@ export default function HomePage() {
     const seasonCandidates = latest.filter((m) => m.year === currentYear);
     const seasonItems = (seasonCandidates.length >= 6 ? seasonCandidates : latest).slice(0, 15);
     const continueIds = new Set(continueWatching.map((item) => item.id));
-    const recommendationSource = recommendations.length > 0
-        ? recommendations
-        : [...trending, ...latest];
-    const recommendationItems = recommendationSource
+    const recommendationItems = recommendations
         .filter((item, index, items) =>
             item?.id
             && !continueIds.has(item.id)
@@ -314,7 +320,7 @@ export default function HomePage() {
             {user && recommendationItems.length > 0 && (
                 <MediaCarousel
                     title="Recommandations"
-                    eyebrow={continueWatching.length > 0 ? "Selon votre historique" : "À découvrir"}
+                    eyebrow="Selon votre historique"
                     items={recommendationItems}
                     seeAllHref="/browse"
                     testId="carousel-recommendations"
