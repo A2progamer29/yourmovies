@@ -30,6 +30,7 @@ import ConversationPage from "@/pages/ConversationPage";
 import AboutPage from "@/pages/AboutPage";
 import TermsPage from "@/pages/TermsPage";
 import PrivacyPage from "@/pages/PrivacyPage";
+import DmcaPage from "@/pages/DmcaPage";
 import Footer from "@/components/Footer";
 import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
@@ -54,7 +55,7 @@ function AppRouter() {
     }
     const p = location.pathname;
     const noFooter = p.startsWith("/watch/") || p.startsWith("/messages") || p.startsWith("/login")
-        || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique";
+        || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca";
     return (
         <>
         <ScrollToTop />
@@ -77,6 +78,7 @@ function AppRouter() {
             <Route path="/about" element={<AboutPage />} />
             <Route path="/cgu" element={<TermsPage />} />
             <Route path="/politique" element={<PrivacyPage />} />
+            <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />
