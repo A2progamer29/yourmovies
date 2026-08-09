@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Rocket, ArrowRight, MessageSquarePlus } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-const DISCORD_URL = "https://discord.gg/8SZ8KPrjcQ";
+const DISCORD_URL = "https://discord.gg/6mGTfvcNeD";
 const STORAGE_KEY = "ym_beta_notice_v1";
 
 function DiscordIcon({ size = 18 }) {
