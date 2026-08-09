@@ -13,21 +13,21 @@ export default function AboutPage() {
 
                 <div className="space-y-5 text-neutral-300 leading-relaxed">
                     <p>
-                        <span className="text-white font-medium">YourMovie&apos;s</span> est une plateforme communautaire dédiée aux films, séries et animes.
-                        Elle a été imaginée et développée par <span className="text-[#E8D2A6]">Lune27</span>.
+                        <span className="text-white font-medium">YourMovie&apos;s</span> est un projet qui vise à améliorer l&apos;expérience utilisateur
+                        et se démarque par une interface moderne, simple et agréable à utiliser.
                     </p>
                     <p>
-                        Notre objectif : rassembler une communauté de passionnés autour d&apos;un catalogue soigné, avec des fonctionnalités
-                        qui vont au-delà du simple visionnage — avis et notes, discussions, watch party pour regarder à plusieurs,
-                        Wishboard pour proposer et voter les prochains titres, monnaie <span className="text-[#E8D2A6]">Freemium</span> à gagner, profils et messagerie.
+                        La plateforme réunit films, séries et animes dans un même espace, avec une navigation claire et un catalogue facile à explorer.
+                        Elle permet aussi de reprendre un contenu là où il a été arrêté et de découvrir des recommandations adaptées à son historique.
                     </p>
                     <p>
-                        Le projet est en évolution constante, guidé par les retours de la communauté. Les échanges, le support et les annonces
-                        se font principalement sur notre serveur <span className="text-[#E8D2A6]">Discord</span> (lien en bas de page).
+                        YourMovie&apos;s va au-delà du visionnage avec des profils personnalisables, des avis et discussions, la messagerie,
+                        les Watch Parties, le Wishboard communautaire et le système Freemium. Ces fonctionnalités sont pensées pour rendre
+                        l&apos;expérience plus personnelle, interactive et communautaire.
                     </p>
-                    <p className="text-neutral-400">
-                        YourMovie&apos;s n&apos;héberge aucun fichier vidéo sur ses serveurs : les contenus proviennent de sources tierces externes.
-                        Voir nos <a href="/cgu" className="text-[#E8D2A6] hover:underline">Conditions d&apos;utilisation</a> pour plus de détails.
+                    <p>
+                        Le projet continue d&apos;évoluer grâce aux retours des utilisateurs. Les suggestions, le support et les nouveautés
+                        sont également accessibles depuis le serveur <a href="https://discord.gg/6mGTfvcNeD" target="_blank" rel="noopener noreferrer" className="text-[#E8D2A6] hover:underline">Discord de YourMovie&apos;s</a>.
                     </p>
                 </div>
             </div>
