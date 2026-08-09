@@ -166,7 +166,7 @@ export default function CoinsPage() {
                         ))}
                     </div>
                     <Link
-                        to="https://discord.gg/"
+                        to="https://discord.gg/6mGTfvcNeD"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-4 inline-flex h-11 items-center justify-center rounded-full border border-[#E8D2A6]/40 bg-[#E8D2A6]/10 px-5 text-sm font-semibold text-[#E8D2A6] transition-colors hover:border-[#E8D2A6] hover:bg-[#E8D2A6] hover:text-black"
