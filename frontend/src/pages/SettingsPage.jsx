@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -82,6 +82,9 @@ export default function SettingsPage() {
     const [discordCodeExpiresAt, setDiscordCodeExpiresAt] = useState(null);
     const [discordBusy, setDiscordBusy] = useState(false);
     const [discordSecondsLeft, setDiscordSecondsLeft] = useState(0);
+    const [licenseKey, setLicenseKey] = useState("");
+    const [licenseBusy, setLicenseBusy] = useState(false);
+    const [licenseVisible, setLicenseVisible] = useState(false);
 
     useEffect(() => {
         if (user?.premium) api.get("/subscription/current").then((r) => setSub(r.data)).catch(() => {});
@@ -374,10 +377,28 @@ export default function SettingsPage() {
         finally { setDiscordBusy(false); }
     };
 
+    const activateLicenseKey = async () => {
+        const key = licenseKey.trim();
+        if (!key) { toast.error("Saisissez votre clé d’activation"); return; }
+        setLicenseBusy(true);
+        try {
+            const response = await api.post("/license/activate", { key });
+            setLicenseKey("");
+            setLicenseVisible(false);
+            await refresh();
+            const current = await api.get("/subscription/current").catch(() => null);
+            if (current?.data) setSub(current.data);
+            const planName = response.data.plan?.charAt(0).toUpperCase() + response.data.plan?.slice(1);
+            toast.success(`Clé activée : formule ${planName}`);
+        } catch (e) { showError(toast, e, "Activation impossible"); }
+        finally { setLicenseBusy(false); }
+    };
+
     const TABS = [
         { id: "profile", label: "Profil", icon: <UserIcon size={14} /> },
         { id: "preferences", label: "Préférences", icon: <Play size={14} /> },
         { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
+        { id: "activation", label: "Activation", icon: <KeyRound size={14} /> },
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
         { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
@@ -391,7 +412,7 @@ export default function SettingsPage() {
                     <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Paramètres</h1>
                 </div>
 
-                <div className="flex gap-2 mb-8 border-b border-[#262626]">
+                <div className="flex gap-2 mb-8 overflow-x-auto border-b border-[#262626]">
                     {TABS.map((t) => (
                         <button
                             key={t.id}
@@ -665,6 +686,62 @@ export default function SettingsPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {tab === "activation" && (
+                    <div className="space-y-6">
+                        <div className="relative overflow-hidden rounded-2xl border border-[#E8D2A6]/35 bg-gradient-to-br from-[#151107] via-[#0a0a0a] to-[#080808] p-6 sm:p-8">
+                            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
+                            <div className="relative max-w-2xl">
+                                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-[#E8D2A6]/30 bg-[#E8D2A6]/10 text-[#E8D2A6]">
+                                    <KeyRound size={20} />
+                                </div>
+                                <div className="text-xs uppercase tracking-[0.2em] text-[#E8D2A6]">Clé SellAuth</div>
+                                <h2 className="mt-2 font-display text-2xl sm:text-3xl">Activer votre abonnement</h2>
+                                <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+                                    Saisissez la clé reçue après votre achat. Chaque clé est personnelle et ne peut être activée qu’une seule fois.
+                                </p>
+
+                                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                                    <div className="relative flex-1">
+                                        <Input
+                                            type={licenseVisible ? "text" : "password"}
+                                            value={licenseKey}
+                                            onChange={(e) => setLicenseKey(e.target.value)}
+                                            onKeyDown={(e) => e.key === "Enter" && !licenseBusy && activateLicenseKey()}
+                                            data-testid="license-key-input"
+                                            placeholder="YM-XXX-…"
+                                            autoComplete="off"
+                                            spellCheck={false}
+                                            className="h-12 border-[#343434] bg-[#080808] pr-12 font-mono tracking-wide text-white placeholder:text-neutral-700 focus-visible:border-[#E8D2A6] focus-visible:ring-[#E8D2A6]/20"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setLicenseVisible((visible) => !visible)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 transition-colors hover:text-[#E8D2A6]"
+                                            aria-label={licenseVisible ? "Masquer la clé" : "Afficher la clé"}
+                                        >
+                                            {licenseVisible ? <EyeOff size={17} /> : <Eye size={17} />}
+                                        </button>
+                                    </div>
+                                    <Button
+                                        onClick={activateLicenseKey}
+                                        disabled={licenseBusy || !licenseKey.trim()}
+                                        data-testid="activate-license-key"
+                                        className="h-12 rounded-full bg-[#E8D2A6] px-7 font-semibold text-black hover:bg-[#D4BB8B] disabled:opacity-40"
+                                    >
+                                        {licenseBusy ? <RefreshCw size={15} className="mr-2 animate-spin" /> : <KeyRound size={15} className="mr-2" />}
+                                        Activer la clé
+                                    </Button>
+                                </div>
+
+                                <div className="mt-4 flex items-start gap-2 text-xs text-neutral-500">
+                                    <Lock size={13} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
+                                    La clé est vérifiée uniquement par le serveur et n’est jamais enregistrée en clair.
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
 
