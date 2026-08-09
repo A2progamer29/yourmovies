@@ -55,7 +55,7 @@ function TopTenItem({ media, rank }) {
 export default function TopTenCarousel({ items }) {
     if (!items || items.length === 0) return null;
     return (
-        <section className="max-w-7xl mx-auto px-6 mt-16">
+        <section className="max-w-7xl mx-auto px-6 mt-24">
             <div className="mb-6">
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1 flex items-center gap-2">
                     <TrendingUp size={13} className="text-[#E8D2A6]" /> Sur la plateforme
