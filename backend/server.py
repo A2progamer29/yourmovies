@@ -2472,6 +2472,38 @@ class WatchProgressInput(BaseModel):
     season_number: Optional[int] = None
     episode_number: Optional[int] = None
 
+class WatchProgressStartInput(BaseModel):
+    media_id: str
+    duration_seconds: Optional[float] = None
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
+
+@api_router.post("/watch-progress/start")
+async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    key = {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id}
+    previous = await db.watch_progress.find_one(key, {"_id": 0})
+    same_selection = bool(
+        previous
+        and previous.get("season_number") == inp.season_number
+        and previous.get("episode_number") == inp.episode_number
+    )
+    update = {
+        "user_id": user["user_id"],
+        "profile_id": profile_id,
+        "media_id": inp.media_id,
+        "season_number": inp.season_number,
+        "episode_number": inp.episode_number,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if same_selection:
+        if inp.duration_seconds and not previous.get("duration_seconds"):
+            update["duration_seconds"] = inp.duration_seconds
+    else:
+        update["position_seconds"] = 0
+        update["duration_seconds"] = inp.duration_seconds
+    await db.watch_progress.update_one(key, {"$set": update}, upsert=True)
+    return {"ok": True}
+
 @api_router.post("/watch-progress")
 async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
     await db.watch_progress.update_one(
