@@ -178,14 +178,14 @@ export default function AdminPage() {
         } catch (e) { showError(toast, e, "Mise à jour impossible"); }
     };
 
-    const toggleMediaFlag = async (media, field) => {
+    const toggleMediaFlag = async (media, field, checked) => {
         const key = media.id + ":" + field;
         if (mediaFlagSaving[key]) return;
-        const value = !media[field];
+        const value = typeof checked === "boolean" ? checked : !Boolean(media[field]);
         setMediaFlagSaving((current) => ({ ...current, [key]: true }));
         setItems((current) => current.map((item) => item.id === media.id ? { ...item, [field]: value } : item));
         try {
-            const response = await api.put("/media/" + media.id, { [field]: value });
+            const response = await api.patch("/admin/media/" + media.id + "/flags", { [field]: value });
             setItems((current) => current.map((item) => item.id === media.id ? { ...item, ...response.data } : item));
             toast.success(field === "featured"
                 ? "À l’affiche " + (value ? "activé" : "désactivé")
@@ -346,7 +346,7 @@ export default function AdminPage() {
                                                 <Switch
                                                     checked={!!m.in_theaters}
                                                     disabled={!!mediaFlagSaving[m.id + ":in_theaters"] || level < 2}
-                                                    onCheckedChange={() => toggleMediaFlag(m, "in_theaters")}
+                                                    onCheckedChange={(checked) => toggleMediaFlag(m, "in_theaters", checked)}
                                                     aria-label={"Statut cinéma de " + m.title}
                                                     data-testid={"toggle-in-theaters-" + m.id}
                                                 />
@@ -359,7 +359,7 @@ export default function AdminPage() {
                                             <Switch
                                                 checked={!!m.featured}
                                                 disabled={!!mediaFlagSaving[m.id + ":featured"] || level < 2}
-                                                onCheckedChange={() => toggleMediaFlag(m, "featured")}
+                                                onCheckedChange={(checked) => toggleMediaFlag(m, "featured", checked)}
                                                 aria-label={"Mise à l’affiche de " + m.title}
                                                 data-testid={"toggle-featured-" + m.id}
                                             />
