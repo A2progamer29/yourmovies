@@ -21,8 +21,7 @@ export default function Footer() {
                 </div>
                 <div className="flex items-center gap-5 text-sm">
                     <Link to="/about" className="text-neutral-400 hover:text-[#E8D2A6] transition-colors">À propos</Link>
-                    <Link to="/cgu" className="text-neutral-400 hover:text-[#E8D2A6] transition-colors">CGU</Link>
-                    <Link to="/politique" className="text-neutral-400 hover:text-[#E8D2A6] transition-colors">Confidentialité</Link>
+                    <Link to="/dmca" className="text-neutral-400 hover:text-[#E8D2A6] transition-colors">DMCA</Link>
                     <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" aria-label="Discord" className="text-neutral-400 hover:text-[#5865F2] transition-colors">
                         <DiscordIcon />
                     </a>
