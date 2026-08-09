@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Coins, Flame, MessageSquare, Sparkles, Crown, Check, Gift } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -140,7 +140,6 @@ export default function CoinsPage() {
 
                 <div className="grid sm:grid-cols-2 gap-4 mb-12">
                     <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a]">
-                        <div className="text-xs uppercase tracking-widest text-neutral-400 mb-1">Solde</div>
                         <div className="flex items-center gap-2">
                             <Coins size={28} className="text-[#E8D2A6]" />
                             <span className="font-display text-5xl text-white" data-testid="coins-balance">{balance}</span>
@@ -151,7 +150,7 @@ export default function CoinsPage() {
                         <Flame size={32} className={user?.login_streak > 0 ? "text-[#E8D2A6]" : "text-neutral-600"} />
                         <div>
                             <div className="font-display text-3xl">{user?.login_streak || 0} jour(s)</div>
-                            <div className="text-sm text-neutral-400">Série de connexion — reviens chaque jour pour ne pas la perdre.</div>
+                            <div className="text-sm text-neutral-400">Série de connexion</div>
                         </div>
                     </div>
                 </div>
@@ -166,11 +165,19 @@ export default function CoinsPage() {
                             </div>
                         ))}
                     </div>
+                    <Link
+                        to="https://discord.gg/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-4 inline-flex h-11 items-center justify-center rounded-full border border-[#E8D2A6]/40 bg-[#E8D2A6]/10 px-5 text-sm font-semibold text-[#E8D2A6] transition-colors hover:border-[#E8D2A6] hover:bg-[#E8D2A6] hover:text-black"
+                        data-testid="earn-more-discord"
+                    >
+                        Vous voulez en gagner plus ? Rejoignez le Discord
+                    </Link>
                 </div>
 
                 <div>
-                    <h2 className="font-display text-2xl mb-1">Échanger contre du Premium</h2>
-                    <p className="text-neutral-500 text-sm mb-4">Clique une carte pour changer la durée (30 → 60 → 90 jours, de plus en plus chère). Les prix sont volontairement élevés — c'est une récompense de longue haleine.</p>
+                    <h2 className="font-display text-2xl mb-4">Échanger contre du Premium</h2>
                     {offer?.active && (
                         <div className="mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center gap-3">
                             <Gift size={20} className="text-[#E8D2A6] shrink-0" />
