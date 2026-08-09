@@ -35,6 +35,7 @@ import Footer from "@/components/Footer";
 import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
+import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -105,6 +106,7 @@ function App() {
                                 <GlobalUploadManager />
                                 <VersionChecker />
                                 <BetaNoticeDialog />
+                                <DiscordInvitePopup />
                                 <Toaster theme="dark" richColors position="top-right" />
                             </FavoritesProvider>
                         </UploadProvider>
