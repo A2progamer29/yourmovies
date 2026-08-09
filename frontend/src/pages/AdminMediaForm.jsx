@@ -57,6 +57,33 @@ function parseYouTubeId(input) {
     } catch { return s; }
 }
 
+function MediaFlagControl({ checked, disabled, onToggle, label, testId }) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={label}
+            onClick={onToggle}
+            disabled={disabled}
+            data-testid={testId}
+            className="group inline-flex min-w-[142px] items-center justify-end gap-3 rounded-full px-2 py-1.5 transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]/70 disabled:cursor-wait disabled:opacity-60"
+        >
+            <span className={`text-sm font-semibold ${checked ? "text-[#E8D2A6]" : "text-neutral-500"}`}>
+                {disabled ? "Enregistrement…" : checked ? "Activé" : "Désactivé"}
+            </span>
+            <span
+                aria-hidden="true"
+                className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors duration-200 ${checked ? "border-[#E8D2A6] bg-[#E8D2A6]" : "border-[#4a4a4a] bg-[#262626]"}`}
+            >
+                <span
+                    className={`absolute left-1 top-1 h-5 w-5 rounded-full shadow-md transition-transform duration-200 ${checked ? "translate-x-5 bg-black" : "translate-x-0 bg-white"}`}
+                />
+            </span>
+        </button>
+    );
+}
+
 export default function AdminMediaForm() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
@@ -89,6 +116,7 @@ export default function AdminMediaForm() {
         && !item.videoId
     );
     const [saving, setSaving] = useState(false);
+    const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [tmdbQuery, setTmdbQuery] = useState("");
     const [tmdbResults, setTmdbResults] = useState([]);
     const [tmdbSearching, setTmdbSearching] = useState(false);
@@ -255,6 +283,43 @@ export default function AdminMediaForm() {
         }
     };
 
+    const toggleMediaFlag = async (field) => {
+        if (mediaFlagSaving[field]) return;
+
+        const previous = Boolean(form[field]);
+        const value = !previous;
+        setForm((current) => ({ ...current, [field]: value }));
+
+        // Sur une création, les valeurs seront enregistrées avec le reste du formulaire.
+        if (!isEdit) return;
+
+        setMediaFlagSaving((current) => ({ ...current, [field]: true }));
+        try {
+            let response;
+            try {
+                response = await api.patch(`/admin/media/${id}/flags`, { [field]: value });
+            } catch (requestError) {
+                // Compatibilité pendant un éventuel déploiement décalé du backend.
+                if (![404, 405].includes(requestError?.response?.status)) throw requestError;
+                response = await api.put(`/media/${id}`, { [field]: value });
+            }
+
+            const persistedValue = response?.data?.[field];
+            setForm((current) => ({
+                ...current,
+                [field]: typeof persistedValue === "boolean" ? persistedValue : value,
+            }));
+            toast.success(field === "featured"
+                ? `À l’affiche ${value ? "activé" : "désactivé"}`
+                : `Statut cinéma ${value ? "activé" : "désactivé"}`);
+        } catch (error) {
+            setForm((current) => ({ ...current, [field]: previous }));
+            showError(toast, error, "Mise à jour impossible");
+        } finally {
+            setMediaFlagSaving((current) => ({ ...current, [field]: false }));
+        }
+    };
+
     const save = async () => {
         if (hasUploadWithoutReference) {
             toast.error("Patiente quelques secondes, le temps que Bunny crée la référence vidéo.");
@@ -284,7 +349,7 @@ export default function AdminMediaForm() {
             rating: form.rating === "" || form.rating == null ? null : Number(form.rating),
             seasons: form.seasons || [],
             featured: !!form.featured,
-            in_theaters: form.type === "movie" && !!form.in_theaters,
+            in_theaters: !!form.in_theaters,
             featured_order: form.featured_order === "" ? null : Number(form.featured_order),
         };
         setSaving(true);
@@ -775,37 +840,31 @@ export default function AdminMediaForm() {
                     <section>
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Mise en avant</h2>
                         <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] space-y-4">
-                            {form.type === "movie" && (
-                                <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#262626]">
-                                    <div>
-                                        <div className="text-white">Actuellement au cinéma</div>
-                                        <div className="text-xs text-neutral-500">Avertit les spectateurs que la qualité disponible peut être réduite.</div>
-                                    </div>
-                                    <div className="flex items-center gap-3 shrink-0">
-                                        <span className={`text-sm font-semibold ${form.in_theaters ? "text-[#E8D2A6]" : "text-neutral-500"}`}>{form.in_theaters ? "Activé" : "Désactivé"}</span>
-                                        <Switch
-                                            checked={!!form.in_theaters}
-                                            onCheckedChange={(checked) => setForm((current) => ({ ...current, in_theaters: checked }))}
-                                            data-testid="form-in-theaters"
-                                            aria-label="Activer ou désactiver le statut actuellement au cinéma"
-                                        />
-                                    </div>
+                            <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#262626]">
+                                <div>
+                                    <div className="text-white">Actuellement au cinéma</div>
+                                    <div className="text-xs text-neutral-500">Avertit les spectateurs que la qualité disponible peut être réduite.</div>
                                 </div>
-                            )}
-                            <div className="flex items-center justify-between">
+                                <MediaFlagControl
+                                    checked={!!form.in_theaters}
+                                    disabled={!!mediaFlagSaving.in_theaters}
+                                    onToggle={() => toggleMediaFlag("in_theaters")}
+                                    testId="form-in-theaters"
+                                    label="Activer ou désactiver le statut actuellement au cinéma"
+                                />
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
                                 <div>
                                     <div className="text-white">À l&apos;affiche sur l&apos;accueil</div>
                                     <div className="text-xs text-neutral-500">Ce contenu apparaîtra dans le carrousel du hero (défilement auto).</div>
                                 </div>
-                                <div className="flex items-center gap-3 shrink-0">
-                                    <span className={`text-sm font-semibold ${form.featured ? "text-[#E8D2A6]" : "text-neutral-500"}`}>{form.featured ? "Activé" : "Désactivé"}</span>
-                                    <Switch
-                                        checked={!!form.featured}
-                                        onCheckedChange={(checked) => setForm((current) => ({ ...current, featured: checked }))}
-                                        data-testid="form-featured"
-                                        aria-label="Activer ou désactiver la mise à l'affiche"
-                                    />
-                                </div>
+                                <MediaFlagControl
+                                    checked={!!form.featured}
+                                    disabled={!!mediaFlagSaving.featured}
+                                    onToggle={() => toggleMediaFlag("featured")}
+                                    testId="form-featured"
+                                    label="Activer ou désactiver la mise à l'affiche"
+                                />
                             </div>
                             {form.featured && (
                                 <div>
