@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
-const DISCORD_URL = "https://discord.gg/8SZ8KPrjcQ";
+const DISCORD_URL = "https://discord.gg/6mGTfvcNeD";
 
 function DiscordIcon({ size = 20 }) {
     return (
