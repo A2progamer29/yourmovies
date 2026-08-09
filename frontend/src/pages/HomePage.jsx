@@ -31,6 +31,7 @@ export default function HomePage() {
     const [trending, setTrending] = useState([]);
     const [genres, setGenres] = useState([]);
     const [continueWatching, setContinueWatching] = useState([]);
+    const [recommendations, setRecommendations] = useState([]);
     const rotateTimer = useRef(null);
     const [paused, setPaused] = useState(false);
 
@@ -56,8 +57,12 @@ export default function HomePage() {
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
             if (user) {
                 try {
-                    const cw = await api.get("/watch-progress");
+                    const [cw, recs] = await Promise.all([
+                        api.get("/watch-progress"),
+                        api.get("/recommendations?limit=20"),
+                    ]);
                     setContinueWatching(cw.data);
+                    setRecommendations(recs.data);
                 } catch (e) { }
             }
         })();
@@ -235,6 +240,52 @@ export default function HomePage() {
                 )}
             </section>
 
+            {continueWatching.length > 0 && (
+                <section className="max-w-7xl mx-auto px-6 mt-10">
+                    <div className="mb-6">
+                        <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Votre historique</div>
+                        <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Récemment regardés</h2>
+                    </div>
+                    <HScroller testId="recently-watched-scroller">
+                        {continueWatching.map((m) => {
+                            const episodeQuery = m.season_number != null && m.episode_number != null
+                                ? `?season=${encodeURIComponent(m.season_number)}&episode=${encodeURIComponent(m.episode_number)}`
+                                : "";
+                            const progress = m.duration_seconds > 0
+                                ? Math.min(100, Math.max(0, (m.position_seconds / m.duration_seconds) * 100))
+                                : 0;
+                            return (
+                                <div key={m.id} className="shrink-0 w-64 snap-start">
+                                    <Link to={`/watch/${m.id}${episodeQuery}`} data-testid={`resume-${m.id}`} className="group block relative aspect-video rounded-xl overflow-hidden border border-[#262626] hover:border-[#E8D2A6]/60 transition-colors bg-[#111]">
+                                        <img src={m.banner_url || m.poster_url} alt={m.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
+                                        <div className="absolute bottom-0 left-0 right-0 p-3 pb-4">
+                                            <div className="text-white text-sm font-medium truncate">{m.title}</div>
+                                            {m.season_number != null && m.episode_number != null && (
+                                                <div className="mt-0.5 text-[11px] text-neutral-300">S{m.season_number} · E{m.episode_number}</div>
+                                            )}
+                                        </div>
+                                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                                            <div className="h-full bg-[#E8D2A6] transition-[width]" style={{ width: `${progress}%` }} />
+                                        </div>
+                                    </Link>
+                                </div>
+                            );
+                        })}
+                    </HScroller>
+                </section>
+            )}
+
+            {recommendations.length > 0 && (
+                <MediaCarousel
+                    title="Recommandations selon vos goûts"
+                    eyebrow="Parce que vous avez regardé"
+                    items={recommendations}
+                    seeAllHref="/browse"
+                    testId="carousel-recommendations"
+                />
+            )}
+
             {!user?.premium && (
                 <section className="max-w-7xl mx-auto px-6 mt-14">
                     <Link
@@ -258,35 +309,6 @@ export default function HomePage() {
                 </section>
             )}
 
-            {continueWatching.length > 0 && (
-                <section className="max-w-7xl mx-auto px-6 mt-16">
-                    <div className="flex items-end justify-between mb-6">
-                        <div>
-                            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Pour vous</div>
-                            <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Reprendre</h2>
-                        </div>
-                    </div>
-                    <div className="flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 -mx-6 px-6">
-                        {continueWatching.map((m) => (
-                            <div key={m.id} className="shrink-0 w-64 snap-start">
-                                <Link to={`/media/${m.id}`} data-testid={`resume-${m.id}`} className="block relative aspect-video rounded-lg overflow-hidden border border-[#262626] hover:border-[#E8D2A6]/40 transition-colors bg-[#111]">
-                                    <img src={m.banner_url || m.poster_url} alt={m.title} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent" />
-                                    <div className="absolute bottom-0 left-0 right-0 p-3">
-                                        <div className="text-white text-sm font-medium truncate">{m.title}</div>
-                                        {m.duration_seconds && (
-                                            <div className="mt-2 h-1 bg-white/20 rounded-full overflow-hidden">
-                                                <div className="h-full bg-[#E8D2A6]" style={{ width: `${Math.min(100, (m.position_seconds / m.duration_seconds) * 100)}%` }} />
-                                            </div>
-                                        )}
-                                    </div>
-                                </Link>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
-
             {isEmpty ? (
                 <section className="max-w-3xl mx-auto text-center py-24 px-6">
                     <h2 className="font-display text-3xl mb-3">Le catalogue est vide</h2>
@@ -303,6 +325,7 @@ export default function HomePage() {
                 </section>
             ) : (
                 <>
+                    <MediaCarousel title="Ajouts récents" eyebrow="Nouveautés" items={latest} seeAllHref="/browse" testId="carousel-latest" />
                     <TopTenCarousel items={trending} />
 
                     <section className="max-w-7xl mx-auto px-6 mt-16">
