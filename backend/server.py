@@ -17,12 +17,17 @@ import time
 import requests
 import bcrypt
 import jwt as pyjwt
-from pymongo import ReturnDocument
+from pymongo import ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta
+
+try:
+    from .license_key_seed import LICENSE_KEY_SEED, LICENSE_KEY_SEED_VERSION
+except ImportError:
+    from license_key_seed import LICENSE_KEY_SEED, LICENSE_KEY_SEED_VERSION
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -58,7 +63,10 @@ async def security_and_abuse_guard(request: Request, call_next):
         origin = request.headers.get("origin")
         if origin and origin not in allowed:
             return FastAPIResponse(content='{"detail":"Origine non autorisée"}', status_code=403, media_type="application/json")
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        if request.url.path == "/api/license/activate":
+            # Une limite dédiée empêche de tester rapidement de nombreuses clés.
+            scope, limit = "license-activation", 8
+        elif request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             scope, limit = "mutation", 40
         elif request.url.path.startswith("/api/bunny/video-status/"):
             # Les contrôles d'encodage ont leur propre quota : ils ne doivent jamais
@@ -234,6 +242,14 @@ class RedeemInput(BaseModel):
     plan: Literal["basic", "standard", "premium"]
     days: int = 30
 
+class LicenseActivationInput(BaseModel):
+    key: str = Field(min_length=12, max_length=128)
+
+class AdminLicenseKeysInput(BaseModel):
+    keys: str = Field(min_length=1, max_length=1_000_000)
+    plan: Literal["basic", "standard", "premium"]
+    billing_cycle: Literal["monthly", "yearly"]
+
 class AdminCoinsInput(BaseModel):
     amount: float = 0
     mode: Literal["add", "remove", "set", "reset"] = "add"
@@ -263,6 +279,66 @@ SESSION_TTL = timedelta(days=7)
 
 def _token_fingerprint(jti: str) -> str:
     return hashlib.sha256(jti.encode()).hexdigest()
+
+def _normalize_license_key(raw_key: str) -> str:
+    key = (raw_key or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9-]{12,128}", key):
+        raise HTTPException(status_code=422, detail="Format de clé invalide")
+    return key
+
+def _license_key_hash(raw_key: str) -> str:
+    return hashlib.sha256(_normalize_license_key(raw_key).encode("utf-8")).hexdigest()
+
+def _license_key_status(doc: dict) -> str:
+    if doc.get("revoked_at"):
+        return "revoked"
+    if doc.get("redeemed_at"):
+        return "redeemed"
+    return "available"
+
+def _license_key_admin_dict(doc: dict) -> dict:
+    # Ne jamais renvoyer key_hash ou la clé d'origine au frontend.
+    return {
+        "id": doc.get("id"),
+        "plan": doc.get("plan"),
+        "duration_days": int(doc.get("duration_days", 0) or 0),
+        "billing_cycle": doc.get("billing_cycle"),
+        "status": _license_key_status(doc),
+        "created_at": doc.get("created_at"),
+        "redeemed_at": doc.get("redeemed_at"),
+        "redeemed_until": doc.get("redeemed_until"),
+        "revoked_at": doc.get("revoked_at"),
+    }
+
+async def _seed_license_keys() -> None:
+    marker = await db.settings.find_one({"id": "license_key_seed"}, {"_id": 0, "version": 1})
+    if marker and marker.get("version") == LICENSE_KEY_SEED_VERSION:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    operations = []
+    for key_hash, plan, duration_days, billing_cycle in LICENSE_KEY_SEED:
+        operations.append(UpdateOne(
+            {"key_hash": key_hash},
+            {"$setOnInsert": {
+                "id": f"lk_{key_hash[:24]}",
+                "key_hash": key_hash,
+                "plan": plan,
+                "duration_days": duration_days,
+                "billing_cycle": billing_cycle,
+                "source": "initial_whitelist",
+                "created_at": now,
+                "redeemed_at": None,
+                "revoked_at": None,
+            }},
+            upsert=True,
+        ))
+    if operations:
+        await db.license_keys.bulk_write(operations, ordered=False)
+    await db.settings.update_one(
+        {"id": "license_key_seed"},
+        {"$set": {"version": LICENSE_KEY_SEED_VERSION, "imported_at": now}},
+        upsert=True,
+    )
 
 async def create_jwt(user_id: str) -> str:
     now = datetime.now(timezone.utc)
@@ -441,6 +517,14 @@ def _effective_premium_entitlement(user: dict) -> Optional[dict]:
         _active_premium_source(user.get("premium_plan"), user.get("premium_until"), "account"),
         _active_premium_source(user.get("discord_premium_plan"), user.get("discord_premium_until"), "discord"),
     ]
+    for entitlement in user.get("license_entitlements", []) or []:
+        if not isinstance(entitlement, dict):
+            continue
+        sources.append(_active_premium_source(
+            entitlement.get("plan"),
+            entitlement.get("until"),
+            "license",
+        ))
     active = [source for source in sources if source]
     if not active:
         return None
@@ -511,6 +595,12 @@ LEGACY_COIN_OPTIONS = {
     "premium": [{"days": 30, "coins": 5000}, {"days": 60, "coins": 9500}, {"days": 90, "coins": 13500}],
 }
 
+LEGACY_PREMIUM_PRICES = {
+    "basic": {"monthly": 4.99, "yearly": 47.88},
+    "standard": {"monthly": 9.99, "yearly": 95.88},
+    "premium": {"monthly": 16.99, "yearly": 163.08},
+}
+
 WELCOME_OFFER_HOURS = 24
 WELCOME_OFFER_PCT = 50
 
@@ -528,6 +618,19 @@ async def _migrate_coin_economy_v2() -> None:
         update["$unset"] = {"coins": ""}
     else:
         logger.info("Tarifs Freemium personnalisés conservés pendant la migration v2.")
+    await db.settings.update_one({"id": "pricing"}, update, upsert=True)
+
+async def _migrate_premium_pricing_v3() -> None:
+    """Applique les nouveaux prix seulement si les anciens tarifs n'ont pas été personnalisés."""
+    doc = await _pricing_doc()
+    if int(doc.get("premium_pricing_version", 0) or 0) >= 3:
+        return
+    overrides = doc.get("premium")
+    update = {"$set": {"premium_pricing_version": 3}}
+    if not overrides or overrides == LEGACY_PREMIUM_PRICES:
+        update["$unset"] = {"premium": ""}
+    else:
+        logger.info("Tarifs Premium personnalisés conservés pendant la migration v3.")
     await db.settings.update_one({"id": "pricing"}, update, upsert=True)
 
 async def _effective_plans() -> list:
@@ -2118,8 +2221,8 @@ PLANS = [
             "Sans publicité",
         ],
         "prices": {
-            "monthly": {"lookup_key": "ym_basic_monthly", "amount": 4.99, "currency": "eur"},
-            "yearly": {"lookup_key": "ym_basic_yearly", "amount": 47.88, "currency": "eur"},
+            "monthly": {"lookup_key": "ym_basic_monthly", "amount": 2.99, "currency": "eur"},
+            "yearly": {"lookup_key": "ym_basic_yearly", "amount": 35.88, "currency": "eur"},
         },
     },
     {
@@ -2133,8 +2236,8 @@ PLANS = [
             "Téléchargements hors-ligne (à venir)",
         ],
         "prices": {
-            "monthly": {"lookup_key": "ym_standard_monthly", "amount": 9.99, "currency": "eur"},
-            "yearly": {"lookup_key": "ym_standard_yearly", "amount": 95.88, "currency": "eur"},
+            "monthly": {"lookup_key": "ym_standard_monthly", "amount": 5.99, "currency": "eur"},
+            "yearly": {"lookup_key": "ym_standard_yearly", "amount": 71.88, "currency": "eur"},
         },
     },
     {
@@ -2149,8 +2252,8 @@ PLANS = [
             "Téléchargements hors-ligne (à venir)",
         ],
         "prices": {
-            "monthly": {"lookup_key": "ym_premium_monthly", "amount": 16.99, "currency": "eur"},
-            "yearly": {"lookup_key": "ym_premium_yearly", "amount": 163.08, "currency": "eur"},
+            "monthly": {"lookup_key": "ym_premium_monthly", "amount": 12.99, "currency": "eur"},
+            "yearly": {"lookup_key": "ym_premium_yearly", "amount": 155.88, "currency": "eur"},
         },
     },
 ]
@@ -2230,6 +2333,160 @@ async def set_admin_pricing(inp: PricingInput, admin: dict = Depends(require_lev
     if update:
         await db.settings.update_one({"id": "pricing"}, {"$set": update}, upsert=True)
     return await _pricing_payload()
+
+# ---------- Clés SellAuth ----------
+@api_router.get("/admin/license-keys")
+async def admin_list_license_keys(limit: int = Query(200, ge=1, le=500), admin: dict = Depends(require_level(3))):
+    docs = await db.license_keys.find({}, {"_id": 0, "key_hash": 0}).sort("created_at", -1).to_list(limit)
+    total, available, redeemed, revoked = await asyncio.gather(
+        db.license_keys.count_documents({}),
+        db.license_keys.count_documents({"redeemed_at": None, "revoked_at": None}),
+        db.license_keys.count_documents({"redeemed_at": {"$ne": None}, "revoked_at": None}),
+        db.license_keys.count_documents({"revoked_at": {"$ne": None}}),
+    )
+    return {
+        "items": [_license_key_admin_dict(doc) for doc in docs],
+        "stats": {"total": total, "available": available, "redeemed": redeemed, "revoked": revoked},
+    }
+
+@api_router.post("/admin/license-keys")
+async def admin_add_license_keys(inp: AdminLicenseKeysInput, admin: dict = Depends(require_level(3))):
+    raw_keys = [line.strip() for line in inp.keys.splitlines() if line.strip()]
+    if not raw_keys:
+        raise HTTPException(status_code=422, detail="Ajoutez au moins une clé")
+    if len(raw_keys) > 5000:
+        raise HTTPException(status_code=422, detail="Maximum 5 000 clés par import")
+
+    unique_hashes = []
+    seen = set()
+    for raw_key in raw_keys:
+        key_hash = _license_key_hash(raw_key)
+        if key_hash not in seen:
+            seen.add(key_hash)
+            unique_hashes.append(key_hash)
+
+    duration_days = 365 if inp.billing_cycle == "yearly" else 30
+    now = datetime.now(timezone.utc).isoformat()
+    operations = [
+        UpdateOne(
+            {"key_hash": key_hash},
+            {"$setOnInsert": {
+                "id": f"lk_{key_hash[:24]}",
+                "key_hash": key_hash,
+                "plan": inp.plan,
+                "duration_days": duration_days,
+                "billing_cycle": inp.billing_cycle,
+                "source": "admin",
+                "created_at": now,
+                "created_by": admin["user_id"],
+                "redeemed_at": None,
+                "revoked_at": None,
+            }},
+            upsert=True,
+        )
+        for key_hash in unique_hashes
+    ]
+    result = await db.license_keys.bulk_write(operations, ordered=False)
+    added = int(result.upserted_count or 0)
+    return {"ok": True, "added": added, "duplicates": len(unique_hashes) - added}
+
+@api_router.post("/admin/license-keys/revoke")
+async def admin_revoke_license_key(inp: LicenseActivationInput, admin: dict = Depends(require_level(3))):
+    key_hash = _license_key_hash(inp.key)
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.license_keys.update_one(
+        {"key_hash": key_hash, "revoked_at": None},
+        {"$set": {"revoked_at": now, "revoked_by": admin["user_id"]}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Clé introuvable ou déjà retirée")
+    return {"ok": True}
+
+@api_router.delete("/admin/license-keys/{license_key_id}")
+async def admin_revoke_license_key_by_id(license_key_id: str, admin: dict = Depends(require_level(3))):
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.license_keys.update_one(
+        {"id": license_key_id, "revoked_at": None},
+        {"$set": {"revoked_at": now, "revoked_by": admin["user_id"]}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Clé introuvable ou déjà retirée")
+    return {"ok": True}
+
+def _entitlement_date(value) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return None
+
+@api_router.post("/license/activate")
+async def activate_license_key(inp: LicenseActivationInput, user: dict = Depends(get_current_user)):
+    key_hash = _license_key_hash(inp.key)
+    license_key = await db.license_keys.find_one({"key_hash": key_hash}, {"_id": 0})
+    if not license_key or license_key.get("revoked_at"):
+        raise HTTPException(status_code=404, detail="Clé invalide ou désactivée")
+    if license_key.get("redeemed_at"):
+        raise HTTPException(status_code=409, detail="Cette clé a déjà été utilisée")
+
+    now = datetime.now(timezone.utc)
+    plan = license_key["plan"]
+    duration_days = int(license_key.get("duration_days", 30) or 30)
+    starts_at = now
+    account_until = _entitlement_date(user.get("premium_until"))
+    if user.get("premium_plan") == plan and account_until and account_until > starts_at:
+        starts_at = account_until
+    for entitlement in user.get("license_entitlements", []) or []:
+        if isinstance(entitlement, dict) and entitlement.get("plan") == plan:
+            entitlement_until = _entitlement_date(entitlement.get("until"))
+            if entitlement_until and entitlement_until > starts_at:
+                starts_at = entitlement_until
+    premium_until = starts_at + timedelta(days=duration_days)
+    now_iso = now.isoformat()
+    until_iso = premium_until.isoformat()
+
+    claimed = await db.license_keys.find_one_and_update(
+        {"key_hash": key_hash, "redeemed_at": None, "revoked_at": None},
+        {"$set": {
+            "redeemed_at": now_iso,
+            "redeemed_by": user["user_id"],
+            "redeemed_until": until_iso,
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not claimed:
+        raise HTTPException(status_code=409, detail="Cette clé a déjà été utilisée")
+
+    entitlement = {
+        "license_key_id": claimed["id"],
+        "plan": plan,
+        "billing_cycle": claimed.get("billing_cycle"),
+        "activated_at": now_iso,
+        "until": until_iso,
+    }
+    try:
+        user_update = await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$push": {"license_entitlements": entitlement}},
+        )
+        if user_update.matched_count == 0:
+            raise RuntimeError("Compte introuvable pendant l'activation")
+    except Exception:
+        await db.license_keys.update_one(
+            {"id": claimed["id"], "redeemed_by": user["user_id"], "redeemed_at": now_iso},
+            {"$set": {"redeemed_at": None, "redeemed_by": None, "redeemed_until": None}},
+        )
+        raise
+    return {
+        "ok": True,
+        "plan": plan,
+        "billing_cycle": claimed.get("billing_cycle"),
+        "premium_until": until_iso,
+    }
 
 class CheckoutRequest(BaseModel):
     lookup_key: str
@@ -2596,13 +2853,20 @@ async def similar_media(media_id: str, limit: int = 8):
 # ---------- Subscription Management ----------
 @api_router.get("/subscription/current")
 async def current_subscription(user: dict = Depends(get_current_user)):
-    plan = user.get("premium_plan")
-    premium_until = user.get("premium_until")
+    entitlement = _effective_premium_entitlement(user)
+    plan = entitlement.get("plan") if entitlement else None
+    premium_until = entitlement.get("until") if entitlement else None
+    source = entitlement.get("source") if entitlement else None
     interval = user.get("premium_interval")
+    if source == "license":
+        active_license = next((item for item in (user.get("license_entitlements", []) or [])
+            if isinstance(item, dict) and item.get("plan") == plan and item.get("until") == premium_until), None)
+        interval = active_license.get("billing_cycle") if active_license else interval
     result = {
         "plan": plan,
         "interval": interval,
         "premium_until": premium_until,
+        "source": source,
         "cancel_at_period_end": False,
         "next_billing_date": None,
         "amount": None,
@@ -3209,6 +3473,10 @@ async def startup():
     except Exception as e:
         logger.warning(f"Migration économie Freemium v2 échouée : {e}")
     try:
+        await _migrate_premium_pricing_v3()
+    except Exception as e:
+        logger.warning(f"Migration tarifs Premium v3 échouée : {e}")
+    try:
         await _migrate_account_identifiers()
     except Exception as e:
         logger.error(f"Migration des identifiants de compte échouée : {e}")
@@ -3220,11 +3488,18 @@ async def startup():
         await db.users.create_index("account_identifier", unique=True, sparse=True)
         await db.auth_sessions.create_index("jti_hash", unique=True)
         await db.auth_sessions.create_index("expires_at", expireAfterSeconds=0)
+        await db.license_keys.create_index("key_hash", unique=True)
+        await db.license_keys.create_index("id", unique=True)
+        await db.license_keys.create_index([("redeemed_at", 1), ("revoked_at", 1)])
         # MongoDB supprime automatiquement les demandes 24 h après leur
         # approbation. Les documents non approuvés n'ont pas ce champ.
         await db.wishboard.create_index("approved_expires_at", expireAfterSeconds=0)
     except Exception as e:
         logger.warning(f"Index unique users non créé (doublons existants ?) : {e}")
+    try:
+        await _seed_license_keys()
+    except Exception as e:
+        logger.error(f"Import sécurisé des clés SellAuth échoué : {e}")
     try:
         # Compatibilité avec les approbations créées avant cette fonctionnalité :
         # elles restent visibles 24 h à compter de ce déploiement.
