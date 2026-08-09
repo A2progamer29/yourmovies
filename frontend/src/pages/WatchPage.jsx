@@ -216,6 +216,32 @@ export default function WatchPage() {
         } catch (e) { }
     }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
 
+    const markEmbeddedPlaybackStarted = useCallback(async () => {
+        if (!user || !media) return;
+        const rawDuration = media.type === "movie"
+            ? media.duration_minutes
+            : (selectedEpisode?.duration_minutes ?? selectedEpisode?.duration ?? media.duration_minutes);
+        const durationMinutes = Number.parseFloat(rawDuration);
+        try {
+            await api.post("/watch-progress/start", {
+                media_id: id,
+                duration_seconds: Number.isFinite(durationMinutes) && durationMinutes > 0
+                    ? durationMinutes * 60
+                    : null,
+                season_number: media.type === "movie" ? null : selectedEpisode?.season_number,
+                episode_number: media.type === "movie" ? null : selectedEpisode?.ep_number,
+            }, { silent: true });
+        } catch (e) { }
+    }, [
+        id,
+        user,
+        media,
+        selectedEpisode?.duration,
+        selectedEpisode?.duration_minutes,
+        selectedEpisode?.season_number,
+        selectedEpisode?.ep_number,
+    ]);
+
     const createParty = async () => {
         if (!user) { navigate("/login"); return; }
         try {
@@ -443,6 +469,7 @@ export default function WatchPage() {
                                         data-testid="bunny-player"
                                         src={bunnyPlaybackUrl}
                                         loading="eager"
+                                        onLoad={markEmbeddedPlaybackStarted}
                                         className="absolute inset-0 w-full h-full"
                                         allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
                                         allowFullScreen
