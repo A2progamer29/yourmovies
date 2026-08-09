@@ -58,13 +58,17 @@ export default function HomePage() {
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
             if (user) {
                 try {
-                    const [cw, recs] = await Promise.all([
-                        api.get("/watch-progress"),
-                        api.get("/recommendations?limit=20"),
-                    ]);
-                    setContinueWatching(cw.data);
-                    setRecommendations(recs.data);
-                } catch (e) { }
+                    const cw = await api.get("/watch-progress");
+                    setContinueWatching(Array.isArray(cw.data) ? cw.data : []);
+                } catch (e) {
+                    setContinueWatching([]);
+                }
+                try {
+                    const recs = await api.get("/recommendations?limit=20");
+                    setRecommendations(Array.isArray(recs.data) ? recs.data : []);
+                } catch (e) {
+                    setRecommendations([]);
+                }
             }
         })();
     }, [user]);
@@ -245,7 +249,7 @@ export default function HomePage() {
                 <section className="max-w-7xl mx-auto px-6 mt-10">
                     <div className="mb-6">
                         <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Votre historique</div>
-                        <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Récemment regardés</h2>
+                        <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Continuer à regarder</h2>
                     </div>
                     <HScroller testId="recently-watched-scroller">
                         {continueWatching.map((m) => {
