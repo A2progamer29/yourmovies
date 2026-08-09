@@ -847,6 +847,21 @@ async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(requi
     fresh = await db.media.find_one({"id": media_id}, {"_id": 0})
     return serialize_media(fresh)
 
+class AdminMediaFlagsInput(BaseModel):
+    featured: Optional[bool] = None
+    in_theaters: Optional[bool] = None
+
+@api_router.patch("/admin/media/{media_id}/flags")
+async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, user: dict = Depends(require_admin)):
+    changes = flags.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="Aucun statut à modifier")
+    result = await db.media.update_one({"id": media_id}, {"$set": changes})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    fresh = await db.media.find_one({"id": media_id}, {"_id": 0})
+    return serialize_media(fresh)
+
 @api_router.delete("/media/{media_id}")
 async def delete_media(media_id: str, user: dict = Depends(require_level(3))):
     await db.media.delete_one({"id": media_id})
@@ -2454,6 +2469,8 @@ class WatchProgressInput(BaseModel):
     media_id: str
     position_seconds: float
     duration_seconds: Optional[float] = None
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
 
 @api_router.post("/watch-progress")
 async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
@@ -2465,6 +2482,8 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
             "media_id": inp.media_id,
             "position_seconds": inp.position_seconds,
             "duration_seconds": inp.duration_seconds,
+            "season_number": inp.season_number,
+            "episode_number": inp.episode_number,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
         upsert=True,
@@ -2485,9 +2504,38 @@ async def list_progress(user: dict = Depends(get_current_user), profile_id: Opti
         item = serialize_media(m)
         item["position_seconds"] = d["position_seconds"]
         item["duration_seconds"] = d.get("duration_seconds")
+        item["season_number"] = d.get("season_number")
+        item["episode_number"] = d.get("episode_number")
         item["updated_at"] = d.get("updated_at")
         result.append(item)
     return result
+
+@api_router.get("/recommendations")
+async def recommendations(limit: int = 20, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    limit = max(1, min(limit, 40))
+    progress = await db.watch_progress.find(
+        {"user_id": user["user_id"], "profile_id": profile_id},
+        {"_id": 0, "media_id": 1},
+    ).sort("updated_at", -1).to_list(30)
+    watched_ids = [item.get("media_id") for item in progress if item.get("media_id")]
+    if not watched_ids:
+        return []
+    watched = await db.media.find({"id": {"$in": watched_ids}}, {"_id": 0, "genres": 1, "type": 1}).to_list(30)
+    genre_weights = {}
+    type_weights = {}
+    for rank, item in enumerate(watched):
+        weight = max(1, len(watched) - rank)
+        type_weights[item.get("type")] = type_weights.get(item.get("type"), 0) + weight
+        for genre in item.get("genres") or []:
+            genre_weights[genre] = genre_weights.get(genre, 0) + weight
+    candidates = await db.media.find({"id": {"$nin": watched_ids}}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    def recommendation_score(item):
+        score = type_weights.get(item.get("type"), 0)
+        score += sum(genre_weights.get(genre, 0) * 3 for genre in item.get("genres") or [])
+        score += float(item.get("rating") or 0)
+        return score
+    ranked = sorted(candidates, key=recommendation_score, reverse=True)
+    return [serialize_media(item) for item in ranked[:limit] if recommendation_score(item) > 0]
 
 # ---------- Similar ----------
 @api_router.get("/media/{media_id}/similar")
