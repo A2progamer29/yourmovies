@@ -27,12 +27,11 @@ export default function SupportWithAds() {
 
     const load = useCallback(async () => {
         try {
-            const [s, cfg] = await Promise.all([
-                api.get("/rewards/support/status", { silent: true }),
-                loadAdsConfig(),
-            ]);
+            // On n'attend que le statut pour afficher le cadre : la config pub
+            // (liens) n'est nécessaire qu'au moment du clic.
+            const s = await api.get("/rewards/support/status", { silent: true });
             setStatus(s.data);
-            setAds(cfg);
+            loadAdsConfig().then(setAds).catch(() => { });
         } catch { setStatus(null); }
     }, []);
 
@@ -101,7 +100,7 @@ export default function SupportWithAds() {
     };
 
     return (
-        <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a]">
+        <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
             <div className="flex items-center gap-2 mb-1">
                 <Heart size={18} className="text-[#E8D2A6]" fill="currentColor" />
                 <h3 className="font-display text-xl text-white">Soutenir gratuitement</h3>
