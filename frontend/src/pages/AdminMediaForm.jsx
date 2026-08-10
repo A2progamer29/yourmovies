@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles } from "lucide-react";
+import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
 import * as tus from "tus-js-client";
@@ -38,6 +38,10 @@ const EMPTY = {
     country: "",
     rating: "",
     seasons: [],
+    tmdb_id: null,
+    tmdb_kind: null,
+    saga_title: "",
+    timeline: [],
     featured: false,
     in_theaters: false,
     featured_order: "",
@@ -120,6 +124,7 @@ export default function AdminMediaForm() {
     const [tmdbResults, setTmdbResults] = useState([]);
     const [tmdbSearching, setTmdbSearching] = useState(false);
     const [tmdbImporting, setTmdbImporting] = useState(null);
+    const [timelineSuggesting, setTimelineSuggesting] = useState(false);
 
     useEffect(() => {
         if (!isEdit) return;
@@ -136,6 +141,8 @@ export default function AdminMediaForm() {
                     cast: (m.cast || []).join(", "),
                     seasons: m.seasons || [],
                     qualities: m.qualities || [],
+                    saga_title: m.saga_title || "",
+                    timeline: m.timeline || [],
                     featured_order: m.featured_order ?? "",
                 });
             } catch (e) { showError(toast, e, "Contenu introuvable"); }
@@ -347,6 +354,17 @@ export default function AdminMediaForm() {
             country: form.country || null,
             rating: form.rating === "" || form.rating == null ? null : Number(form.rating),
             seasons: form.seasons || [],
+            tmdb_id: form.tmdb_id || null,
+            tmdb_kind: form.tmdb_kind || (form.type === "movie" ? "movie" : "tv"),
+            saga_title: (form.saga_title || "").trim() || null,
+            timeline: (form.timeline || []).map((item) => ({
+                tmdb_id: item.tmdb_id || null,
+                title: item.title?.trim() || "Titre inconnu",
+                type: item.type || form.type,
+                year: item.year === "" || item.year == null ? null : Number(item.year),
+                release_date: item.release_date || null,
+                poster_url: item.poster_url || null,
+            })),
             featured: !!form.featured,
             in_theaters: !!form.in_theaters,
             featured_order: form.featured_order === "" ? null : Number(form.featured_order),
@@ -433,6 +451,8 @@ export default function AdminMediaForm() {
                 seasons: data.seasons?.length
                     ? mergeImportedSeasons(current.seasons || [], data.seasons)
                     : (current.seasons || []),
+                saga_title: data.timeline?.length ? (data.saga_title || "") : current.saga_title,
+                timeline: data.timeline?.length ? data.timeline : (current.timeline || []),
                 // Ne jamais remplacer les vidéos déjà ajoutées au catalogue.
                 video_file_path: current.video_file_path,
                 video_url: current.video_url,
@@ -451,6 +471,69 @@ export default function AdminMediaForm() {
         } finally {
             setTmdbImporting(null);
         }
+    };
+
+    const suggestTimeline = async () => {
+        if (!form.tmdb_id) {
+            toast.info("Importe d’abord le titre avec l’assistant intelligent.");
+            return;
+        }
+        const tmdbKind = form.tmdb_kind || (form.type === "movie" ? "movie" : "tv");
+        setTimelineSuggesting(true);
+        try {
+            const r = await api.get(`/admin/tmdb/timeline/${tmdbKind}/${form.tmdb_id}`, {
+                params: { kind: form.type },
+            });
+            const proposal = r.data || {};
+            if (!proposal.timeline?.length) {
+                toast.info("Aucune saga fiable n’a été trouvée automatiquement. Tu peux la créer manuellement.");
+                return;
+            }
+            setForm((current) => ({
+                ...current,
+                saga_title: proposal.saga_title || current.saga_title,
+                timeline: proposal.timeline,
+            }));
+            toast.success(`${proposal.timeline.length} titres proposés dans la chronologie`);
+        } catch (e) {
+            showError(toast, e, "Proposition de chronologie impossible");
+        } finally {
+            setTimelineSuggesting(false);
+        }
+    };
+
+    const addTimelineItem = () => {
+        setForm((current) => ({
+            ...current,
+            timeline: [
+                ...(current.timeline || []),
+                { tmdb_id: null, title: "", type: current.type, year: "", release_date: null, poster_url: null },
+            ],
+        }));
+    };
+
+    const updateTimelineItem = (index, patch) => {
+        setForm((current) => ({
+            ...current,
+            timeline: (current.timeline || []).map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item),
+        }));
+    };
+
+    const removeTimelineItem = (index) => {
+        setForm((current) => ({
+            ...current,
+            timeline: (current.timeline || []).filter((_, itemIndex) => itemIndex !== index),
+        }));
+    };
+
+    const moveTimelineItem = (index, direction) => {
+        setForm((current) => {
+            const timeline = [...(current.timeline || [])];
+            const target = index + direction;
+            if (target < 0 || target >= timeline.length) return current;
+            [timeline[index], timeline[target]] = [timeline[target], timeline[index]];
+            return { ...current, timeline };
+        });
     };
 
     // Qualities helpers
@@ -551,7 +634,7 @@ export default function AdminMediaForm() {
                             </div>
                             <div>
                                 <h2 className="font-display text-xl text-[#E8D2A6]">Import intelligent</h2>
-                                <p className="text-xs text-neutral-400 mt-1">Choisis Film, Série ou Anime, puis recherche le titre pour remplir automatiquement les informations, l'affiche, la bannière, le casting et la bande-annonce.</p>
+                                <p className="text-xs text-neutral-400 mt-1">Choisis Film, Série ou Anime, puis recherche le titre pour remplir automatiquement les informations, les visuels, le casting, la bande-annonce et, lorsqu’elle existe, sa saga.</p>
                             </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mb-3" data-testid="tmdb-kind-selector">
@@ -564,7 +647,14 @@ export default function AdminMediaForm() {
                                     key={value}
                                     type="button"
                                     onClick={() => {
-                                        setForm((current) => ({ ...current, type: value }));
+                                        setForm((current) => current.type === value ? current : ({
+                                            ...current,
+                                            type: value,
+                                            tmdb_id: null,
+                                            tmdb_kind: null,
+                                            saga_title: "",
+                                            timeline: [],
+                                        }));
                                         setTmdbResults([]);
                                     }}
                                     aria-pressed={form.type === value}
@@ -618,6 +708,106 @@ export default function AdminMediaForm() {
                         <p className="text-[11px] text-neutral-600 mt-3">Données et images fournies par TMDB. Vérifie les informations avant d'enregistrer.</p>
                     </section>
 
+                    {/* SECTION: Timeline / saga */}
+                    <section className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-5" data-testid="timeline-editor">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="flex items-start gap-3">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#E8D2A6]/35 bg-[#E8D2A6]/10 text-[#E8D2A6]">
+                                    <GitBranch size={17} />
+                                </div>
+                                <div>
+                                    <h2 className="font-display text-xl text-[#E8D2A6]">Timeline, saga ou trilogie</h2>
+                                    <p className="mt-1 max-w-2xl text-xs leading-relaxed text-neutral-400">
+                                        L’assistant propose les œuvres liées dans l’ordre de sortie. Vérifie et réorganise la liste si l’ordre de visionnage est différent.
+                                    </p>
+                                </div>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={suggestTimeline}
+                                disabled={timelineSuggesting || !form.tmdb_id}
+                                data-testid="suggest-timeline-button"
+                                className="shrink-0 rounded-full border-[#E8D2A6]/40 bg-[#E8D2A6]/5 text-[#E8D2A6] hover:bg-[#E8D2A6]/10 hover:text-[#E8D2A6]"
+                            >
+                                {timelineSuggesting ? <Loader2 size={14} className="mr-2 animate-spin" /> : <WandSparkles size={14} className="mr-2" />}
+                                {timelineSuggesting ? "Analyse…" : "Proposer avec l’IA"}
+                            </Button>
+                        </div>
+
+                        {!form.tmdb_id && (
+                            <div className="mt-4 rounded-lg border border-dashed border-[#333] bg-[#111] px-4 py-3 text-xs text-neutral-500">
+                                Sélectionne d’abord le bon résultat dans « Import intelligent » pour permettre à l’assistant d’identifier la saga.
+                            </div>
+                        )}
+
+                        <div className="mt-5">
+                            <Label className="text-neutral-300">Nom affiché sur la fiche</Label>
+                            <Input
+                                value={form.saga_title}
+                                onChange={(e) => setForm((current) => ({ ...current, saga_title: e.target.value }))}
+                                placeholder="Ex. La trilogie du Seigneur des Anneaux"
+                                className="mt-1.5 border-[#262626] bg-[#111] text-white"
+                                data-testid="timeline-title-input"
+                            />
+                        </div>
+
+                        {(form.timeline || []).length > 0 ? (
+                            <div className="mt-5 space-y-2">
+                                {(form.timeline || []).map((item, index) => (
+                                    <div key={`${item.tmdb_id || "manual"}-${index}`} className="grid grid-cols-[44px_minmax(0,1fr)_88px_auto] items-center gap-2 rounded-lg border border-[#262626] bg-[#111] p-2.5">
+                                        <div className="relative h-16 w-11 overflow-hidden rounded-md border border-white/10 bg-[#161616]">
+                                            {item.poster_url ? (
+                                                <img src={item.poster_url} alt="" className="h-full w-full object-cover" />
+                                            ) : (
+                                                <div className="flex h-full items-center justify-center text-neutral-700"><Film size={14} /></div>
+                                            )}
+                                            <span className="absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#E8D2A6] px-1 text-[10px] font-bold text-black">{index + 1}</span>
+                                        </div>
+                                        <div className="min-w-0 space-y-2">
+                                            <Input
+                                                value={item.title || ""}
+                                                onChange={(e) => updateTimelineItem(index, { title: e.target.value })}
+                                                placeholder="Titre de l’œuvre"
+                                                className="h-9 border-[#2f2f2f] bg-[#0a0a0a] text-white"
+                                                data-testid={`timeline-item-title-${index}`}
+                                            />
+                                            <Select value={item.type || form.type} onValueChange={(value) => updateTimelineItem(index, { type: value })}>
+                                                <SelectTrigger className="h-8 border-[#2f2f2f] bg-[#0a0a0a] text-xs text-neutral-300"><SelectValue /></SelectTrigger>
+                                                <SelectContent className="border-[#262626] bg-[#111] text-white">
+                                                    <SelectItem value="movie">Film</SelectItem>
+                                                    <SelectItem value="series">Série</SelectItem>
+                                                    <SelectItem value="anime">Anime</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Input
+                                            type="number"
+                                            value={item.year ?? ""}
+                                            onChange={(e) => updateTimelineItem(index, { year: e.target.value })}
+                                            placeholder="Année"
+                                            className="h-9 border-[#2f2f2f] bg-[#0a0a0a] text-white"
+                                            aria-label={`Année du titre ${index + 1}`}
+                                        />
+                                        <div className="flex items-center gap-1">
+                                            <Button type="button" variant="ghost" size="icon" onClick={() => moveTimelineItem(index, -1)} disabled={index === 0} className="h-8 w-8 text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]" aria-label="Monter"><ArrowUp size={14} /></Button>
+                                            <Button type="button" variant="ghost" size="icon" onClick={() => moveTimelineItem(index, 1)} disabled={index === form.timeline.length - 1} className="h-8 w-8 text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]" aria-label="Descendre"><ArrowDown size={14} /></Button>
+                                            <Button type="button" variant="ghost" size="icon" onClick={() => removeTimelineItem(index)} className="h-8 w-8 text-neutral-500 hover:bg-red-500/10 hover:text-red-400" aria-label="Retirer"><X size={14} /></Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="mt-5 rounded-lg border border-dashed border-[#333] px-4 py-6 text-center text-sm text-neutral-500">
+                                Aucune timeline renseignée. La section restera masquée sur la fiche média.
+                            </div>
+                        )}
+
+                        <Button type="button" variant="ghost" size="sm" onClick={addTimelineItem} className="mt-3 text-[#E8D2A6] hover:bg-white/5 hover:text-[#E8D2A6]">
+                            <Plus size={13} className="mr-1.5" /> Ajouter une œuvre manuellement
+                        </Button>
+                    </section>
+
                     {/* SECTION: Informations générales */}
                     <section>
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Informations générales</h2>
@@ -629,7 +819,14 @@ export default function AdminMediaForm() {
                             <div>
                                 <Label className="text-neutral-300">Type *</Label>
                                 <Select value={form.type} onValueChange={(v) => {
-                                    setForm((current) => ({ ...current, type: v }));
+                                    setForm((current) => current.type === v ? current : ({
+                                        ...current,
+                                        type: v,
+                                        tmdb_id: null,
+                                        tmdb_kind: null,
+                                        saga_title: "",
+                                        timeline: [],
+                                    }));
                                     setTmdbResults([]);
                                 }}>
                                     <SelectTrigger data-testid="form-type" className="bg-[#111] border-[#262626] text-white mt-1.5"><SelectValue /></SelectTrigger>
