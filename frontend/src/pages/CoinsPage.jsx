@@ -92,7 +92,7 @@ export default function CoinsPage() {
     };
 
     useEffect(() => {
-        if (!user) { navigate("/login"); return; }
+        if (!user) return;
         load();
     }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,6 +138,19 @@ export default function CoinsPage() {
                     </div>
                 )}
 
+                {!user && (
+                    <div className="mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center justify-between gap-5 flex-wrap">
+                        <div>
+                            <div className="font-display text-xl text-white">Gagne des Freemium gratuitement</div>
+                            <div className="text-sm text-neutral-400 mt-1">Connecte-toi pour cumuler des Freemium et les échanger contre du Premium.</div>
+                        </div>
+                        <Button onClick={() => navigate("/login")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6 shrink-0">
+                            Se connecter
+                        </Button>
+                    </div>
+                )}
+
+                {user && (
                 <div className="grid sm:grid-cols-2 gap-4 mb-12">
                     <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a]">
                         <div className="flex items-center gap-2">
@@ -154,6 +167,7 @@ export default function CoinsPage() {
                         </div>
                     </div>
                 </div>
+                )}
 
                 <div className="mb-12">
                     <h2 className="font-display text-2xl mb-4">Comment en gagner</h2>
@@ -176,6 +190,7 @@ export default function CoinsPage() {
                     </Link>
                 </div>
 
+                {user && (
                 <div>
                     <h2 className="font-display text-2xl mb-4">Échanger contre du Premium</h2>
                     {offer?.active && (
@@ -193,6 +208,7 @@ export default function CoinsPage() {
                         ))}
                     </div>
                 </div>
+                )}
             </div>
         </div>
     );
