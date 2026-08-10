@@ -118,7 +118,7 @@ export default function AdminMediaForm() {
     );
     const [saving, setSaving] = useState(false);
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
-    const [tmdbQuery, setTmdbQuery] = useState("");
+    const [tmdbQuery, setTmdbQuery] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
     const [tmdbResults, setTmdbResults] = useState([]);
     const [tmdbSearching, setTmdbSearching] = useState(false);
     const [tmdbImporting, setTmdbImporting] = useState(null);
