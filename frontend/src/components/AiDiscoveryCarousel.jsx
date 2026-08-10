@@ -6,7 +6,7 @@ import HScroller from "@/components/HScroller";
 const BANNER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10'%3E%3Crect width='100%25' height='100%25' fill='%23111111'/%3E%3C/svg%3E";
 
 function LabelIcon({ label }) {
-    if (label?.includes("Nouveau") || label?.includes("récent")) {
+    if (label?.includes("Nouv") || label?.includes("récent") || label?.includes("sortie")) {
         return <CalendarDays size={12} aria-hidden="true" />;
     }
     if (label?.includes("Tendance")) {
