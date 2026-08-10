@@ -62,6 +62,7 @@ export default function AdminPage() {
     const [aiDiscoveryLoading, setAiDiscoveryLoading] = useState(false);
     const [aiDiscoveryError, setAiDiscoveryError] = useState("");
     const [aiDiscoveryLoadedAt, setAiDiscoveryLoadedAt] = useState(null);
+    const [aiDiscoveryRemoving, setAiDiscoveryRemoving] = useState({});
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
 
     const loadMedia = async () => {
@@ -119,6 +120,20 @@ export default function AdminPage() {
             setAiDiscoveryError("La veille IMDb est temporairement indisponible.");
         } finally {
             setAiDiscoveryLoading(false);
+        }
+    };
+
+    const dismissAiDiscovery = async (media) => {
+        if (!window.confirm(`Retirer « ${media.title} » de Tendances ?`)) return;
+        setAiDiscoveryRemoving((current) => ({ ...current, [media.id]: true }));
+        try {
+            await api.delete(`/admin/discovery/imdb/${encodeURIComponent(media.imdb_id || media.id)}`);
+            setAiDiscovery((current) => current.filter((item) => item.id !== media.id));
+            toast.success("Contenu retiré de Tendances");
+        } catch (e) {
+            showError(toast, e, "Retrait impossible");
+        } finally {
+            setAiDiscoveryRemoving((current) => ({ ...current, [media.id]: false }));
         }
     };
 
@@ -378,7 +393,7 @@ export default function AdminPage() {
                         </TabsTrigger>
                         {level >= 2 && (
                             <TabsTrigger value="discovery" data-testid="admin-tab-discovery" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Sparkles size={14} className="mr-2" /> Nouveautés & tendances
+                                <Sparkles size={14} className="mr-2" /> Tendances
                             </TabsTrigger>
                         )}
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
@@ -523,7 +538,7 @@ export default function AdminPage() {
                                 <div className="max-w-2xl">
                                     <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6]">
                                         <Sparkles size={13} aria-hidden="true" />
-                                        Nouveautés & tendances
+                                        Tendances
                                     </div>
                                     <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Veille IMDb</h2>
                                     <p className="mt-2 text-sm leading-relaxed text-neutral-500">
@@ -556,7 +571,7 @@ export default function AdminPage() {
                             )}
 
                             {aiDiscoveryLoading && aiDiscovery.length === 0 ? (
-                                <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" aria-label="Chargement des nouveautés IMDb">
+                                <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" aria-label="Chargement des tendances IMDb">
                                     {Array.from({ length: 6 }).map((_, index) => (
                                         <div key={index} className="animate-pulse">
                                             <div className="aspect-[2/3] border border-[#262626] bg-[#111]" />
@@ -596,6 +611,19 @@ export default function AdminPage() {
                                                     {media.rating ? ` · IMDb ${media.rating}/10` : ""}
                                                 </div>
                                                 <h3 className="mt-1 truncate text-sm font-medium text-white">{media.title}</h3>
+                                                {media.already_added ? (
+                                                    <div className="mt-2 inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+                                                        Déjà ajouté
+                                                    </div>
+                                                ) : media.previously_added ? (
+                                                    <div className="mt-2 inline-flex rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                                                        Ajouté puis supprimé
+                                                    </div>
+                                                ) : (
+                                                    <div className="mt-2 inline-flex rounded-full border border-[#E8D2A6]/25 bg-[#E8D2A6]/5 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-[#E8D2A6]">
+                                                        Pas encore ajouté
+                                                    </div>
+                                                )}
                                                 <p className="mt-1 line-clamp-2 min-h-8 text-xs leading-relaxed text-neutral-500">{media.ai_reason}</p>
                                                 <div className="mt-3 flex items-center gap-2">
                                                     <a
@@ -609,10 +637,26 @@ export default function AdminPage() {
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
-                                                        onClick={() => navigate(`/admin/media/new?q=${encodeURIComponent(media.title)}`)}
+                                                        onClick={() => navigate(media.already_added
+                                                            ? `/admin/media/${media.catalog_media_id}/edit`
+                                                            : `/admin/media/new?q=${encodeURIComponent(media.title)}&type=${encodeURIComponent(media.type || "movie")}`
+                                                        )}
                                                         className="h-8 flex-1 rounded-full border-[#262626] bg-transparent px-3 text-xs text-neutral-300 hover:border-[#E8D2A6]/45 hover:bg-white/5 hover:text-white"
                                                     >
-                                                        Ajouter
+                                                        {media.already_added ? "Modifier" : media.previously_added ? "Réajouter" : "Ajouter"}
+                                                    </Button>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        disabled={!!aiDiscoveryRemoving[media.id]}
+                                                        onClick={() => dismissAiDiscovery(media)}
+                                                        aria-label={`Retirer ${media.title} de Tendances`}
+                                                        title="Retirer de Tendances"
+                                                        className="h-8 w-8 shrink-0 text-neutral-500 hover:bg-red-500/10 hover:text-red-300"
+                                                    >
+                                                        {aiDiscoveryRemoving[media.id]
+                                                            ? <RotateCcw size={14} className="animate-spin" />
+                                                            : <Trash2 size={14} />}
                                                     </Button>
                                                 </div>
                                             </div>
@@ -622,7 +666,7 @@ export default function AdminPage() {
                             ) : !aiDiscoveryError && (
                                 <div className="border border-[#262626] bg-[#0a0a0a] px-6 py-10 text-center">
                                     <Sparkles size={22} className="mx-auto text-[#E8D2A6]" />
-                                    <p className="mt-3 text-sm text-neutral-400">Aucune nouveauté IMDb n&apos;est disponible pour le moment.</p>
+                                    <p className="mt-3 text-sm text-neutral-400">Aucune tendance IMDb n&apos;est disponible pour le moment.</p>
                                 </div>
                             )}
 
