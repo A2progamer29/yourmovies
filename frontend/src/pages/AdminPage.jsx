@@ -44,6 +44,10 @@ export default function AdminPage() {
     const [licensePlan, setLicensePlan] = useState("basic");
     const [licenseCycle, setLicenseCycle] = useState("monthly");
     const [licenseBusy, setLicenseBusy] = useState(false);
+    const [aiDiscovery, setAiDiscovery] = useState([]);
+    const [aiDiscoveryLoading, setAiDiscoveryLoading] = useState(false);
+    const [aiDiscoveryError, setAiDiscoveryError] = useState("");
+    const [aiDiscoveryLoadedAt, setAiDiscoveryLoadedAt] = useState(null);
     const tabParam = new URLSearchParams(location.search).get("tab") || "media";
 
     const loadMedia = async () => {
@@ -89,6 +93,21 @@ export default function AdminPage() {
         } catch (e) { showError(toast, e, "Chargement des clés impossible"); }
     };
 
+    const loadAiDiscovery = async () => {
+        setAiDiscoveryLoading(true);
+        setAiDiscoveryError("");
+        try {
+            const r = await api.get("/discovery/ai?limit=24", { silent: true });
+            setAiDiscovery(Array.isArray(r.data) ? r.data : []);
+            setAiDiscoveryLoadedAt(new Date());
+        } catch (e) {
+            setAiDiscovery([]);
+            setAiDiscoveryError("Le radar IA est temporairement indisponible.");
+        } finally {
+            setAiDiscoveryLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (user?.is_admin) {
             loadMedia();
@@ -98,6 +117,7 @@ export default function AdminPage() {
             loadWishes();
             loadCagnotte();
             if ((user?.admin_level || 0) >= 3) loadLicenseKeys();
+            if ((user?.admin_level || 0) >= 2) loadAiDiscovery();
         }
     }, [user]);
 
@@ -323,6 +343,11 @@ export default function AdminPage() {
                         <TabsTrigger value="media" data-testid="admin-tab-media" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Film size={14} className="mr-2" /> Contenus
                         </TabsTrigger>
+                        {level >= 2 && (
+                            <TabsTrigger value="discovery" data-testid="admin-tab-discovery" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Sparkles size={14} className="mr-2" /> Radar IA
+                            </TabsTrigger>
+                        )}
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Users size={14} className="mr-2" /> Utilisateurs
                         </TabsTrigger>
@@ -428,6 +453,118 @@ export default function AdminPage() {
                             ))}
                         </div>
                     </TabsContent>
+
+                    {level >= 2 && (
+                        <TabsContent value="discovery" className="mt-8 space-y-6">
+                            <div className="flex flex-col gap-4 border-b border-[#262626] pb-6 sm:flex-row sm:items-end sm:justify-between">
+                                <div className="max-w-2xl">
+                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6]">
+                                        <Sparkles size={13} aria-hidden="true" />
+                                        Nouveautés & tendances
+                                    </div>
+                                    <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Le radar IA</h2>
+                                    <p className="mt-2 text-sm leading-relaxed text-neutral-500">
+                                        Classe les contenus du catalogue selon les sorties récentes, les tendances actuelles et les visionnages des 30 derniers jours.
+                                    </p>
+                                </div>
+                                <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                                    <Button
+                                        onClick={loadAiDiscovery}
+                                        disabled={aiDiscoveryLoading}
+                                        data-testid="refresh-ai-discovery"
+                                        variant="outline"
+                                        className="rounded-full border-[#E8D2A6]/35 bg-transparent text-[#E8D2A6] hover:bg-[#E8D2A6]/10 hover:text-[#E8D2A6]"
+                                    >
+                                        <RotateCcw size={14} className={"mr-2 " + (aiDiscoveryLoading ? "animate-spin" : "")} />
+                                        {aiDiscoveryLoading ? "Analyse en cours" : "Actualiser l'analyse"}
+                                    </Button>
+                                    {aiDiscoveryLoadedAt && (
+                                        <span className="text-[11px] text-neutral-600">
+                                            Dernière analyse : {aiDiscoveryLoadedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {aiDiscoveryError && (
+                                <div className="border border-red-500/25 bg-red-500/5 px-5 py-4 text-sm text-red-300" role="alert">
+                                    {aiDiscoveryError}
+                                </div>
+                            )}
+
+                            {aiDiscoveryLoading && aiDiscovery.length === 0 ? (
+                                <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" aria-label="Chargement du radar IA">
+                                    {Array.from({ length: 6 }).map((_, index) => (
+                                        <div key={index} className="animate-pulse">
+                                            <div className="aspect-[2/3] border border-[#262626] bg-[#111]" />
+                                            <div className="mt-3 h-3 w-2/3 bg-[#171717]" />
+                                            <div className="mt-2 h-2 w-full bg-[#111]" />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : aiDiscovery.length > 0 ? (
+                                <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" data-testid="admin-ai-discovery-grid">
+                                    {aiDiscovery.map((media) => (
+                                        <article key={media.id} className="group min-w-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate(`/media/${media.id}`)}
+                                                className="relative block aspect-[2/3] w-full overflow-hidden border border-[#262626] bg-[#111] text-left transition-colors hover:border-[#E8D2A6]/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]"
+                                                data-testid={`admin-ai-discovery-${media.id}`}
+                                            >
+                                                {media.poster_url ? (
+                                                    <img src={media.poster_url} alt={media.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.025]" />
+                                                ) : (
+                                                    <div className="flex h-full items-center justify-center text-neutral-700"><Film size={28} /></div>
+                                                )}
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/15 to-transparent" />
+                                                <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
+                                                    <span className="max-w-[80%] truncate rounded-full border border-[#E8D2A6]/30 bg-black/75 px-2 py-1 text-[9px] uppercase tracking-wider text-[#E8D2A6] backdrop-blur">
+                                                        {media.ai_label || "Choix de l'IA"}
+                                                    </span>
+                                                    <span className="font-display text-xl text-white/70">{String(media.ai_rank || "").padStart(2, "0")}</span>
+                                                </div>
+                                            </button>
+                                            <div className="pt-3">
+                                                <div className="text-[10px] uppercase tracking-widest text-neutral-600">
+                                                    {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"}
+                                                    {media.year ? ` · ${media.year}` : ""}
+                                                </div>
+                                                <h3 className="mt-1 truncate text-sm font-medium text-white">{media.title}</h3>
+                                                <p className="mt-1 line-clamp-2 min-h-8 text-xs leading-relaxed text-neutral-500">{media.ai_reason}</p>
+                                                <div className="mt-3 flex items-center gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        onClick={() => navigate(`/media/${media.id}`)}
+                                                        className="h-8 flex-1 rounded-full bg-[#E8D2A6] px-3 text-xs font-semibold text-black hover:bg-[#D4BB8B]"
+                                                    >
+                                                        Voir
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => navigate(`/admin/media/${media.id}/edit`)}
+                                                        className="h-8 flex-1 rounded-full border-[#262626] bg-transparent px-3 text-xs text-neutral-300 hover:border-[#E8D2A6]/45 hover:bg-white/5 hover:text-white"
+                                                    >
+                                                        Modifier
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </article>
+                                    ))}
+                                </div>
+                            ) : !aiDiscoveryError && (
+                                <div className="border border-[#262626] bg-[#0a0a0a] px-6 py-10 text-center">
+                                    <Sparkles size={22} className="mx-auto text-[#E8D2A6]" />
+                                    <p className="mt-3 text-sm text-neutral-400">Aucun contenu ne peut encore être classé par le radar IA.</p>
+                                </div>
+                            )}
+
+                            <p className="text-xs leading-relaxed text-neutral-600">
+                                Le radar est réservé au panel admin, se met à jour automatiquement toutes les 30 minutes et ne propose que des titres réellement disponibles sur YourMovie&apos;s.
+                            </p>
+                        </TabsContent>
+                    )}
 
                     <TabsContent value="users" className="mt-8">
                         <div className="mb-6 relative max-w-md">
