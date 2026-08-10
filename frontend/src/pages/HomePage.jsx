@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Play, Info, Sparkles, Crown, ChevronLeft, ChevronRight, Search, ArrowRight, Tag } from "lucide-react";
+import { Play, Info, Sparkles, Crown, ChevronLeft, ChevronRight, Search, ArrowRight, Tag, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -33,6 +33,8 @@ export default function HomePage() {
     const [genres, setGenres] = useState([]);
     const [continueWatching, setContinueWatching] = useState([]);
     const [recommendations, setRecommendations] = useState([]);
+    const [removingProgressId, setRemovingProgressId] = useState(null);
+    const [progressRemovalError, setProgressRemovalError] = useState("");
     const rotateTimer = useRef(null);
     const [paused, setPaused] = useState(false);
 
@@ -86,6 +88,42 @@ export default function HomePage() {
             }
         })();
     }, [user, activeProfile?.id]);
+
+    const removeFromContinueWatching = async (event, mediaId) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (removingProgressId) return;
+
+        const previousItems = continueWatching;
+        const remainingItems = previousItems.filter((item) => item.id !== mediaId);
+        setRemovingProgressId(mediaId);
+        setProgressRemovalError("");
+        setContinueWatching(remainingItems);
+
+        try {
+            await api.delete(`/watch-progress/${encodeURIComponent(mediaId)}`, { silent: true });
+
+            if (remainingItems.length === 0) {
+                setRecommendations([]);
+            } else {
+                try {
+                    const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
+                    setRecommendations(
+                        Array.isArray(recommendationResult.data)
+                            ? recommendationResult.data
+                            : []
+                    );
+                } catch (e) {
+                    setRecommendations([]);
+                }
+            }
+        } catch (e) {
+            setContinueWatching(previousItems);
+            setProgressRemovalError("Impossible de retirer ce contenu pour le moment.");
+        } finally {
+            setRemovingProgressId(null);
+        }
+    };
 
     useEffect(() => {
         if (featured.length <= 1 || paused) return;
@@ -272,6 +310,11 @@ export default function HomePage() {
                     <div className="mb-6">
                         <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Votre historique</div>
                         <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Continuer à regarder</h2>
+                        {progressRemovalError && (
+                            <p className="mt-2 text-sm text-red-300" role="status" aria-live="polite">
+                                {progressRemovalError}
+                            </p>
+                        )}
                     </div>
                     {continueWatching.length > 0 ? (
                         <HScroller testId="recently-watched-scroller">
@@ -283,7 +326,7 @@ export default function HomePage() {
                                     ? Math.min(100, Math.max(0, (m.position_seconds / m.duration_seconds) * 100))
                                     : 0;
                                 return (
-                                    <div key={m.id} className="shrink-0 w-64 snap-start">
+                                    <div key={m.id} className="group/card relative shrink-0 w-64 snap-start">
                                         <Link to={`/watch/${m.id}${episodeQuery}`} data-testid={`resume-${m.id}`} className="group block relative aspect-video rounded-xl overflow-hidden border border-[#262626] hover:border-[#E8D2A6]/60 transition-colors bg-[#111]">
                                             <img src={m.banner_url || m.poster_url} alt={m.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent" />
@@ -297,6 +340,17 @@ export default function HomePage() {
                                                 <div className="h-full bg-[#E8D2A6] transition-[width]" style={{ width: `${progress}%` }} />
                                             </div>
                                         </Link>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => removeFromContinueWatching(event, m.id)}
+                                            disabled={removingProgressId !== null}
+                                            className="absolute right-2 top-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/75 text-white/75 opacity-100 backdrop-blur-md transition-all hover:border-[#E8D2A6]/60 hover:bg-[#E8D2A6] hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] disabled:cursor-wait disabled:opacity-50 sm:opacity-0 sm:group-hover/card:opacity-100 sm:focus-visible:opacity-100"
+                                            aria-label={`Retirer ${m.title} de Continuer à regarder`}
+                                            title="Retirer de Continuer à regarder"
+                                            data-testid={`remove-progress-${m.id}`}
+                                        >
+                                            <X size={15} aria-hidden="true" />
+                                        </button>
                                     </div>
                                 );
                             })}
