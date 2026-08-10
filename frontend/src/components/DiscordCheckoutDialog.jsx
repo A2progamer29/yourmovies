@@ -72,7 +72,7 @@ export default function DiscordCheckoutDialog({
     <>
       Ouvre le salon{" "}
       <span className="px-1.5 py-0.5 rounded bg-[#5865F2]/15 text-[#8b93f5] font-medium">
-        #ticket
+        🎫・ticket
       </span>
       .
     </>,
@@ -88,7 +88,13 @@ export default function DiscordCheckoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#0a0a0a] border-[#262626] text-white sm:max-w-xl p-7 gap-5">
+      <DialogContent
+        className={`bg-[#0a0a0a] border-[#262626] text-white ${
+          showPaymentChoice
+            ? "sm:max-w-xl p-7 gap-5"
+            : "sm:max-w-sm p-5 gap-3"
+        }`}
+      >
         {showPaymentChoice ? (
           <>
             <DialogHeader>
@@ -173,86 +179,79 @@ export default function DiscordCheckoutDialog({
             )}
 
             <DialogHeader>
-              <DialogTitle className="font-display text-2xl sm:text-3xl flex items-center gap-2.5">
-                <DiscordIcon size={24} className="text-[#5865F2]" /> Finaliser
+              <DialogTitle className="font-display text-xl flex items-center gap-2">
+                <DiscordIcon size={19} className="text-[#5865F2]" /> Finaliser
                 sur Discord
               </DialogTitle>
             </DialogHeader>
 
-            <p className="text-sm text-neutral-400 -mt-2 leading-relaxed">
-              Le paiement se fait via notre Discord, en quelques minutes. Suis
-              ces étapes :
+            <p className="text-[13px] text-neutral-400 -mt-1.5 leading-snug">
+              Le paiement se fait via notre Discord, en quelques minutes :
             </p>
 
-            <div className="rounded-xl border border-[#262626] bg-[#111] p-4 flex items-center justify-between gap-3">
+            <div className="rounded-lg border border-[#262626] bg-[#111] p-3 flex items-center justify-between gap-2.5">
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1.5">
-                  <Ticket size={12} className="text-[#E8D2A6]" /> Ton offre
+                <div className="text-[9px] uppercase tracking-widest text-neutral-500 flex items-center gap-1 mb-1">
+                  <Ticket size={11} className="text-[#E8D2A6]" /> Ton offre
                 </div>
-                <div className="text-white font-medium truncate">
+                <div className="text-[13px] text-white font-medium truncate">
                   {offerLabel}
                 </div>
               </div>
               <button
                 onClick={copy}
-                className="shrink-0 inline-flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-full border border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-[#E8D2A6] transition-colors"
+                className="shrink-0 inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-full border border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-[#E8D2A6] transition-colors"
               >
                 {copied ? (
                   <>
-                    <Check size={14} /> Copié
+                    <Check size={12} /> Copié
                   </>
                 ) : (
                   <>
-                    <Copy size={14} /> Copier
+                    <Copy size={12} /> Copier
                   </>
                 )}
               </button>
             </div>
 
-            <ol className="space-y-4">
+            <ol className="space-y-2">
               {steps.map((s, i) => (
                 <li
                   key={i}
-                  className="flex items-start gap-3.5 text-[15px] text-neutral-300"
+                  className="flex items-start gap-2.5 text-[13px] text-neutral-300"
                 >
-                  <span className="shrink-0 w-7 h-7 rounded-full bg-[#5865F2]/15 text-[#8b93f5] text-sm font-semibold flex items-center justify-center">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-[#5865F2]/15 text-[#8b93f5] text-[11px] font-semibold flex items-center justify-center">
                     {i + 1}
                   </span>
-                  <span className="leading-relaxed pt-0.5">{s}</span>
+                  <span className="leading-snug">{s}</span>
                 </li>
               ))}
             </ol>
 
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2.5">
-                Moyens de paiement acceptés
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {PAYMENTS.map((p) => (
-                  <span
-                    key={p}
-                    className="text-[13px] px-3.5 py-2 rounded-full border border-[#262626] bg-[#111] text-neutral-300"
-                  >
-                    {p}
-                  </span>
-                ))}
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {PAYMENTS.map((p) => (
+                <span
+                  key={p}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-[#262626] bg-[#111] text-neutral-400"
+                >
+                  {p}
+                </span>
+              ))}
             </div>
 
             <a
               href={DISCORD_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 w-full h-12 rounded-full font-semibold bg-[#5865F2] text-white hover:bg-[#4752C4] transition-colors"
+              className="inline-flex items-center justify-center gap-2 w-full h-10 text-sm rounded-full font-semibold bg-[#5865F2] text-white hover:bg-[#4752C4] transition-colors"
             >
-              <DiscordIcon size={18} /> Rejoindre le Discord{" "}
-              <ArrowRight size={16} />
+              <DiscordIcon size={16} /> Rejoindre le Discord{" "}
+              <ArrowRight size={14} />
             </a>
 
-            <p className="-mt-1 text-[11px] text-neutral-500 flex items-center justify-center gap-1.5 text-center">
-              <ShieldCheck size={12} className="text-[#E8D2A6] shrink-0" />{" "}
-              Traitement manuel par l&apos;équipe. Ton Premium est activé après
-              confirmation.
+            <p className="-mt-0.5 text-[10px] text-neutral-500 flex items-center justify-center gap-1 text-center leading-snug">
+              <ShieldCheck size={11} className="text-[#E8D2A6] shrink-0" />{" "}
+              Traitement manuel — Premium activé après confirmation.
             </p>
           </>
         )}

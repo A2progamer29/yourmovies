@@ -174,7 +174,8 @@ export default function HomePage() {
             <div className="noise-overlay" />
             <Header />
 
-            {/* HERO CAROUSEL */}
+            {/* HERO CAROUSEL — masqué tant qu'aucun contenu à l'affiche */}
+            {current && (
             <section
                 className="relative w-full h-[85vh] min-h-[560px] overflow-hidden"
                 onMouseMove={updateHeroArrowVisibility}
@@ -246,7 +247,7 @@ export default function HomePage() {
                                 />
                             ) : (
                                 <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl tracking-tighter leading-none font-light text-white">
-                                    {current?.title || "Votre catalogue"}
+                                    {current.title}
                                 </h1>
                             )}
                             {current?.genres?.length > 0 && (
@@ -254,37 +255,27 @@ export default function HomePage() {
                                     {current.genres.slice(0, 4).join("  ·  ")}
                                 </div>
                             )}
-                            <p className="mt-6 text-lg text-neutral-300 leading-relaxed max-w-xl line-clamp-3">
-                                {current?.description || "Films, séries et animes — avec toutes les fiches, saisons, épisodes et bandes-annonces."}
-                            </p>
+                            {current.description && (
+                                <p className="mt-6 text-lg text-neutral-300 leading-relaxed max-w-xl line-clamp-3">
+                                    {current.description}
+                                </p>
+                            )}
                             <div className="mt-8 flex flex-wrap items-center gap-3">
-                                {current ? (
-                                    <>
-                                        <Button
-                                            onClick={() => navigate(`/watch/${current.id}`)}
-                                            data-testid="hero-watch-btn"
-                                            className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12 px-6"
-                                        >
-                                            <Play size={16} className="mr-2" fill="currentColor" /> Regarder
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => navigate(`/media/${current.id}`)}
-                                            data-testid="hero-info-btn"
-                                            className="border-[#262626] text-white hover:border-[#E8D2A6]/50 hover:bg-white/5 rounded-full h-12 px-6 bg-transparent"
-                                        >
-                                            <Info size={16} className="mr-2" /> Plus d&apos;infos
-                                        </Button>
-                                    </>
-                                ) : (
-                                    <Button
-                                        onClick={() => navigate("/browse")}
-                                        data-testid="hero-browse-btn"
-                                        className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12 px-6"
-                                    >
-                                        Explorer le catalogue
-                                    </Button>
-                                )}
+                                <Button
+                                    onClick={() => navigate(`/watch/${current.id}`)}
+                                    data-testid="hero-watch-btn"
+                                    className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-12 px-6"
+                                >
+                                    <Play size={16} className="mr-2" fill="currentColor" /> Regarder
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => navigate(`/media/${current.id}`)}
+                                    data-testid="hero-info-btn"
+                                    className="border-[#262626] text-white hover:border-[#E8D2A6]/50 hover:bg-white/5 rounded-full h-12 px-6 bg-transparent"
+                                >
+                                    <Info size={16} className="mr-2" /> Plus d&apos;infos
+                                </Button>
                             </div>
                         </motion.div>
                     </AnimatePresence>
@@ -321,6 +312,7 @@ export default function HomePage() {
                     </>
                 )}
             </section>
+            )}
 
             {user && (
                 <section className="max-w-7xl mx-auto px-6 mt-10" data-testid="continue-watching-section">
@@ -420,21 +412,7 @@ export default function HomePage() {
                 </section>
             )}
 
-            {isEmpty ? (
-                <section className="max-w-3xl mx-auto text-center py-24 px-6">
-                    <h2 className="font-display text-3xl mb-3">Le catalogue est vide</h2>
-                    <p className="text-neutral-400">
-                        Connectez-vous en tant qu&apos;admin pour ajouter vos premiers films, séries ou animes depuis le panneau admin.
-                    </p>
-                    <Link
-                        to="/login"
-                        className="inline-block mt-6 px-6 py-3 rounded-full bg-[#E8D2A6] text-black font-semibold"
-                        data-testid="empty-login-btn"
-                    >
-                        Aller à la connexion
-                    </Link>
-                </section>
-            ) : (
+            {isEmpty ? null : (
                 <>
                     <MediaCarousel title="Ajouts récents" eyebrow="Nouveautés" items={latest} seeAllHref="/browse" testId="carousel-latest" />
                     <TopTenCarousel items={trending} />
