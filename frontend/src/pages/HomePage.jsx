@@ -9,6 +9,7 @@ import Header from "@/components/Header";
 import MediaCarousel from "@/components/MediaCarousel";
 import TopTenCarousel from "@/components/TopTenCarousel";
 import HScroller from "@/components/HScroller";
+import AdBanner from "@/components/AdBanner";
 
 const HERO_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const AUTO_ROTATE_MS = 7000;
@@ -473,6 +474,8 @@ export default function HomePage() {
                     {seasonItems.length > 0 && (
                         <MediaCarousel title={seasonTitle(now.getMonth())} eyebrow="Du moment" items={seasonItems} seeAllHref="/browse" testId="carousel-season" />
                     )}
+
+                    <AdBanner />
                 </>
             )}
 

@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { api } from "@/lib/api";
 import Header from "@/components/Header";
 import MediaCard from "@/components/MediaCard";
+import AdBanner from "@/components/AdBanner";
 
 const TYPES = [
     { key: "", label: "Tout" },
@@ -166,6 +167,7 @@ export default function BrowsePage() {
                     </div>
                 )}
             </div>
+            <AdBanner className="!mt-0 pb-12" />
         </div>
     );
 }

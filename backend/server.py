@@ -637,6 +637,74 @@ WELCOME_OFFER_PCT = 50
 async def _pricing_doc() -> dict:
     return await db.settings.find_one({"id": "pricing"}, {"_id": 0}) or {}
 
+# ---------- Publicité (régie configurable depuis l'admin) ----------
+ADS_DEFAULTS = {
+    "enabled": False,
+    "preroll": {"enabled": False, "vast_tag_url": "", "duration": 15, "skip_after": 5, "frequency_minutes": 30},
+    "banner": {"enabled": False, "script_url": ""},
+    "popunder": {"enabled": False, "script_url": "", "frequency_hours": 12},
+    "campaigns": [],
+}
+
+def _https_url(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return raw if raw.startswith("https://") else ""
+
+def _clamp_num(value, low, high, default):
+    try:
+        return max(low, min(high, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+def _clean_campaign(entry, index: int):
+    if not isinstance(entry, dict):
+        return None
+    url = _https_url(entry.get("url"))
+    if not url or entry.get("enabled") is False:
+        return None
+    duration = _clamp_num(entry.get("duration"), 5, 60, 10)
+    return {
+        "id": str(entry.get("id") or f"campaign-{index}"),
+        "title": str(entry.get("title") or "Découvrir l'offre")[:120],
+        "description": str(entry.get("description") or "")[:300],
+        "cta": str(entry.get("cta") or "En savoir plus")[:60],
+        "advertiser": str(entry.get("advertiser") or "Partenaire")[:60],
+        "url": url,
+        "imageUrl": _https_url(entry.get("imageUrl")),
+        "duration": int(duration),
+        "skipAfter": int(_clamp_num(entry.get("skipAfter"), 0, duration, 5)),
+        "enabled": True,
+    }
+
+async def _effective_ads() -> dict:
+    doc = await db.settings.find_one({"id": "ads"}, {"_id": 0}) or {}
+    pre = {**ADS_DEFAULTS["preroll"], **(doc.get("preroll") or {})}
+    ban = {**ADS_DEFAULTS["banner"], **(doc.get("banner") or {})}
+    pop = {**ADS_DEFAULTS["popunder"], **(doc.get("popunder") or {})}
+    campaigns = [c for c in (
+        _clean_campaign(entry, i) for i, entry in enumerate(doc.get("campaigns") or [])
+    ) if c]
+    duration = int(_clamp_num(pre.get("duration"), 5, 60, 15))
+    return {
+        "enabled": bool(doc.get("enabled", ADS_DEFAULTS["enabled"])),
+        "preroll": {
+            "enabled": bool(pre.get("enabled")),
+            "vast_tag_url": _https_url(pre.get("vast_tag_url")),
+            "duration": duration,
+            "skip_after": int(_clamp_num(pre.get("skip_after"), 0, duration, 5)),
+            "frequency_minutes": int(_clamp_num(pre.get("frequency_minutes"), 0, 1440, 30)),
+        },
+        "banner": {"enabled": bool(ban.get("enabled")), "script_url": _https_url(ban.get("script_url"))},
+        "popunder": {
+            "enabled": bool(pop.get("enabled")),
+            "script_url": _https_url(pop.get("script_url")),
+            "frequency_hours": int(_clamp_num(pop.get("frequency_hours"), 1, 168, 12)),
+        },
+        "campaigns": campaigns,
+    }
+
 async def _migrate_coin_economy_v2() -> None:
     """Replace only untouched legacy defaults; preserve intentional admin prices."""
     doc = await _pricing_doc()
@@ -2950,6 +3018,56 @@ async def set_admin_pricing(inp: PricingInput, admin: dict = Depends(require_lev
     if update:
         await db.settings.update_one({"id": "pricing"}, {"$set": update}, upsert=True)
     return await _pricing_payload()
+
+# ---------- Publicité ----------
+class AdsInput(BaseModel):
+    enabled: Optional[bool] = None
+    preroll: Optional[dict] = None
+    banner: Optional[dict] = None
+    popunder: Optional[dict] = None
+    campaigns: Optional[list] = None
+
+@api_router.get("/ads/config")
+async def public_ads_config():
+    """Config publicitaire — publique : les visiteurs non connectés doivent la lire."""
+    return await _effective_ads()
+
+@api_router.get("/admin/ads")
+async def get_admin_ads(admin: dict = Depends(require_level(3))):
+    return await _effective_ads()
+
+@api_router.post("/admin/ads")
+async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_level(3))):
+    update = {}
+    if inp.enabled is not None:
+        update["enabled"] = bool(inp.enabled)
+    if inp.preroll is not None:
+        p = inp.preroll or {}
+        duration = _clamp_num(p.get("duration"), 5, 60, 15)
+        update["preroll"] = {
+            "enabled": bool(p.get("enabled")),
+            "vast_tag_url": _https_url(p.get("vast_tag_url")),
+            "duration": int(duration),
+            "skip_after": int(_clamp_num(p.get("skip_after"), 0, duration, 5)),
+            "frequency_minutes": int(_clamp_num(p.get("frequency_minutes"), 0, 1440, 30)),
+        }
+    if inp.banner is not None:
+        b = inp.banner or {}
+        update["banner"] = {"enabled": bool(b.get("enabled")), "script_url": _https_url(b.get("script_url"))}
+    if inp.popunder is not None:
+        pu = inp.popunder or {}
+        update["popunder"] = {
+            "enabled": bool(pu.get("enabled")),
+            "script_url": _https_url(pu.get("script_url")),
+            "frequency_hours": int(_clamp_num(pu.get("frequency_hours"), 1, 168, 12)),
+        }
+    if inp.campaigns is not None:
+        update["campaigns"] = [c for c in (
+            _clean_campaign(entry, i) for i, entry in enumerate(inp.campaigns or [])
+        ) if c]
+    if update:
+        await db.settings.update_one({"id": "ads"}, {"$set": update}, upsert=True)
+    return await _effective_ads()
 
 # ---------- Clés SellAuth ----------
 @api_router.get("/admin/license-keys")

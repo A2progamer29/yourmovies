@@ -13,6 +13,7 @@ import Header from "@/components/Header";
 import GivePremiumDialog from "@/components/GivePremiumDialog";
 import AdminRoleDialog from "@/components/AdminRoleDialog";
 import AdminPricing from "@/components/AdminPricing";
+import AdminAds from "@/components/AdminAds";
 import { showError } from "@/lib/errors";
 
 function hasPlayableVideo(item = {}) {
@@ -425,6 +426,11 @@ export default function AdminPage() {
                         {level >= 3 && (
                             <TabsTrigger value="pricing" data-testid="admin-tab-pricing" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Tag size={14} className="mr-2" /> Tarifs
+                            </TabsTrigger>
+                        )}
+                        {level >= 3 && (
+                            <TabsTrigger value="ads" data-testid="admin-tab-ads" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Megaphone size={14} className="mr-2" /> Publicité
                             </TabsTrigger>
                         )}
                         {level >= 3 && (
@@ -1106,6 +1112,12 @@ export default function AdminPage() {
                     {level >= 3 && (
                         <TabsContent value="pricing" className="mt-8">
                             <AdminPricing />
+                        </TabsContent>
+                    )}
+
+                    {level >= 3 && (
+                        <TabsContent value="ads" className="mt-8">
+                            <AdminAds />
                         </TabsContent>
                     )}
                 </Tabs>
