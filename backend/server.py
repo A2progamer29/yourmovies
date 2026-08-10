@@ -144,6 +144,7 @@ class SessionExchangeInput(BaseModel):
     session_id: str
 
 class TimelineEntry(BaseModel):
+    media_id: Optional[str] = Field(default=None, max_length=80)
     tmdb_id: Optional[int] = None
     title: str = Field(min_length=1, max_length=200)
     type: Literal["movie", "series", "anime"] = "movie"
@@ -964,9 +965,12 @@ async def _resolve_timeline_items(media_id: str, raw_items: List[dict]) -> List[
     if len(items) < 2:
         return []
 
+    media_ids = [item.get("media_id") for item in items if item.get("media_id")]
     tmdb_ids = [item.get("tmdb_id") for item in items if item.get("tmdb_id") is not None]
     titles = [item.get("title") for item in items if item.get("title")]
     clauses = []
+    if media_ids:
+        clauses.append({"id": {"$in": media_ids}})
     if tmdb_ids:
         clauses.append({"tmdb_id": {"$in": tmdb_ids}})
     if titles:
@@ -978,11 +982,16 @@ async def _resolve_timeline_items(media_id: str, raw_items: List[dict]) -> List[
             {"_id": 0, "id": 1, "tmdb_id": 1, "title": 1, "type": 1, "year": 1, "poster_url": 1},
         ).to_list(200)
 
+    by_id = {entry.get("id"): entry for entry in catalog if entry.get("id")}
     by_tmdb = {entry.get("tmdb_id"): entry for entry in catalog if entry.get("tmdb_id") is not None}
     by_title = {_timeline_title_key(entry.get("title")): entry for entry in catalog if entry.get("title")}
     resolved = []
     for position, item in enumerate(items, start=1):
-        match = by_tmdb.get(item.get("tmdb_id")) or by_title.get(_timeline_title_key(item.get("title")))
+        match = (
+            by_id.get(item.get("media_id"))
+            or by_tmdb.get(item.get("tmdb_id"))
+            or by_title.get(_timeline_title_key(item.get("title")))
+        )
         resolved.append({
             **item,
             "position": position,
