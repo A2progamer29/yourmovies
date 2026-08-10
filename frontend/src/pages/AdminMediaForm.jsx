@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
+import BulkEpisodeUpload from "@/components/BulkEpisodeUpload";
 import { showError } from "@/lib/errors";
 
 const EMPTY = {
@@ -1210,6 +1211,18 @@ export default function AdminMediaForm() {
                     {form.type !== "movie" && (
                         <section>
                             <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Tv size={16} /> Saisons & épisodes</h2>
+
+                            {(form.seasons || []).length > 0 && (
+                                <div className="mb-4">
+                                    <BulkEpisodeUpload
+                                        seasons={form.seasons}
+                                        title={form.title}
+                                        uploadToBunny={uploadToBunny}
+                                        updateEpisode={updateEpisode}
+                                    />
+                                </div>
+                            )}
+
                             <div className="flex justify-end mb-3">
                                 <Button variant="outline" size="sm" onClick={addSeason} className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">
                                     <Plus size={12} className="mr-1" /> Ajouter saison
