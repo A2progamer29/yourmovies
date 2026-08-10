@@ -304,6 +304,7 @@ export default function WatchPage() {
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     const [adDone, setAdDone] = useState(false);
+    const [playbackActive, setPlaybackActive] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
             ...episode,
@@ -332,6 +333,11 @@ export default function WatchPage() {
     const nextEpisode = selectedPlayableIndex >= 0 && selectedPlayableIndex < playableEpisodes.length - 1
         ? playableEpisodes[selectedPlayableIndex + 1]
         : null;
+
+    useEffect(() => {
+        setPlaybackActive(false);
+    }, [id, selectedEpisodeKey]);
+
     const selectEpisode = (episode) => {
         if (!episode) return;
         const isSameEpisode = selectedEpisode?._key === episode._key;
@@ -449,6 +455,7 @@ export default function WatchPage() {
     const saveProgress = useCallback(async (pos, dur) => {
         if (!user) return;
         if (pos < 3) return;
+        setPlaybackActive(true);
         try {
             await api.post("/watch-progress", {
                 media_id: id,
@@ -470,6 +477,7 @@ export default function WatchPage() {
 
     const markEmbeddedPlaybackStarted = useCallback(async () => {
         if (!user || !media) return;
+        setPlaybackActive(true);
         const rawDuration = media.type === "movie"
             ? media.duration_minutes
             : (selectedEpisode?.duration_minutes ?? selectedEpisode?.duration ?? media.duration_minutes);
@@ -488,6 +496,45 @@ export default function WatchPage() {
         id,
         user,
         media,
+        selectedEpisode?.duration,
+        selectedEpisode?.duration_minutes,
+        selectedEpisode?.season_number,
+        selectedEpisode?.ep_number,
+    ]);
+
+    useEffect(() => {
+        if (!playbackActive || !user || !media) return undefined;
+
+        const heartbeat = async () => {
+            if (document.visibilityState !== "visible") return;
+            const rawDuration = media.type === "movie"
+                ? media.duration_minutes
+                : (selectedEpisode?.duration_minutes ?? selectedEpisode?.duration ?? media.duration_minutes);
+            const durationMinutes = Number.parseFloat(rawDuration);
+            try {
+                await api.post("/watch-progress/activity", {
+                    media_id: id,
+                    duration_seconds: Number.isFinite(durationMinutes) && durationMinutes > 0
+                        ? durationMinutes * 60
+                        : null,
+                    season_number: media.type === "movie" ? null : selectedEpisode?.season_number,
+                    episode_number: media.type === "movie" ? null : selectedEpisode?.ep_number,
+                }, { silent: true });
+            } catch (e) { }
+        };
+
+        heartbeat();
+        const interval = window.setInterval(heartbeat, 45_000);
+        document.addEventListener("visibilitychange", heartbeat);
+        return () => {
+            window.clearInterval(interval);
+            document.removeEventListener("visibilitychange", heartbeat);
+        };
+    }, [
+        id,
+        user,
+        media,
+        playbackActive,
         selectedEpisode?.duration,
         selectedEpisode?.duration_minutes,
         selectedEpisode?.season_number,
