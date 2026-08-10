@@ -643,7 +643,7 @@ ADS_DEFAULTS = {
     "preroll": {"enabled": False, "vast_tag_url": "", "duration": 15, "skip_after": 5, "frequency_minutes": 30},
     "banner": {"enabled": False, "script_url": ""},
     "popunder": {"enabled": False, "script_url": "", "frequency_hours": 12},
-    "gate": {"enabled": False, "steps": 1, "seconds": 3, "frequency_minutes": 60},
+    "gate": {"enabled": False, "steps": 1, "seconds": 3, "frequency_minutes": 60, "direct_link": ""},
     "campaigns": [],
 }
 
@@ -713,6 +713,7 @@ async def _effective_ads() -> dict:
             "steps": int(_clamp_num(gate.get("steps"), 1, 5, 1)),
             "seconds": int(_clamp_num(gate.get("seconds"), 0, 15, 3)),
             "frequency_minutes": int(_clamp_num(gate.get("frequency_minutes"), 0, 1440, 60)),
+            "direct_link": _https_url(gate.get("direct_link")),
         },
         "campaigns": campaigns,
     }
@@ -3087,6 +3088,7 @@ async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_level(3))):
             "steps": int(_clamp_num(g.get("steps"), 1, 5, 1)),
             "seconds": int(_clamp_num(g.get("seconds"), 0, 15, 3)),
             "frequency_minutes": int(_clamp_num(g.get("frequency_minutes"), 0, 1440, 60)),
+            "direct_link": _https_url(g.get("direct_link")),
         }
     if inp.campaigns is not None:
         update["campaigns"] = [c for c in (

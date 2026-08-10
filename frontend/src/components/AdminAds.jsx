@@ -121,6 +121,13 @@ export default function AdminAds() {
                     les régies ferment les comptes pour clic incité.
                 </p>
                 <Toggle checked={cfg.gate?.enabled} onChange={(v) => setPart("gate", { enabled: v })} label="Activer la porte avant lecture" />
+                <label className="block text-xs text-neutral-400 mt-4">Direct Link de la régie (https) — ouvre une vraie page de pub à chaque étape
+                    <Input value={cfg.gate?.direct_link || ""} onChange={(e) => setPart("gate", { direct_link: e.target.value })} placeholder="https://www.effectiveratecpm.com/…" className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                </label>
+                <p className="text-[11px] text-neutral-600 mt-1.5">
+                    À créer chez Adsterra : <span className="text-neutral-400">Direct Link</span> (aussi appelé Smart Link).
+                    Sans lui, la porte se rabat sur le script popunder, qui n&apos;ouvre rien si le visiteur a un bloqueur.
+                </p>
                 <div className="grid sm:grid-cols-3 gap-3 mt-4">
                     <label className="text-xs text-neutral-400">Nombre d&apos;étapes (1 à 5)
                         <Input type="number" min="1" max="5" value={cfg.gate?.steps ?? 1} onChange={(e) => setPart("gate", { steps: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
@@ -128,8 +135,8 @@ export default function AdminAds() {
                     <label className="text-xs text-neutral-400">Attente entre étapes (s)
                         <Input type="number" min="0" max="15" value={cfg.gate?.seconds ?? 3} onChange={(e) => setPart("gate", { seconds: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                     </label>
-                    <label className="text-xs text-neutral-400">Re-demander après (min)
-                        <Input type="number" value={cfg.gate?.frequency_minutes ?? 60} onChange={(e) => setPart("gate", { frequency_minutes: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    <label className="text-xs text-neutral-400">Re-demander après (min) — 0 = à chaque film
+                        <Input type="number" min="0" value={cfg.gate?.frequency_minutes ?? 60} onChange={(e) => setPart("gate", { frequency_minutes: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                     </label>
                 </div>
             </section>

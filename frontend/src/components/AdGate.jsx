@@ -22,9 +22,10 @@ export default function AdGate({ onUnlock }) {
             if (!active) return;
             const gate = config?.gate || {};
             const popScript = config?.popunder?.script_url || "";
-            if (!config?.enabled || !gate.enabled || !popScript) { onUnlock(); return; }
+            const directLink = gate.direct_link || "";
+            if (!config?.enabled || !gate.enabled || (!popScript && !directLink)) { onUnlock(); return; }
             if (!frequencyAllows(FREQ_KEY, gate.frequency_minutes)) { onUnlock(); return; }
-            setCfg({ ...gate, popScript });
+            setCfg({ ...gate, popScript, directLink });
             setReady(true);
         })();
         return () => { active = false; };
@@ -43,7 +44,13 @@ export default function AdGate({ onUnlock }) {
 
     const advance = () => {
         if (wait > 0) return;
-        injectScript(cfg.popScript);
+        // Ouverture pendant le clic : c'est la seule façon fiable d'échapper au
+        // bloqueur de fenêtres. Le Direct Link mène à une vraie page publicitaire.
+        if (cfg.directLink) {
+            window.open(cfg.directLink, "_blank", "noopener,noreferrer");
+        } else if (cfg.popScript) {
+            injectScript(cfg.popScript);
+        }
         const next = step + 1;
         if (next >= total) {
             markShown(FREQ_KEY);
