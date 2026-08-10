@@ -2759,6 +2759,7 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
         update["position_seconds"] = 0
         update["duration_seconds"] = inp.duration_seconds
     await db.watch_progress.update_one(key, {"$set": update}, upsert=True)
+    await db.recommendation_dismissals.delete_one(key)
     return {"ok": True}
 
 @api_router.post("/watch-progress")
@@ -2777,6 +2778,11 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
         }},
         upsert=True,
     )
+    await db.recommendation_dismissals.delete_one({
+        "user_id": user["user_id"],
+        "profile_id": profile_id,
+        "media_id": inp.media_id,
+    })
     return {"ok": True}
 
 @api_router.get("/watch-progress")
@@ -2799,6 +2805,24 @@ async def list_progress(user: dict = Depends(get_current_user), profile_id: Opti
         result.append(item)
     return result
 
+@api_router.delete("/watch-progress/{media_id}")
+async def delete_progress(media_id: str, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    key = {
+        "user_id": user["user_id"],
+        "profile_id": profile_id,
+        "media_id": media_id,
+    }
+    deleted = await db.watch_progress.delete_one(key)
+    await db.recommendation_dismissals.update_one(
+        key,
+        {"$set": {
+            **key,
+            "dismissed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"ok": True, "deleted": bool(deleted.deleted_count)}
+
 @api_router.get("/recommendations")
 async def recommendations(limit: int = 20, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
     limit = max(1, min(limit, 40))
@@ -2809,6 +2833,12 @@ async def recommendations(limit: int = 20, user: dict = Depends(get_current_user
     watched_ids = [item.get("media_id") for item in progress if item.get("media_id")]
     if not watched_ids:
         return []
+    dismissals = await db.recommendation_dismissals.find(
+        {"user_id": user["user_id"], "profile_id": profile_id},
+        {"_id": 0, "media_id": 1},
+    ).to_list(200)
+    dismissed_ids = [item.get("media_id") for item in dismissals if item.get("media_id")]
+    excluded_ids = list(set(watched_ids + dismissed_ids))
     watched = await db.media.find({"id": {"$in": watched_ids}}, {"_id": 0, "genres": 1, "type": 1}).to_list(30)
     genre_weights = {}
     type_weights = {}
@@ -2817,7 +2847,7 @@ async def recommendations(limit: int = 20, user: dict = Depends(get_current_user
         type_weights[item.get("type")] = type_weights.get(item.get("type"), 0) + weight
         for genre in item.get("genres") or []:
             genre_weights[genre] = genre_weights.get(genre, 0) + weight
-    candidates = await db.media.find({"id": {"$nin": watched_ids}}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    candidates = await db.media.find({"id": {"$nin": excluded_ids}}, {"_id": 0}).sort("created_at", -1).to_list(200)
     def recommendation_score(item):
         score = type_weights.get(item.get("type"), 0)
         score += sum(genre_weights.get(genre, 0) * 3 for genre in item.get("genres") or [])
