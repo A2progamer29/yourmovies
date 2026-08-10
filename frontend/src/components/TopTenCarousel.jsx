@@ -103,10 +103,6 @@ export default function TopTenCarousel({ items }) {
             Top 10 le plus regardé
           </h2>
         </div>
-        <div className="hidden items-center gap-2 text-xs text-neutral-500 sm:flex">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#E8D2A6]" />
-          Classement actuel
-        </div>
       </div>
 
       <HScroller
