@@ -68,7 +68,7 @@ export default function HScroller({ children, testId, itemClassName }) {
                 disabled={!canGoLeft}
                 aria-label="Précédent"
                 aria-hidden={!canGoLeft}
-                className={`${arrowClass} -left-3 ${canGoLeft ? "bg-black/70 border-white/15 text-white/90 opacity-0 group-hover/scroller:opacity-100 hover:bg-black hover:border-[#E8D2A6]/50 hover:scale-105 active:scale-95" : "opacity-0 pointer-events-none"}`}
+                className={`${arrowClass} left-1 ${canGoLeft ? "bg-black/70 border-white/15 text-white/90 opacity-0 group-hover/scroller:opacity-100 hover:bg-black hover:border-[#E8D2A6]/50 hover:scale-105 active:scale-95" : "opacity-0 pointer-events-none"}`}
             >
                 <ChevronLeft size={20} />
             </button>
@@ -78,14 +78,14 @@ export default function HScroller({ children, testId, itemClassName }) {
                 disabled={!canGoRight}
                 aria-label="Suivant"
                 aria-hidden={!canGoRight}
-                className={`${arrowClass} -right-3 ${canGoRight ? "bg-black/70 border-white/15 text-white/90 opacity-0 group-hover/scroller:opacity-100 hover:bg-black hover:border-[#E8D2A6]/50 hover:scale-105 active:scale-95" : "opacity-0 pointer-events-none"}`}
+                className={`${arrowClass} right-1 ${canGoRight ? "bg-black/70 border-white/15 text-white/90 opacity-0 group-hover/scroller:opacity-100 hover:bg-black hover:border-[#E8D2A6]/50 hover:scale-105 active:scale-95" : "opacity-0 pointer-events-none"}`}
             >
                 <ChevronRight size={20} />
             </button>
             <div
                 ref={ref}
                 data-testid={testId}
-                className={itemClassName || "flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth pb-2 -mx-6 px-6"}
+                className={itemClassName || "flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth -mx-6 px-8 pt-2 pb-3 sm:px-9 [scroll-padding-inline:2rem]"}
             >
                 {children}
             </div>
