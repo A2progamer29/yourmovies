@@ -161,6 +161,9 @@ export function AuthProvider({ children }) {
         ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
         setActiveProfileState(null);
         setUser(null);
+        // Rechargement complet : repart d'un état propre (favoris, profils, pubs)
+        // sans laisser traîner de données du compte précédent.
+        window.location.assign("/");
     };
 
     return (

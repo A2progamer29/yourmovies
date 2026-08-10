@@ -49,21 +49,30 @@ export default function HomePage() {
 
     useEffect(() => {
         (async () => {
+            // 1re vague — haut de page : le hero s'affiche sans attendre les carrousels.
+            let heroLoaded = false;
             try {
-                const [all, mv, sr, an, feat] = await Promise.all([
+                const feat = await api.get("/media?featured=true&limit=10");
+                if (feat.data?.length > 0) {
+                    const feats = [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
+                    setFeatured(feats);
+                    heroLoaded = true;
+                }
+            } catch (e) { }
+
+            // 2e vague — bas de page : carrousels, tendances et genres.
+            try {
+                const [all, mv, sr, an] = await Promise.all([
                     api.get("/media?limit=40"),
                     api.get("/media?type=movie&limit=20"),
                     api.get("/media?type=series&limit=20"),
                     api.get("/media?type=anime&limit=20"),
-                    api.get("/media?featured=true&limit=10"),
                 ]);
                 setLatest(all.data);
                 setMovies(mv.data);
                 setSeries(sr.data);
                 setAnimes(an.data);
-                const feats = (feat.data && feat.data.length > 0 ? feat.data : (all.data.slice(0, 1)));
-                feats.sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
-                setFeatured(feats);
+                if (!heroLoaded && all.data.length > 0) setFeatured(all.data.slice(0, 1));
             } catch (e) { }
             try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
@@ -211,6 +220,8 @@ export default function HomePage() {
                             <img
                                 src={current?.banner_url || current?.poster_url || HERO_FALLBACK}
                                 alt={current?.title || "Hero"}
+                                fetchpriority="high"
+                                decoding="async"
                                 className="w-full h-full object-cover"
                                 onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = HERO_FALLBACK; }}
                             />
