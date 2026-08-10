@@ -111,7 +111,7 @@ export default function TopTenCarousel({ items }) {
 
       <HScroller
         testId="carousel-top10"
-        itemClassName="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth pb-3 -mx-6 px-6"
+        itemClassName="flex gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth -mx-6 px-8 pt-2 pb-3 sm:px-9 [scroll-padding-inline:2rem]"
       >
         {items.slice(0, 10).map((media, index) => (
           <TopTenItem key={media.id} media={media} rank={index + 1} />
