@@ -22,6 +22,34 @@ const PLAN_MAX_QUALITY = {
 };
 
 const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
+const BUNNY_PLAYER_API_URL = "https://assets.mediadelivery.net/playerjs/player-0.1.0.min.js";
+const PROGRESS_SAVE_INTERVAL_MS = 10_000;
+let bunnyPlayerApiPromise;
+
+function loadBunnyPlayerApi() {
+    if (typeof window === "undefined") return Promise.reject(new Error("Player unavailable"));
+    if (window.playerjs?.Player) return Promise.resolve(window.playerjs);
+    if (bunnyPlayerApiPromise) return bunnyPlayerApiPromise;
+
+    bunnyPlayerApiPromise = new Promise((resolve, reject) => {
+        const finish = () => window.playerjs?.Player
+            ? resolve(window.playerjs)
+            : reject(new Error("Bunny Player API unavailable"));
+        const existing = document.querySelector(`script[src="${BUNNY_PLAYER_API_URL}"]`);
+        if (existing) {
+            existing.addEventListener("load", finish, { once: true });
+            existing.addEventListener("error", reject, { once: true });
+            return;
+        }
+        const script = document.createElement("script");
+        script.src = BUNNY_PLAYER_API_URL;
+        script.async = true;
+        script.addEventListener("load", finish, { once: true });
+        script.addEventListener("error", reject, { once: true });
+        document.head.appendChild(script);
+    });
+    return bunnyPlayerApiPromise;
+}
 
 
 function resolveBunnySource(media) {
@@ -301,6 +329,8 @@ export default function WatchPage() {
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
+    const bunnyIframeRef = useRef(null);
+    const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     const [adDone, setAdDone] = useState(false);
@@ -474,6 +504,65 @@ export default function WatchPage() {
             }));
         } catch (e) { }
     }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
+
+    useEffect(() => {
+        const iframe = bunnyIframeRef.current;
+        if (!user || !bunnyPlaybackUrl || !iframe) return undefined;
+
+        let disposed = false;
+        let player = null;
+        let knownDuration = 0;
+        const listeners = [];
+        bunnyLastProgressSave.current = 0;
+
+        const on = (eventName, handler) => {
+            player.on(eventName, handler);
+            listeners.push([eventName, handler]);
+        };
+
+        const persistProgress = (positionValue, durationValue, force = false) => {
+            const position = Number(positionValue);
+            const duration = Number(durationValue || knownDuration);
+            if (!Number.isFinite(position) || position < 3) return;
+            if (Number.isFinite(duration) && duration > 0) knownDuration = duration;
+
+            const completed = knownDuration > 0 && position / knownDuration >= 0.95;
+            const now = Date.now();
+            if (!force && !completed && now - bunnyLastProgressSave.current < PROGRESS_SAVE_INTERVAL_MS) return;
+            bunnyLastProgressSave.current = now;
+            saveProgress(position, knownDuration || null);
+        };
+
+        loadBunnyPlayerApi()
+            .then((playerjs) => {
+                if (disposed || !bunnyIframeRef.current) return;
+                player = new playerjs.Player(bunnyIframeRef.current);
+                on("ready", () => {
+                    player.getDuration((duration) => {
+                        const parsed = Number(duration);
+                        if (Number.isFinite(parsed) && parsed > 0) knownDuration = parsed;
+                    });
+                });
+                on("timeupdate", (data) => {
+                    const position = data?.seconds ?? data?.currentTime ?? data?.position ?? data;
+                    const duration = data?.duration ?? data?.total ?? knownDuration;
+                    persistProgress(position, duration);
+                });
+                on("ended", () => {
+                    if (knownDuration > 0) persistProgress(knownDuration, knownDuration, true);
+                });
+            })
+            .catch(() => {
+                // La lecture reste disponible même si l'API de suivi Bunny est indisponible.
+            });
+
+        return () => {
+            disposed = true;
+            if (player?.off) {
+                listeners.forEach(([eventName, handler]) => player.off(eventName, handler));
+            }
+        };
+    }, [user, bunnyPlaybackUrl, saveProgress]);
 
     const markEmbeddedPlaybackStarted = useCallback(async () => {
         if (!user || !media) return;
@@ -666,6 +755,7 @@ export default function WatchPage() {
                                     </div>
                                 ) : bunnyPlaybackUrl ? (
                                     <iframe
+                                        ref={bunnyIframeRef}
                                         data-testid="bunny-player"
                                         src={bunnyPlaybackUrl}
                                         loading="eager"
