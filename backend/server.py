@@ -3161,6 +3161,48 @@ class AdsInput(BaseModel):
     reward: Optional[dict] = None
     campaigns: Optional[list] = None
 
+# ---------- Audience du site (compteurs anonymes) ----------
+class VisitPing(BaseModel):
+    new_visitor: bool = False
+
+@api_router.post("/site/ping")
+async def site_ping(inp: VisitPing):
+    """Incrémente les compteurs du jour. Aucune donnée personnelle : ni IP, ni
+    identifiant — seulement deux nombres par journée."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    inc = {"views": 1}
+    if inp.new_visitor:
+        inc["visitors"] = 1
+    await db.site_stats.update_one({"id": today}, {"$inc": inc, "$set": {"date": today}}, upsert=True)
+    return {"ok": True}
+
+@api_router.get("/admin/site-stats")
+async def admin_site_stats(admin: dict = Depends(require_admin)):
+    today = datetime.now(timezone.utc).date()
+    docs = await db.site_stats.find({}, {"_id": 0}).to_list(1000)
+    by_date = {d.get("date") or d.get("id"): d for d in docs}
+
+    def bucket(day):
+        d = by_date.get(day.isoformat()) or {}
+        return {"date": day.isoformat(), "views": int(d.get("views", 0) or 0), "visitors": int(d.get("visitors", 0) or 0)}
+
+    series = [bucket(today - timedelta(days=i)) for i in range(13, -1, -1)]
+    def total_over(days):
+        return sum(bucket(today - timedelta(days=i))["views"] for i in range(days))
+    def visitors_over(days):
+        return sum(bucket(today - timedelta(days=i))["visitors"] for i in range(days))
+
+    return {
+        "today": bucket(today),
+        "last7": {"views": total_over(7), "visitors": visitors_over(7)},
+        "last30": {"views": total_over(30), "visitors": visitors_over(30)},
+        "total": {
+            "views": sum(int(d.get("views", 0) or 0) for d in docs),
+            "visitors": sum(int(d.get("visitors", 0) or 0) for d in docs),
+        },
+        "series": series,
+    }
+
 @api_router.get("/promo/config")
 async def public_promo_config():
     """Config publicitaire — publique : les visiteurs non connectés doivent la lire.

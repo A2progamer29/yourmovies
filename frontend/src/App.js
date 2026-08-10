@@ -37,6 +37,7 @@ import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
 import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 import PopUnder from "@/components/PopUnder";
+import VisitTracker from "@/components/VisitTracker";
 
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -105,6 +106,7 @@ function App() {
                             <FavoritesProvider>
                                 <AppRouter />
                                 <PopUnder />
+                                <VisitTracker />
                                 <GlobalUploadManager />
                                 <VersionChecker />
                                 <BetaNoticeDialog />

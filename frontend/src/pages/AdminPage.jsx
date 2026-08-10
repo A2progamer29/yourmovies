@@ -14,6 +14,7 @@ import GivePremiumDialog from "@/components/GivePremiumDialog";
 import AdminRoleDialog from "@/components/AdminRoleDialog";
 import AdminPricing from "@/components/AdminPricing";
 import AdminAds from "@/components/AdminAds";
+import AdminTraffic from "@/components/AdminTraffic";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -367,6 +368,8 @@ export default function AdminPage() {
                         <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Panneau de gestion</h1>
                     </div>
                 </div>
+
+                <AdminTraffic />
 
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4 mb-10">
                     {[
