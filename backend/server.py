@@ -1163,7 +1163,7 @@ def _catalog_freshness_score(created_at: Optional[str], now: datetime) -> float:
 
 
 @api_router.get("/discovery/ai")
-async def ai_discovery(limit: int = 15):
+async def ai_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
     """Classe les titres disponibles selon sorties, tendances et activité locale."""
     limit = max(1, min(limit, 30))
     catalog = await db.media.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
