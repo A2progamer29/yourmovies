@@ -413,7 +413,7 @@ export default function SettingsPage() {
                     <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Paramètres</h1>
                 </div>
 
-                <div className="flex gap-2 mb-8 overflow-x-auto border-b border-[#262626]">
+                <div className="flex gap-2 mb-8 overflow-x-auto no-scrollbar border-b border-[#262626]">
                     {TABS.map((t) => (
                         <button
                             key={t.id}
