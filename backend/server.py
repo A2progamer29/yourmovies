@@ -14,6 +14,7 @@ import io
 import secrets
 import hashlib
 import time
+import unicodedata
 import requests
 import bcrypt
 import jwt as pyjwt
@@ -142,6 +143,15 @@ class LoginInput(BaseModel):
 class SessionExchangeInput(BaseModel):
     session_id: str
 
+class TimelineEntry(BaseModel):
+    tmdb_id: Optional[int] = None
+    title: str = Field(min_length=1, max_length=200)
+    type: Literal["movie", "series", "anime"] = "movie"
+    year: Optional[int] = None
+    release_date: Optional[str] = Field(default=None, max_length=20)
+    poster_url: Optional[str] = Field(default=None, max_length=2048)
+
+
 class MediaBase(BaseModel):
     title: str
     description: str = ""
@@ -165,6 +175,10 @@ class MediaBase(BaseModel):
     country: Optional[str] = None
     rating: Optional[float] = None
     seasons: List[dict] = []
+    tmdb_id: Optional[int] = None
+    tmdb_kind: Optional[Literal["movie", "tv"]] = None
+    saga_title: Optional[str] = Field(default=None, max_length=200)
+    timeline: List[TimelineEntry] = Field(default_factory=list, max_length=30)
     featured: bool = False
     featured_order: Optional[int] = None
     in_theaters: bool = False
@@ -192,6 +206,10 @@ class MediaUpdate(BaseModel):
     country: Optional[str] = None
     rating: Optional[float] = None
     seasons: Optional[List[dict]] = None
+    tmdb_id: Optional[int] = None
+    tmdb_kind: Optional[Literal["movie", "tv"]] = None
+    saga_title: Optional[str] = Field(default=None, max_length=200)
+    timeline: Optional[List[TimelineEntry]] = Field(default=None, max_length=30)
     featured: Optional[bool] = None
     featured_order: Optional[int] = None
     in_theaters: Optional[bool] = None
@@ -905,6 +923,10 @@ def serialize_media(doc) -> dict:
         "country": doc.get("country"),
         "rating": doc.get("rating"),
         "seasons": doc.get("seasons", []),
+        "tmdb_id": doc.get("tmdb_id"),
+        "tmdb_kind": doc.get("tmdb_kind"),
+        "saga_title": doc.get("saga_title"),
+        "timeline": doc.get("timeline", []),
         "featured": doc.get("featured", False),
         "featured_order": doc.get("featured_order"),
         "in_theaters": doc.get("in_theaters", False),
@@ -929,6 +951,60 @@ async def get_media(media_id: str):
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
     return serialize_media(doc)
+
+
+def _timeline_title_key(value: Optional[str]) -> str:
+    normalized = unicodedata.normalize("NFKD", value or "")
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+    return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+
+
+async def _resolve_timeline_items(media_id: str, raw_items: List[dict]) -> List[dict]:
+    items = [dict(item) for item in (raw_items or [])[:30] if isinstance(item, dict) and item.get("title")]
+    if len(items) < 2:
+        return []
+
+    tmdb_ids = [item.get("tmdb_id") for item in items if item.get("tmdb_id") is not None]
+    titles = [item.get("title") for item in items if item.get("title")]
+    clauses = []
+    if tmdb_ids:
+        clauses.append({"tmdb_id": {"$in": tmdb_ids}})
+    if titles:
+        clauses.append({"title": {"$in": titles}})
+    catalog = []
+    if clauses:
+        catalog = await db.media.find(
+            {"$or": clauses},
+            {"_id": 0, "id": 1, "tmdb_id": 1, "title": 1, "type": 1, "year": 1, "poster_url": 1},
+        ).to_list(200)
+
+    by_tmdb = {entry.get("tmdb_id"): entry for entry in catalog if entry.get("tmdb_id") is not None}
+    by_title = {_timeline_title_key(entry.get("title")): entry for entry in catalog if entry.get("title")}
+    resolved = []
+    for position, item in enumerate(items, start=1):
+        match = by_tmdb.get(item.get("tmdb_id")) or by_title.get(_timeline_title_key(item.get("title")))
+        resolved.append({
+            **item,
+            "position": position,
+            "media_id": match.get("id") if match else None,
+            "available": bool(match),
+            "current": bool(match and match.get("id") == media_id),
+            "poster_url": (match or {}).get("poster_url") or item.get("poster_url"),
+            "year": item.get("year") or (match or {}).get("year"),
+        })
+    return resolved
+
+
+@api_router.get("/media/{media_id}/timeline")
+async def get_media_timeline(media_id: str):
+    doc = await db.media.find_one({"id": media_id}, {"_id": 0, "id": 1, "title": 1, "saga_title": 1, "timeline": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    items = await _resolve_timeline_items(media_id, doc.get("timeline", []))
+    return {
+        "title": doc.get("saga_title") or f"Univers {doc.get('title', '')}".strip(),
+        "items": items,
+    }
 
 @api_router.post("/media")
 async def create_media(m: MediaCreate, user: dict = Depends(require_admin)):
@@ -1266,6 +1342,124 @@ def _tmdb_year(value: Optional[str]) -> Optional[int]:
         return None
 
 
+def _timeline_family_variants(value: Optional[str]) -> set:
+    key = _timeline_title_key(value)
+    if not key:
+        return set()
+    variants = {key}
+    variants.add(re.split(r"\b(?:saison|season|partie|part|chapitre|chapter|arc)\b", key, maxsplit=1)[0].strip())
+    variants.add(re.sub(r"\b(?:saison|season|partie|part|chapitre|chapter|arc)?\s*(?:[0-9]+|i{1,4}|v|vi{0,3}|ix|x)\s*$", "", key).strip())
+    return {variant for variant in variants if len(variant) >= 4}
+
+
+def _same_timeline_family(reference_titles: List[str], candidate_title: Optional[str]) -> bool:
+    reference_variants = set()
+    for title in reference_titles:
+        reference_variants.update(_timeline_family_variants(title))
+    candidate_variants = _timeline_family_variants(candidate_title)
+    if not reference_variants or not candidate_variants:
+        return False
+    if reference_variants & candidate_variants:
+        return True
+    for reference in reference_variants:
+        for candidate in candidate_variants:
+            shorter, longer = sorted((reference, candidate), key=len)
+            if len(shorter) >= 5 and (longer.startswith(f"{shorter} ") or longer.endswith(f" {shorter}")):
+                return True
+            reference_tokens = set(reference.split())
+            candidate_tokens = set(candidate.split())
+            shared = reference_tokens & candidate_tokens
+            if len(shared) >= 2 and len(shared) / max(1, min(len(reference_tokens), len(candidate_tokens))) >= 0.66:
+                return True
+    return False
+
+
+def _tmdb_timeline_item(item: dict, kind: Literal["movie", "series", "anime"]) -> dict:
+    release_date = item.get("release_date") or item.get("first_air_date")
+    return {
+        "tmdb_id": item.get("id"),
+        "title": item.get("title") or item.get("name") or item.get("original_title") or item.get("original_name") or "Titre inconnu",
+        "type": kind,
+        "year": _tmdb_year(release_date),
+        "release_date": release_date or None,
+        "poster_url": _tmdb_image(item.get("poster_path")),
+    }
+
+
+async def _tmdb_timeline_proposal(
+    tmdb_kind: Literal["movie", "tv"],
+    tmdb_id: int,
+    kind: Literal["movie", "series", "anime"],
+    details: Optional[dict] = None,
+) -> dict:
+    data = details or await run_in_threadpool(
+        _tmdb_request,
+        f"/{tmdb_kind}/{tmdb_id}",
+        {"language": "fr-FR"},
+    )
+
+    if tmdb_kind == "movie":
+        collection = data.get("belongs_to_collection") or {}
+        collection_id = collection.get("id")
+        if not collection_id:
+            return {"saga_title": None, "timeline": []}
+        collection_data = await run_in_threadpool(
+            _tmdb_request,
+            f"/collection/{collection_id}",
+            {"language": "fr-FR"},
+        )
+        candidates = collection_data.get("parts") or []
+        saga_title = collection_data.get("name") or collection.get("name")
+    else:
+        reference_titles = [
+            data.get("name"),
+            data.get("original_name"),
+        ]
+        requests_to_run = [
+            run_in_threadpool(
+                _tmdb_request,
+                f"/tv/{tmdb_id}/recommendations",
+                {"language": "fr-FR", "page": 1},
+            )
+        ]
+        for query in dict.fromkeys(title for title in reference_titles if title):
+            requests_to_run.append(run_in_threadpool(
+                _tmdb_request,
+                "/search/tv",
+                {"query": query, "language": "fr-FR", "include_adult": "false", "page": 1},
+            ))
+        responses = await asyncio.gather(*requests_to_run, return_exceptions=True)
+        pool = [data]
+        for response in responses:
+            if not isinstance(response, dict):
+                logger.warning("Une source TMDB de chronologie est indisponible : %s", response)
+                continue
+            pool.extend(response.get("results") or [])
+        candidates = []
+        seen_ids = set()
+        for candidate in pool:
+            candidate_id = candidate.get("id")
+            candidate_title = candidate.get("name") or candidate.get("original_name")
+            if candidate_id in seen_ids:
+                continue
+            if candidate_id == tmdb_id or _same_timeline_family(reference_titles, candidate_title):
+                seen_ids.add(candidate_id)
+                candidates.append(candidate)
+        shortest_title = min((title for title in reference_titles if title), key=len, default="")
+        saga_title = f"Univers {shortest_title}".strip()
+
+    timeline = [_tmdb_timeline_item(item, kind) for item in candidates if item.get("id")]
+    timeline.sort(key=lambda item: (
+        item.get("release_date") is None,
+        item.get("release_date") or "9999-12-31",
+        item.get("year") or 9999,
+        item.get("tmdb_id") or 0,
+    ))
+    if len(timeline) < 2:
+        return {"saga_title": None, "timeline": []}
+    return {"saga_title": saga_title, "timeline": timeline[:30]}
+
+
 @api_router.get("/admin/tmdb/search")
 async def admin_tmdb_search(
     q: str = Query(min_length=2, max_length=120),
@@ -1296,6 +1490,19 @@ async def admin_tmdb_search(
             "rating": item.get("vote_average"),
         })
     return results
+
+
+@api_router.get("/admin/tmdb/timeline/{tmdb_kind}/{tmdb_id}")
+async def admin_tmdb_timeline(
+    tmdb_kind: Literal["movie", "tv"],
+    tmdb_id: int,
+    kind: Literal["movie", "series", "anime"] = "movie",
+    admin: dict = Depends(require_admin),
+):
+    expected_kind = "movie" if kind == "movie" else "tv"
+    if tmdb_kind != expected_kind:
+        raise HTTPException(status_code=400, detail="Le type TMDB ne correspond pas au contenu.")
+    return await _tmdb_timeline_proposal(tmdb_kind, tmdb_id, kind)
 
 
 @api_router.get("/admin/tmdb/import/{tmdb_kind}/{tmdb_id}")
@@ -1417,8 +1624,10 @@ async def admin_tmdb_import(
                 "poster_url": _tmdb_image(season_data.get("poster_path") or season_summary.get("poster_path")),
                 "episodes": episodes,
             })
+    timeline_proposal = await _tmdb_timeline_proposal(tmdb_kind, tmdb_id, kind, details=data)
     return {
         "tmdb_id": tmdb_id,
+        "tmdb_kind": tmdb_kind,
         "title": data.get("title") or data.get("name") or "",
         "description": data.get("overview") or "",
         "type": kind,
@@ -1435,6 +1644,8 @@ async def admin_tmdb_import(
         "country": country or None,
         "rating": round(float(data.get("vote_average") or 0), 1) or None,
         "seasons": seasons,
+        "saga_title": timeline_proposal.get("saga_title"),
+        "timeline": timeline_proposal.get("timeline", []),
     }
 
 
