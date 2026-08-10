@@ -66,6 +66,9 @@ export function errorCode(err) {
  * fallback messages.
  */
 export function showError(toast, err, fallback) {
+    // Les limitations temporaires restent silencieuses, y compris pour les
+    // requêtes axios qui n'utilisent pas l'instance API globale.
+    if (err?.__silent || errorCode(err) === 429) return;
     if (err && err.__globalToasted) return;
     if (!toast || typeof toast.error !== "function") return;
     toast.error(describeError(err, fallback));
