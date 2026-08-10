@@ -117,7 +117,12 @@ TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/original"
 # fiches, notes et volumes de votes IMDb récupérés via OMDb. Elle ne consulte
 # jamais le catalogue ni les visionnages YourMovie's.
 IMDB_DISCOVERY_CACHE_TTL_SECONDS = 30 * 60
-_imdb_discovery_cache = {"expires_at": 0.0, "signals": {}}
+_imdb_discovery_cache = {
+    "signals_expires_at": 0.0,
+    "signals": {},
+    "items_expires_at": 0.0,
+    "items": [],
+}
 
 # ---------- Models ----------
 class UserPublic(BaseModel):
@@ -1138,7 +1143,7 @@ def _omdb_discovery_details(imdb_id: str) -> dict:
 
 async def _get_imdb_discovery_signals() -> dict:
     now_tick = time.monotonic()
-    if _imdb_discovery_cache["expires_at"] > now_tick:
+    if _imdb_discovery_cache["signals_expires_at"] > now_tick:
         return _imdb_discovery_cache["signals"]
 
     if not (TMDB_API_TOKEN or TMDB_API_KEY):
@@ -1183,7 +1188,7 @@ async def _get_imdb_discovery_signals() -> dict:
     for signal in signals.values():
         signal["tags"] = sorted(signal["tags"])
     _imdb_discovery_cache.update({
-        "expires_at": now_tick + IMDB_DISCOVERY_CACHE_TTL_SECONDS,
+        "signals_expires_at": now_tick + IMDB_DISCOVERY_CACHE_TTL_SECONDS,
         "signals": signals,
     })
     return signals
@@ -1262,12 +1267,17 @@ async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
     if not OMDB_API_KEY:
         raise HTTPException(status_code=503, detail="Veille IMDb non configurée (clé OMDb manquante).")
     limit = max(1, min(limit, 30))
+    now_tick = time.monotonic()
+    if _imdb_discovery_cache["items_expires_at"] > now_tick and _imdb_discovery_cache["items"]:
+        return _imdb_discovery_cache["items"][:limit]
+
     signals = await _get_imdb_discovery_signals()
+    candidate_limit = min(36, max(24, limit + 12))
     candidates = sorted(
         signals.values(),
         key=lambda item: item.get("score", 0),
         reverse=True,
-    )[:max(24, limit * 2)]
+    )[:candidate_limit]
     resolved = await asyncio.gather(*[
         _resolve_imdb_discovery_item(candidate)
         for candidate in candidates
@@ -1278,8 +1288,12 @@ async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
         item.get("rating") or 0,
         item.get("imdb_votes") or 0,
     ), reverse=True)
-    for position, item in enumerate(ranked[:limit], start=1):
+    for position, item in enumerate(ranked, start=1):
         item["ai_rank"] = position
+    _imdb_discovery_cache.update({
+        "items_expires_at": now_tick + IMDB_DISCOVERY_CACHE_TTL_SECONDS,
+        "items": ranked[:30],
+    })
     return ranked[:limit]
 
 
