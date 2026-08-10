@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import Header from "@/components/Header";
 import MediaCard from "@/components/MediaCard";
+import HScroller from "@/components/HScroller";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const BANNER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
@@ -356,7 +357,10 @@ export default function MediaDetailPage() {
                         </div>
                     </div>
 
-                    <div className="-mx-4 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-4 pb-4 no-scrollbar sm:-mx-6 sm:px-6">
+                    <HScroller
+                        testId="media-timeline-scroller"
+                        itemClassName="-mx-4 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-6 pb-4 pt-3 no-scrollbar scroll-smooth sm:-mx-6 sm:px-9 [scroll-padding-inline:2rem]"
+                    >
                         {timeline.items.map((item, index) => {
                             const CardTag = item.available ? Link : "div";
                             const cardProps = item.available ? { to: `/media/${item.media_id}` } : {};
@@ -398,7 +402,7 @@ export default function MediaDetailPage() {
                                 </React.Fragment>
                             );
                         })}
-                    </div>
+                    </HScroller>
                 </section>
             )}
 
@@ -408,11 +412,14 @@ export default function MediaDetailPage() {
                         <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Vous aimerez aussi</div>
                         <h2 className="font-display text-3xl tracking-tight">Titres similaires</h2>
                     </div>
-                    <div className="flex gap-5 overflow-x-auto no-scrollbar snap-x pb-2 -mx-6 px-6">
+                    <HScroller
+                        testId="similar-media-scroller"
+                        itemClassName="flex gap-5 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-smooth -mx-6 px-8 pt-2 pb-3 sm:px-9 [scroll-padding-inline:2rem]"
+                    >
                         {similar.map((m) => (
                             <MediaCard key={m.id} media={m} size="sm" />
                         ))}
-                    </div>
+                    </HScroller>
                 </section>
             )}
 
