@@ -1,17 +1,50 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { api } from "@/lib/api";
 
 export default function AboutPage() {
+    const [stats, setStats] = useState(null);
+
+    useEffect(() => {
+        let active = true;
+        api.get("/public/stats", { silent: true })
+            .then((response) => {
+                if (active) setStats(response.data);
+            })
+            .catch(() => {
+                if (active) setStats(null);
+            });
+        return () => { active = false; };
+    }, []);
+
+    const cards = useMemo(() => ([
+        { label: "Contenus", value: stats?.contents },
+        { label: "Utilisateurs", value: stats?.users },
+        { label: "Commentaires", value: stats?.comments },
+        { label: "Abonnés", value: stats?.subscribers },
+    ]), [stats]);
+
     return (
         <div className="min-h-screen bg-[#050505] text-white flex flex-col">
             <div className="noise-overlay" />
             <Header />
-            <div className="max-w-3xl mx-auto px-6 py-12 flex-1">
+            <div className="max-w-5xl mx-auto px-6 py-12 flex-1">
                 <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-2">À propos</div>
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">À propos de nous</h1>
 
-                <div className="space-y-5 text-neutral-300 leading-relaxed">
+                <div className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Statistiques de YourMovie's">
+                    {cards.map((card) => (
+                        <div key={card.label} className="border border-[#262626] bg-[#0a0a0a] px-4 py-5 sm:px-5">
+                            <div className="font-display text-3xl tracking-tight text-[#E8D2A6]">
+                                {Number.isFinite(card.value) ? card.value.toLocaleString("fr-FR") : "—"}
+                            </div>
+                            <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-500">{card.label}</div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="max-w-3xl space-y-5 text-neutral-300 leading-relaxed">
                     <p>
                         <span className="text-white font-medium">YourMovie&apos;s</span> est un projet qui vise à améliorer l&apos;expérience utilisateur
                         et se démarque par une interface moderne, simple et agréable à utiliser.
