@@ -38,6 +38,16 @@ api.interceptors.response.use(
         // Silent probes: 401 during /auth/me, /favorites/status/*, /watch-progress on load
         const silentUrls = ["/auth/me", "/favorites/status/", "/watch-progress"];
         const isSilentUrl = silentUrls.some((u) => url.includes(u)) && status === 401;
+
+        // Une limitation temporaire est gérée par l'appelant (notamment le suivi
+        // Bunny qui respecte Retry-After). Elle ne doit jamais exposer le code
+        // technique 429 ni déclencher une notification utilisateur.
+        if (status === 429) {
+            err.__silent = true;
+            err.__globalToasted = true;
+            return Promise.reject(err);
+        }
+
         if (cfg.silent === true || isSilentUrl) {
             return Promise.reject(err);
         }
