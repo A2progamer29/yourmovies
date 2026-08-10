@@ -2955,6 +2955,29 @@ class WatchProgressStartInput(BaseModel):
     season_number: Optional[int] = None
     episode_number: Optional[int] = None
 
+WATCH_ACTIVITY_TTL_SECONDS = 150
+
+async def _touch_watch_activity(
+    user_id: str,
+    profile_id: Optional[str],
+    media_id: str,
+    season_number: Optional[int],
+    episode_number: Optional[int],
+):
+    update = {
+        "user_id": user_id,
+        "profile_id": profile_id,
+        "media_id": media_id,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.watch_activity.update_one(
+        {"user_id": user_id},
+        {"$set": update},
+        upsert=True,
+    )
+
 @api_router.post("/watch-progress/start")
 async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
     key = {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id}
@@ -2979,7 +3002,19 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
         update["position_seconds"] = 0
         update["duration_seconds"] = inp.duration_seconds
     await db.watch_progress.update_one(key, {"$set": update}, upsert=True)
+    await _touch_watch_activity(
+        user["user_id"], profile_id, inp.media_id,
+        inp.season_number, inp.episode_number,
+    )
     await db.recommendation_dismissals.delete_one(key)
+    return {"ok": True}
+
+@api_router.post("/watch-progress/activity")
+async def heartbeat_watch_activity(inp: WatchProgressStartInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    await _touch_watch_activity(
+        user["user_id"], profile_id, inp.media_id,
+        inp.season_number, inp.episode_number,
+    )
     return {"ok": True}
 
 @api_router.post("/watch-progress")
@@ -2997,6 +3032,10 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
         upsert=True,
+    )
+    await _touch_watch_activity(
+        user["user_id"], profile_id, inp.media_id,
+        inp.season_number, inp.episode_number,
     )
     await db.recommendation_dismissals.delete_one({
         "user_id": user["user_id"],
@@ -3229,6 +3268,91 @@ async def admin_get_user(user_id: str, admin: dict = Depends(require_admin)):
     review_count = await db.reviews.count_documents({"user_id": user_id, "parent_id": None})
     return user_public_dict(u) | {"created_at": u.get("created_at"), "review_count": review_count}
 
+@api_router.get("/admin/users/{user_id}/watching")
+async def admin_get_user_watching(user_id: str, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    activity = await db.watch_activity.find_one(
+        {"user_id": user_id},
+        {"_id": 0},
+    )
+    if not activity or not activity.get("updated_at"):
+        return {"watching": False}
+
+    try:
+        updated_at = datetime.fromisoformat(str(activity["updated_at"]).replace("Z", "+00:00"))
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return {"watching": False}
+
+    age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
+    if age_seconds > WATCH_ACTIVITY_TTL_SECONDS:
+        return {"watching": False}
+
+    media = await db.media.find_one(
+        {"id": activity.get("media_id")},
+        {"_id": 0, "id": 1, "title": 1, "type": 1, "poster_url": 1, "banner_url": 1, "seasons": 1},
+    )
+    if not media:
+        return {"watching": False}
+
+    season_number = activity.get("season_number")
+    episode_number = activity.get("episode_number")
+    episode_title = None
+    if media.get("type") != "movie" and season_number is not None and episode_number is not None:
+        for season in media.get("seasons") or []:
+            if str(season.get("season_number")) != str(season_number):
+                continue
+            for episode in season.get("episodes") or []:
+                if str(episode.get("ep_number")) == str(episode_number):
+                    episode_title = episode.get("title") or None
+                    break
+            break
+
+    profile_name = None
+    if activity.get("profile_id"):
+        profile = await db.profiles.find_one(
+            {"id": activity["profile_id"], "user_id": user_id},
+            {"_id": 0, "name": 1},
+        )
+        profile_name = (profile or {}).get("name")
+
+    progress = await db.watch_progress.find_one(
+        {
+            "user_id": user_id,
+            "profile_id": activity.get("profile_id"),
+            "media_id": activity.get("media_id"),
+        },
+        {"_id": 0, "position_seconds": 1, "duration_seconds": 1},
+    ) or {}
+    position_seconds = progress.get("position_seconds")
+    duration_seconds = progress.get("duration_seconds")
+    position_seconds = max(0, float(position_seconds or 0))
+    duration_seconds = max(0, float(duration_seconds or 0))
+    progress_percent = round(min(100, position_seconds / duration_seconds * 100), 1) if duration_seconds > 0 else None
+
+    return {
+        "watching": True,
+        "media": {
+            "id": media["id"],
+            "title": media.get("title") or "Sans titre",
+            "type": media.get("type") or "movie",
+            "poster_url": media.get("poster_url"),
+            "banner_url": media.get("banner_url"),
+        },
+        "profile_name": profile_name,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "episode_title": episode_title,
+        "position_seconds": position_seconds,
+        "duration_seconds": duration_seconds,
+        "progress_percent": progress_percent,
+        "updated_at": updated_at.isoformat(),
+    }
+
 @api_router.patch("/admin/users/{user_id}")
 async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = Depends(require_level(3))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -3324,6 +3448,7 @@ async def _delete_user_data(user_id: str):
     await db.reviews.delete_many({"user_id": user_id})
     await db.favorites.delete_many({"user_id": user_id})
     await db.watch_progress.delete_many({"user_id": user_id})
+    await db.watch_activity.delete_many({"user_id": user_id})
     await db.profiles.delete_many({"user_id": user_id})
     await db.notifications.delete_many({"user_id": user_id})
     await db.wishboard.update_many({}, {"$pull": {"voters": user_id}})
@@ -3741,6 +3866,7 @@ async def startup():
         await db.license_keys.create_index("key_hash", unique=True)
         await db.license_keys.create_index("id", unique=True)
         await db.license_keys.create_index([("redeemed_at", 1), ("revoked_at", 1)])
+        await db.watch_activity.create_index("user_id", unique=True)
         # MongoDB supprime automatiquement les demandes 24 h après leur
         # approbation. Les documents non approuvés n'ont pas ce champ.
         await db.wishboard.create_index("approved_expires_at", expireAfterSeconds=0)
