@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Play, Heart, Bookmark, Star, Clock, Calendar, Users, Film as FilmIcon, Pencil, Trash2, Reply, X } from "lucide-react";
+import { Play, Heart, Bookmark, Star, Clock, Calendar, Users, Film as FilmIcon, Pencil, Trash2, Reply, X, ArrowRight, GitBranch } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
@@ -24,6 +24,7 @@ export default function MediaDetailPage() {
     const [media, setMedia] = useState(null);
     const [reviews, setReviews] = useState([]);
     const [similar, setSimilar] = useState([]);
+    const [timeline, setTimeline] = useState({ title: "", items: [] });
     const [status, setStatus] = useState({ favorite: false, watchlist: false });
     const [ratingInput, setRatingInput] = useState(7);
     const [commentInput, setCommentInput] = useState("");
@@ -34,14 +35,16 @@ export default function MediaDetailPage() {
     const formRef = useRef(null);
 
     const load = async () => {
-        const [m, r, s] = await Promise.all([
+        const [m, r, s, t] = await Promise.all([
             api.get(`/media/${id}`),
             api.get(`/media/${id}/reviews`),
             api.get(`/media/${id}/similar`),
+            api.get(`/media/${id}/timeline`).catch(() => ({ data: { title: "", items: [] } })),
         ]);
         setMedia(m.data);
         setReviews(r.data);
         setSimilar(s.data);
+        setTimeline(t.data || { title: "", items: [] });
         if (user) {
             try {
                 const s = await api.get(`/favorites/status/${id}`);
@@ -340,6 +343,64 @@ export default function MediaDetailPage() {
                     )}
                 </aside>
             </div>
+
+            {timeline.items?.length > 1 && (
+                <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="media-timeline-section">
+                    <div className="mb-7 flex items-end justify-between gap-4">
+                        <div>
+                            <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6]">
+                                <GitBranch size={13} /> Ordre de visionnage
+                            </div>
+                            <h2 className="font-display text-3xl tracking-tight">{timeline.title}</h2>
+                            <p className="mt-2 max-w-2xl text-sm text-neutral-500">Découvrez les œuvres liées dans l’ordre conseillé.</p>
+                        </div>
+                    </div>
+
+                    <div className="-mx-4 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-4 pb-4 no-scrollbar sm:-mx-6 sm:px-6">
+                        {timeline.items.map((item, index) => {
+                            const CardTag = item.available ? Link : "div";
+                            const cardProps = item.available ? { to: `/media/${item.media_id}` } : {};
+                            return (
+                                <React.Fragment key={`${item.tmdb_id || item.title}-${index}`}>
+                                    <CardTag
+                                        {...cardProps}
+                                        aria-current={item.current ? "page" : undefined}
+                                        className={`group w-[150px] shrink-0 snap-start sm:w-[176px] ${item.available ? "cursor-pointer" : "cursor-default"}`}
+                                    >
+                                        <div className={`relative aspect-[2/3] overflow-hidden rounded-xl border bg-[#0a0a0a] transition-all duration-300 ${item.current ? "border-[#E8D2A6] shadow-[0_0_28px_rgba(232,210,166,0.12)]" : item.available ? "border-white/10 group-hover:-translate-y-1 group-hover:border-[#E8D2A6]/55" : "border-white/5 opacity-45"}`}>
+                                            <img
+                                                src={item.poster_url || POSTER_FALLBACK}
+                                                alt={item.title}
+                                                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = POSTER_FALLBACK; }}
+                                                className="h-full w-full object-cover"
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/10" />
+                                            <span className={`absolute left-2.5 top-2.5 flex h-8 min-w-8 items-center justify-center rounded-full border px-2 text-xs font-bold backdrop-blur-md ${item.current ? "border-[#E8D2A6] bg-[#E8D2A6] text-black" : "border-white/15 bg-black/65 text-white"}`}>
+                                                {item.position || index + 1}
+                                            </span>
+                                            {item.current && (
+                                                <span className="absolute bottom-2.5 left-2.5 rounded-full bg-[#E8D2A6] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-black">Vous êtes ici</span>
+                                            )}
+                                            {!item.available && (
+                                                <span className="absolute bottom-2.5 left-2.5 rounded-full border border-white/15 bg-black/75 px-2.5 py-1 text-[10px] uppercase tracking-wide text-neutral-400">Indisponible</span>
+                                            )}
+                                        </div>
+                                        <div className="mt-3 min-w-0">
+                                            <div className={`truncate text-sm font-medium transition-colors ${item.current ? "text-[#E8D2A6]" : item.available ? "text-white group-hover:text-[#E8D2A6]" : "text-neutral-600"}`}>{item.title}</div>
+                                            <div className="mt-1 text-xs text-neutral-600">{item.year || "Année inconnue"} · {item.type === "movie" ? "Film" : item.type === "series" ? "Série" : "Anime"}</div>
+                                        </div>
+                                    </CardTag>
+                                    {index < timeline.items.length - 1 && (
+                                        <div className="mt-[104px] flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#262626] bg-[#0a0a0a] text-[#E8D2A6] sm:mt-[126px]" aria-hidden="true">
+                                            <ArrowRight size={14} />
+                                        </div>
+                                    )}
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+                </section>
+            )}
 
             {similar.length > 0 && (
                 <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="similar-section">
