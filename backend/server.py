@@ -1170,14 +1170,16 @@ async def ai_discovery(limit: int = 15):
     if not catalog:
         return []
 
+    now = datetime.now(timezone.utc)
+    local_trend_cutoff = (now - timedelta(days=30)).isoformat()
     view_rows = await db.watch_progress.aggregate([
+        {"$match": {"updated_at": {"$gte": local_trend_cutoff}}},
         {"$group": {"_id": "$media_id", "views": {"$sum": 1}}},
         {"$sort": {"views": -1}},
         {"$limit": 500},
     ]).to_list(500)
     views = {row["_id"]: int(row.get("views") or 0) for row in view_rows if row.get("_id")}
     external_signals = await _get_ai_discovery_signals()
-    now = datetime.now(timezone.utc)
     current_year = now.year
     ranked = []
 
