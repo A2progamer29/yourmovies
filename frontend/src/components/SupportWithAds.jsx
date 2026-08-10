@@ -13,9 +13,17 @@ export default function SupportWithAds() {
     const [status, setStatus] = useState(null);
     const [ads, setAds] = useState(null);
     const [countdown, setCountdown] = useState(0);
+    const [cooldown, setCooldown] = useState(0);
     const [claimable, setClaimable] = useState(false);
     const [busy, setBusy] = useState(false);
     const timerRef = useRef(null);
+    const cooldownRef = useRef(null);
+
+    const formatDelay = (total) => {
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return m > 0 ? `${m} min ${String(s).padStart(2, "0")} s` : `${s} s`;
+    };
 
     const load = useCallback(async () => {
         try {
@@ -29,13 +37,38 @@ export default function SupportWithAds() {
     }, []);
 
     useEffect(() => { load(); }, [load]);
-    useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
+    useEffect(() => () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        if (cooldownRef.current) clearInterval(cooldownRef.current);
+    }, []);
+
+    // Aligne le compte à rebours local sur la valeur renvoyée par le serveur.
+    useEffect(() => {
+        setCooldown(Number(status?.cooldown_seconds) || 0);
+    }, [status?.cooldown_seconds]);
+
+    // Décompte à la seconde, puis resynchronisation quand le délai est écoulé.
+    useEffect(() => {
+        if (cooldown <= 0) return undefined;
+        if (cooldownRef.current) clearInterval(cooldownRef.current);
+        cooldownRef.current = setInterval(() => {
+            setCooldown((c) => {
+                if (c <= 1) {
+                    clearInterval(cooldownRef.current);
+                    load();
+                    return 0;
+                }
+                return c - 1;
+            });
+        }, 1000);
+        return () => clearInterval(cooldownRef.current);
+    }, [cooldown > 0, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (!status?.available) return null;
 
     const directLink = ads?.gate?.direct_link || "";
     const popScript = ads?.popunder?.script_url || "";
-    const blocked = status.remaining_today <= 0 || status.cooldown_seconds > 0;
+    const blocked = status.remaining_today <= 0 || cooldown > 0;
 
     const watch = () => {
         if (directLink) window.open(directLink, "_blank", "noopener,noreferrer");
@@ -89,7 +122,9 @@ export default function SupportWithAds() {
                     >
                         {countdown > 0
                             ? <><Loader2 size={15} className="mr-2 animate-spin" /> Encore {countdown}s…</>
-                            : <><Coins size={15} className="mr-2" /> Regarder une pub</>}
+                            : cooldown > 0
+                                ? <>Disponible dans {formatDelay(cooldown)}</>
+                                : <><Coins size={15} className="mr-2" /> Regarder une pub</>}
                     </Button>
                 ) : (
                     <Button
@@ -111,7 +146,9 @@ export default function SupportWithAds() {
                 {status.remaining_today > 0
                     ? `Il te reste ${status.remaining_today} pub${status.remaining_today > 1 ? "s" : ""} aujourd'hui.`
                     : "Quota du jour atteint — reviens demain."}
-                {status.cooldown_seconds > 0 && ` Prochaine dans ${Math.ceil(status.cooldown_seconds / 60)} min.`}
+                {cooldown > 0
+                    ? <> Prochaine dans <span className="text-[#E8D2A6] tabular-nums">{formatDelay(cooldown)}</span>.</>
+                    : status.remaining_today > 0 && <span className="text-emerald-400"> Disponible maintenant.</span>}
             </div>
         </div>
     );
