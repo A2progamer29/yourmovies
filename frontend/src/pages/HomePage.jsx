@@ -244,11 +244,6 @@ export default function HomePage() {
                             <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6] mb-4">
                                 <Sparkles size={14} />
                                 <span>À l&apos;affiche</span>
-                                {showTrailerAutoplay && (
-                                    <span className="flex items-center gap-1 ml-2 text-[10px] bg-[#E8D2A6]/10 border border-[#E8D2A6]/30 px-2 py-0.5 rounded-full">
-                                        <Crown size={10} /> Cinéma Premium
-                                    </span>
-                                )}
                             </div>
                             {current?.title_logo_url ? (
                                 <img
