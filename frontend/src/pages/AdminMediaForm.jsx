@@ -125,6 +125,9 @@ export default function AdminMediaForm() {
     const [tmdbSearching, setTmdbSearching] = useState(false);
     const [tmdbImporting, setTmdbImporting] = useState(null);
     const [timelineSuggesting, setTimelineSuggesting] = useState(false);
+    const [timelineCatalogQuery, setTimelineCatalogQuery] = useState("");
+    const [timelineCatalogResults, setTimelineCatalogResults] = useState([]);
+    const [timelineCatalogSearching, setTimelineCatalogSearching] = useState(false);
 
     useEffect(() => {
         if (!isEdit) return;
@@ -358,6 +361,7 @@ export default function AdminMediaForm() {
             tmdb_kind: form.tmdb_kind || (form.type === "movie" ? "movie" : "tv"),
             saga_title: (form.saga_title || "").trim() || null,
             timeline: (form.timeline || []).map((item) => ({
+                media_id: item.media_id || null,
                 tmdb_id: item.tmdb_id || null,
                 title: item.title?.trim() || "Titre inconnu",
                 type: item.type || form.type,
@@ -507,9 +511,56 @@ export default function AdminMediaForm() {
             ...current,
             timeline: [
                 ...(current.timeline || []),
-                { tmdb_id: null, title: "", type: current.type, year: "", release_date: null, poster_url: null },
+                { media_id: null, tmdb_id: null, title: "", type: current.type, year: "", release_date: null, poster_url: null },
             ],
         }));
+    };
+
+    const searchTimelineCatalog = async () => {
+        const query = timelineCatalogQuery.trim();
+        if (query.length < 2) {
+            toast.error("Entre au moins 2 caractères pour rechercher dans le catalogue");
+            return;
+        }
+        setTimelineCatalogSearching(true);
+        try {
+            const r = await api.get("/media", { params: { q: query, limit: 20 } });
+            const results = r.data || [];
+            setTimelineCatalogResults(results);
+            if (!results.length) toast.info("Aucun contenu correspondant dans le catalogue");
+        } catch (e) {
+            showError(toast, e, "Recherche dans le catalogue impossible");
+        } finally {
+            setTimelineCatalogSearching(false);
+        }
+    };
+
+    const isTimelineMediaAdded = (media) => (form.timeline || []).some((item) =>
+        (item.media_id && item.media_id === media.id)
+        || (item.tmdb_id != null && media.tmdb_id != null && item.tmdb_id === media.tmdb_id && item.type === media.type)
+    );
+
+    const addCatalogMediaToTimeline = (media) => {
+        if (isTimelineMediaAdded(media)) {
+            toast.info("Ce contenu est déjà présent dans la chronologie");
+            return;
+        }
+        setForm((current) => ({
+            ...current,
+            timeline: [
+                ...(current.timeline || []),
+                {
+                    media_id: media.id,
+                    tmdb_id: media.tmdb_id || null,
+                    title: media.title,
+                    type: media.type,
+                    year: media.year ?? "",
+                    release_date: null,
+                    poster_url: media.poster_url || null,
+                },
+            ],
+        }));
+        toast.success(`${media.title} ajouté à la chronologie`);
     };
 
     const updateTimelineItem = (index, patch) => {
@@ -752,6 +803,76 @@ export default function AdminMediaForm() {
                             />
                         </div>
 
+                        <div className="mt-5 rounded-xl border border-[#262626] bg-[#080808] p-4">
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-neutral-300">Ajouter depuis le catalogue YourMovie’s</Label>
+                                <p className="text-xs text-neutral-500">Recherche un film, une série ou un animé déjà publié, puis ajoute-le à la chronologie.</p>
+                            </div>
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                <div className="relative min-w-0 flex-1">
+                                    <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600" />
+                                    <Input
+                                        value={timelineCatalogQuery}
+                                        onChange={(e) => setTimelineCatalogQuery(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                searchTimelineCatalog();
+                                            }
+                                        }}
+                                        placeholder="Rechercher dans le catalogue…"
+                                        className="border-[#2f2f2f] bg-[#111] pl-9 text-white"
+                                        data-testid="timeline-catalog-search"
+                                    />
+                                </div>
+                                <Button
+                                    type="button"
+                                    onClick={searchTimelineCatalog}
+                                    disabled={timelineCatalogSearching}
+                                    className="bg-[#E8D2A6] text-black hover:bg-[#d8bf8c]"
+                                    data-testid="timeline-catalog-search-button"
+                                >
+                                    {timelineCatalogSearching ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Search size={14} className="mr-2" />}
+                                    Rechercher
+                                </Button>
+                            </div>
+
+                            {timelineCatalogResults.length > 0 && (
+                                <div className="mt-3 grid max-h-80 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                                    {timelineCatalogResults.map((media) => {
+                                        const alreadyAdded = isTimelineMediaAdded(media);
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={media.id}
+                                                onClick={() => addCatalogMediaToTimeline(media)}
+                                                disabled={alreadyAdded}
+                                                className="group flex min-w-0 items-center gap-3 rounded-lg border border-[#262626] bg-[#111] p-2.5 text-left transition-colors hover:border-[#E8D2A6]/55 disabled:cursor-default disabled:opacity-55"
+                                                data-testid={`timeline-catalog-result-${media.id}`}
+                                            >
+                                                <div className="h-[66px] w-11 shrink-0 overflow-hidden rounded-md border border-white/10 bg-[#161616]">
+                                                    {media.poster_url ? (
+                                                        <img src={media.poster_url} alt="" className="h-full w-full object-cover" />
+                                                    ) : (
+                                                        <div className="flex h-full items-center justify-center text-neutral-700"><Film size={14} /></div>
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="truncate text-sm font-medium text-white group-hover:text-[#E8D2A6]">{media.title}</div>
+                                                    <div className="mt-1 text-xs text-neutral-500">
+                                                        {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"} · {media.year || "Année inconnue"}
+                                                    </div>
+                                                </div>
+                                                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${alreadyAdded ? "border-white/10 text-neutral-600" : "border-[#E8D2A6]/35 bg-[#E8D2A6]/10 text-[#E8D2A6]"}`}>
+                                                    {alreadyAdded ? "Ajouté" : "Ajouter"}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
                         {(form.timeline || []).length > 0 ? (
                             <div className="mt-5 space-y-2">
                                 {(form.timeline || []).map((item, index) => (
@@ -803,8 +924,8 @@ export default function AdminMediaForm() {
                             </div>
                         )}
 
-                        <Button type="button" variant="ghost" size="sm" onClick={addTimelineItem} className="mt-3 text-[#E8D2A6] hover:bg-white/5 hover:text-[#E8D2A6]">
-                            <Plus size={13} className="mr-1.5" /> Ajouter une œuvre manuellement
+                        <Button type="button" variant="ghost" size="sm" onClick={addTimelineItem} className="mt-3 text-neutral-500 hover:bg-white/5 hover:text-[#E8D2A6]">
+                            <Plus size={13} className="mr-1.5" /> Ajouter une œuvre absente du catalogue
                         </Button>
                     </section>
 
