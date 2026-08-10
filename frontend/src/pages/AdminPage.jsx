@@ -15,6 +15,20 @@ import AdminRoleDialog from "@/components/AdminRoleDialog";
 import AdminPricing from "@/components/AdminPricing";
 import { showError } from "@/lib/errors";
 
+function hasPlayableVideo(item = {}) {
+    if (item.bunny_video_id || item.video_url || item.video_file_path) return true;
+    return Array.isArray(item.qualities) && item.qualities.some((quality) =>
+        quality?.url || quality?.video_url || quality?.file_path
+    );
+}
+
+function isMediaIncomplete(media) {
+    if (!media) return false;
+    if (media.type === "movie") return !hasPlayableVideo(media);
+    const episodes = (media.seasons || []).flatMap((season) => season?.episodes || []);
+    return episodes.length === 0 || episodes.some((episode) => !hasPlayableVideo(episode));
+}
+
 export default function AdminPage() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
@@ -97,12 +111,12 @@ export default function AdminPage() {
         setAiDiscoveryLoading(true);
         setAiDiscoveryError("");
         try {
-            const r = await api.get("/discovery/ai?limit=24", { silent: true });
+            const r = await api.get("/discovery/imdb?limit=24", { silent: true });
             setAiDiscovery(Array.isArray(r.data) ? r.data : []);
             setAiDiscoveryLoadedAt(new Date());
         } catch (e) {
             setAiDiscovery([]);
-            setAiDiscoveryError("Le radar IA est temporairement indisponible.");
+            setAiDiscoveryError("La veille IMDb est temporairement indisponible.");
         } finally {
             setAiDiscoveryLoading(false);
         }
@@ -266,6 +280,25 @@ export default function AdminPage() {
         }
     };
 
+    const updateFeaturedOrder = async (media, rawOrder) => {
+        const parsed = Number.parseInt(rawOrder, 10);
+        const order = Number.isFinite(parsed) ? Math.min(999, Math.max(1, parsed)) : 1;
+        const key = media.id + ":featured_order";
+        if (mediaFlagSaving[key] || !media.featured) return;
+        setMediaFlagSaving((current) => ({ ...current, [key]: true }));
+        setItems((current) => current.map((item) => item.id === media.id ? { ...item, featured_order: order } : item));
+        try {
+            const response = await api.patch("/admin/media/" + media.id + "/flags", { featured_order: order });
+            setItems((current) => current.map((item) => item.id === media.id ? { ...item, ...response.data } : item));
+            toast.success("Priorité « À l’affiche » mise à jour");
+        } catch (e) {
+            await loadMedia();
+            showError(toast, e, "Mise à jour de la priorité impossible");
+        } finally {
+            setMediaFlagSaving((current) => ({ ...current, [key]: false }));
+        }
+    };
+
     const stats = {
         total: items.length,
         movies: items.filter((i) => i.type === "movie").length,
@@ -345,7 +378,7 @@ export default function AdminPage() {
                         </TabsTrigger>
                         {level >= 2 && (
                             <TabsTrigger value="discovery" data-testid="admin-tab-discovery" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Sparkles size={14} className="mr-2" /> Radar IA
+                                <Sparkles size={14} className="mr-2" /> Nouveautés & tendances
                             </TabsTrigger>
                         )}
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
@@ -403,7 +436,7 @@ export default function AdminPage() {
                                 <div className="col-span-1">Type</div>
                                 <div className="col-span-1">Année</div>
                                 <div className="col-span-2 text-center">Au cinéma</div>
-                                <div className="col-span-2 text-center">À l&apos;affiche</div>
+                                <div className="col-span-2 text-center">À l&apos;affiche · priorité</div>
                                 <div className="col-span-2 text-right">Actions</div>
                             </div>
                             {filteredItems.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun contenu.</div>}
@@ -412,7 +445,14 @@ export default function AdminPage() {
                                     <div className="col-span-4 flex items-center gap-3">
                                         {m.poster_url && <img src={m.poster_url} alt="" className="w-8 h-12 object-cover rounded" />}
                                         <div>
-                                            <div className="text-white">{m.title}</div>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="text-white">{m.title}</span>
+                                                {isMediaIncomplete(m) && (
+                                                    <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                                                        En cours
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="text-xs text-neutral-500">{(m.genres || []).slice(0, 3).join(" · ")}</div>
                                         </div>
                                     </div>
@@ -433,7 +473,7 @@ export default function AdminPage() {
                                         ) : <span className="text-neutral-700">—</span>}
                                     </div>
                                     <div className="col-span-2 flex justify-center">
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex flex-wrap items-center justify-center gap-2">
                                             <Switch
                                                 checked={!!m.featured}
                                                 disabled={!!mediaFlagSaving[m.id + ":featured"] || level < 2}
@@ -442,6 +482,29 @@ export default function AdminPage() {
                                                 data-testid={"toggle-featured-" + m.id}
                                             />
                                             <span className={"text-[10px] uppercase tracking-wide " + (m.featured ? "text-[#E8D2A6]" : "text-neutral-600")}>{m.featured ? "Activé" : "Désactivé"}</span>
+                                            {m.featured && (
+                                                <label className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-neutral-500">
+                                                    N°
+                                                    <Input
+                                                        type="number"
+                                                        min="1"
+                                                        max="999"
+                                                        value={m.featured_order ?? 1}
+                                                        disabled={!!mediaFlagSaving[m.id + ":featured_order"] || level < 2}
+                                                        onChange={(event) => {
+                                                            const value = event.target.value;
+                                                            setItems((current) => current.map((item) => item.id === m.id ? { ...item, featured_order: value } : item));
+                                                        }}
+                                                        onBlur={(event) => updateFeaturedOrder(m, event.target.value)}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === "Enter") event.currentTarget.blur();
+                                                        }}
+                                                        aria-label={"Priorité à l’affiche de " + m.title}
+                                                        data-testid={"featured-order-" + m.id}
+                                                        className="h-8 w-14 border-[#353535] bg-[#111] px-2 text-center text-xs text-white"
+                                                    />
+                                                </label>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
@@ -462,9 +525,9 @@ export default function AdminPage() {
                                         <Sparkles size={13} aria-hidden="true" />
                                         Nouveautés & tendances
                                     </div>
-                                    <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Le radar IA</h2>
+                                    <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Veille IMDb</h2>
                                     <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-                                        Classe les contenus du catalogue selon les sorties récentes, les tendances actuelles et les visionnages des 30 derniers jours.
+                                        Repère les sorties récentes et les titres qui gagnent en popularité à partir de leurs données IMDb, même s&apos;ils ne sont pas encore disponibles sur YourMovie&apos;s.
                                     </p>
                                 </div>
                                 <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
@@ -476,11 +539,11 @@ export default function AdminPage() {
                                         className="rounded-full border-[#E8D2A6]/35 bg-transparent text-[#E8D2A6] hover:bg-[#E8D2A6]/10 hover:text-[#E8D2A6]"
                                     >
                                         <RotateCcw size={14} className={"mr-2 " + (aiDiscoveryLoading ? "animate-spin" : "")} />
-                                        {aiDiscoveryLoading ? "Analyse en cours" : "Actualiser l'analyse"}
+                                        {aiDiscoveryLoading ? "Mise à jour…" : "Actualiser"}
                                     </Button>
                                     {aiDiscoveryLoadedAt && (
                                         <span className="text-[11px] text-neutral-600">
-                                            Dernière analyse : {aiDiscoveryLoadedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                                            Dernière mise à jour : {aiDiscoveryLoadedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
                                         </span>
                                     )}
                                 </div>
@@ -493,7 +556,7 @@ export default function AdminPage() {
                             )}
 
                             {aiDiscoveryLoading && aiDiscovery.length === 0 ? (
-                                <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" aria-label="Chargement du radar IA">
+                                <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" aria-label="Chargement des nouveautés IMDb">
                                     {Array.from({ length: 6 }).map((_, index) => (
                                         <div key={index} className="animate-pulse">
                                             <div className="aspect-[2/3] border border-[#262626] bg-[#111]" />
@@ -506,11 +569,12 @@ export default function AdminPage() {
                                 <div className="grid grid-cols-2 gap-6 md:grid-cols-4 lg:grid-cols-6" data-testid="admin-ai-discovery-grid">
                                     {aiDiscovery.map((media) => (
                                         <article key={media.id} className="group min-w-0">
-                                            <button
-                                                type="button"
-                                                onClick={() => navigate(`/media/${media.id}`)}
+                                            <a
+                                                href={media.imdb_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="relative block aspect-[2/3] w-full overflow-hidden border border-[#262626] bg-[#111] text-left transition-colors hover:border-[#E8D2A6]/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6]"
-                                                data-testid={`admin-ai-discovery-${media.id}`}
+                                                data-testid={`admin-imdb-discovery-${media.id}`}
                                             >
                                                 {media.poster_url ? (
                                                     <img src={media.poster_url} alt={media.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.025]" />
@@ -520,33 +584,35 @@ export default function AdminPage() {
                                                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/15 to-transparent" />
                                                 <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
                                                     <span className="max-w-[80%] truncate rounded-full border border-[#E8D2A6]/30 bg-black/75 px-2 py-1 text-[9px] uppercase tracking-wider text-[#E8D2A6] backdrop-blur">
-                                                        {media.ai_label || "Choix de l'IA"}
+                                                        {media.ai_label || "Sélection IMDb"}
                                                     </span>
                                                     <span className="font-display text-xl text-white/70">{String(media.ai_rank || "").padStart(2, "0")}</span>
                                                 </div>
-                                            </button>
+                                            </a>
                                             <div className="pt-3">
                                                 <div className="text-[10px] uppercase tracking-widest text-neutral-600">
                                                     {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"}
                                                     {media.year ? ` · ${media.year}` : ""}
+                                                    {media.rating ? ` · IMDb ${media.rating}/10` : ""}
                                                 </div>
                                                 <h3 className="mt-1 truncate text-sm font-medium text-white">{media.title}</h3>
                                                 <p className="mt-1 line-clamp-2 min-h-8 text-xs leading-relaxed text-neutral-500">{media.ai_reason}</p>
                                                 <div className="mt-3 flex items-center gap-2">
-                                                    <Button
-                                                        size="sm"
-                                                        onClick={() => navigate(`/media/${media.id}`)}
-                                                        className="h-8 flex-1 rounded-full bg-[#E8D2A6] px-3 text-xs font-semibold text-black hover:bg-[#D4BB8B]"
+                                                    <a
+                                                        href={media.imdb_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex h-8 flex-1 items-center justify-center rounded-full bg-[#E8D2A6] px-3 text-xs font-semibold text-black transition-colors hover:bg-[#D4BB8B]"
                                                     >
-                                                        Voir
-                                                    </Button>
+                                                        Voir sur IMDb
+                                                    </a>
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
-                                                        onClick={() => navigate(`/admin/media/${media.id}/edit`)}
+                                                        onClick={() => navigate(`/admin/media/new?q=${encodeURIComponent(media.title)}`)}
                                                         className="h-8 flex-1 rounded-full border-[#262626] bg-transparent px-3 text-xs text-neutral-300 hover:border-[#E8D2A6]/45 hover:bg-white/5 hover:text-white"
                                                     >
-                                                        Modifier
+                                                        Ajouter
                                                     </Button>
                                                 </div>
                                             </div>
@@ -556,12 +622,12 @@ export default function AdminPage() {
                             ) : !aiDiscoveryError && (
                                 <div className="border border-[#262626] bg-[#0a0a0a] px-6 py-10 text-center">
                                     <Sparkles size={22} className="mx-auto text-[#E8D2A6]" />
-                                    <p className="mt-3 text-sm text-neutral-400">Aucun contenu ne peut encore être classé par le radar IA.</p>
+                                    <p className="mt-3 text-sm text-neutral-400">Aucune nouveauté IMDb n&apos;est disponible pour le moment.</p>
                                 </div>
                             )}
 
                             <p className="text-xs leading-relaxed text-neutral-600">
-                                Le radar est réservé au panel admin, se met à jour automatiquement toutes les 30 minutes et ne propose que des titres réellement disponibles sur YourMovie&apos;s.
+                                Les fiches, identifiants, notes et volumes de votes sont vérifiés via IMDb. Cette sélection est réservée au panel admin et ne dépend ni du catalogue ni des visionnages YourMovie&apos;s.
                             </p>
                         </TabsContent>
                     )}
