@@ -2984,6 +2984,7 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
     previous = await db.watch_progress.find_one(key, {"_id": 0})
     same_selection = bool(
         previous
+        and not previous.get("completed")
         and previous.get("season_number") == inp.season_number
         and previous.get("episode_number") == inp.episode_number
     )
@@ -2993,6 +2994,7 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
         "media_id": inp.media_id,
         "season_number": inp.season_number,
         "episode_number": inp.episode_number,
+        "completed": False,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if same_selection:
@@ -3001,7 +3003,11 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
     else:
         update["position_seconds"] = 0
         update["duration_seconds"] = inp.duration_seconds
-    await db.watch_progress.update_one(key, {"$set": update}, upsert=True)
+    await db.watch_progress.update_one(
+        key,
+        {"$set": update, "$unset": {"completed_at": ""}},
+        upsert=True,
+    )
     await _touch_watch_activity(
         user["user_id"], profile_id, inp.media_id,
         inp.season_number, inp.episode_number,
@@ -3019,18 +3025,29 @@ async def heartbeat_watch_activity(inp: WatchProgressStartInput, user: dict = De
 
 @api_router.post("/watch-progress")
 async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
+    position_seconds = max(0.0, float(inp.position_seconds or 0))
+    duration_seconds = max(0.0, float(inp.duration_seconds or 0)) if inp.duration_seconds is not None else None
+    completed = bool(duration_seconds and position_seconds / duration_seconds >= 0.95)
+    now = datetime.now(timezone.utc).isoformat()
+    progress_update = {
+        "user_id": user["user_id"],
+        "profile_id": profile_id,
+        "media_id": inp.media_id,
+        "position_seconds": position_seconds,
+        "duration_seconds": duration_seconds,
+        "season_number": inp.season_number,
+        "episode_number": inp.episode_number,
+        "completed": completed,
+        "updated_at": now,
+    }
+    update_operation = {"$set": progress_update}
+    if completed:
+        progress_update["completed_at"] = now
+    else:
+        update_operation["$unset"] = {"completed_at": ""}
     await db.watch_progress.update_one(
         {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id},
-        {"$set": {
-            "user_id": user["user_id"],
-            "profile_id": profile_id,
-            "media_id": inp.media_id,
-            "position_seconds": inp.position_seconds,
-            "duration_seconds": inp.duration_seconds,
-            "season_number": inp.season_number,
-            "episode_number": inp.episode_number,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
+        update_operation,
         upsert=True,
     )
     await _touch_watch_activity(
@@ -3042,11 +3059,15 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
         "profile_id": profile_id,
         "media_id": inp.media_id,
     })
-    return {"ok": True}
+    return {"ok": True, "completed": completed}
 
 @api_router.get("/watch-progress")
 async def list_progress(user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
-    docs = await db.watch_progress.find({"user_id": user["user_id"], "profile_id": profile_id}, {"_id": 0}).sort("updated_at", -1).to_list(50)
+    docs = await db.watch_progress.find({
+        "user_id": user["user_id"],
+        "profile_id": profile_id,
+        "completed": {"$ne": True},
+    }, {"_id": 0}).sort("updated_at", -1).to_list(50)
     media_ids = [d["media_id"] for d in docs]
     media_docs = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0}).to_list(50)
     media_map = {m["id"]: m for m in media_docs}
@@ -3055,9 +3076,13 @@ async def list_progress(user: dict = Depends(get_current_user), profile_id: Opti
         m = media_map.get(d["media_id"])
         if not m:
             continue
+        position_seconds = max(0.0, float(d.get("position_seconds") or 0))
+        duration_seconds = max(0.0, float(d.get("duration_seconds") or 0))
+        if duration_seconds > 0 and position_seconds / duration_seconds >= 0.95:
+            continue
         item = serialize_media(m)
-        item["position_seconds"] = d["position_seconds"]
-        item["duration_seconds"] = d.get("duration_seconds")
+        item["position_seconds"] = position_seconds
+        item["duration_seconds"] = duration_seconds or None
         item["season_number"] = d.get("season_number")
         item["episode_number"] = d.get("episode_number")
         item["updated_at"] = d.get("updated_at")
