@@ -12,6 +12,14 @@ import HScroller from "@/components/HScroller";
 
 const HERO_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const AUTO_ROTATE_MS = 7000;
+const CONTINUE_WATCHING_LIMIT = 95;
+
+function progressPercent(item) {
+    const position = Number(item?.position_seconds || 0);
+    const duration = Number(item?.duration_seconds || 0);
+    if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return 0;
+    return Math.min(100, Math.max(0, (position / duration) * 100));
+}
 
 function seasonTitle(month) {
     if (month <= 1 || month === 11) return "Tendances de l'hiver";
@@ -36,7 +44,7 @@ export default function HomePage() {
     const [removingProgressId, setRemovingProgressId] = useState(null);
     const [progressRemovalError, setProgressRemovalError] = useState("");
     const rotateTimer = useRef(null);
-    const [paused, setPaused] = useState(false);
+    const [heroArrowSide, setHeroArrowSide] = useState(null);
 
     useEffect(() => {
         (async () => {
@@ -61,7 +69,8 @@ export default function HomePage() {
             if (user) {
                 try {
                     const watchResult = await api.get("/watch-progress", { silent: true });
-                    const watchedItems = Array.isArray(watchResult.data) ? watchResult.data : [];
+                    const watchedItems = (Array.isArray(watchResult.data) ? watchResult.data : [])
+                        .filter((item) => progressPercent(item) < CONTINUE_WATCHING_LIMIT);
                     setContinueWatching(watchedItems);
 
                     if (watchedItems.length > 0) {
@@ -126,12 +135,20 @@ export default function HomePage() {
     };
 
     useEffect(() => {
-        if (featured.length <= 1 || paused) return;
+        if (featured.length <= 1) return;
         rotateTimer.current = setTimeout(() => {
             setHeroIndex((i) => (i + 1) % featured.length);
         }, AUTO_ROTATE_MS);
         return () => clearTimeout(rotateTimer.current);
-    }, [heroIndex, featured, paused]);
+    }, [heroIndex, featured]);
+
+    const updateHeroArrowVisibility = (event) => {
+        if (featured.length <= 1) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const pointerRatio = (event.clientX - bounds.left) / Math.max(1, bounds.width);
+        const nextSide = pointerRatio <= 0.22 ? "left" : pointerRatio >= 0.78 ? "right" : null;
+        setHeroArrowSide((currentSide) => currentSide === nextSide ? currentSide : nextSide);
+    };
 
     const isEmpty = latest.length === 0;
     const current = featured[heroIndex];
@@ -160,8 +177,8 @@ export default function HomePage() {
             {/* HERO CAROUSEL */}
             <section
                 className="relative w-full h-[85vh] min-h-[560px] overflow-hidden"
-                onMouseEnter={() => setPaused(true)}
-                onMouseLeave={() => setPaused(false)}
+                onMouseMove={updateHeroArrowVisibility}
+                onMouseLeave={() => setHeroArrowSide(null)}
             >
                 <AnimatePresence mode="wait">
                     <motion.div
@@ -279,14 +296,14 @@ export default function HomePage() {
                         <button
                             onClick={() => setHeroIndex((i) => (i - 1 + featured.length) % featured.length)}
                             data-testid="hero-prev"
-                            className="hidden md:flex absolute left-6 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-black/40 backdrop-blur border border-white/10 items-center justify-center text-white/70 hover:text-white hover:bg-black/60"
+                            className={`hidden md:flex absolute left-6 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-black/55 backdrop-blur border border-white/10 items-center justify-center text-white/80 transition-[opacity,transform,background-color,border-color] duration-200 hover:text-white hover:bg-black/80 hover:border-[#E8D2A6]/45 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] ${heroArrowSide === "left" ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-2 pointer-events-none"}`}
                         >
                             <ChevronLeft size={18} />
                         </button>
                         <button
                             onClick={() => setHeroIndex((i) => (i + 1) % featured.length)}
                             data-testid="hero-next"
-                            className="hidden md:flex absolute right-6 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-black/40 backdrop-blur border border-white/10 items-center justify-center text-white/70 hover:text-white hover:bg-black/60"
+                            className={`hidden md:flex absolute right-6 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-black/55 backdrop-blur border border-white/10 items-center justify-center text-white/80 transition-[opacity,transform,background-color,border-color] duration-200 hover:text-white hover:bg-black/80 hover:border-[#E8D2A6]/45 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] ${heroArrowSide === "right" ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 translate-x-2 pointer-events-none"}`}
                         >
                             <ChevronRight size={18} />
                         </button>
@@ -322,9 +339,7 @@ export default function HomePage() {
                                 const episodeQuery = m.season_number != null && m.episode_number != null
                                     ? `?season=${encodeURIComponent(m.season_number)}&episode=${encodeURIComponent(m.episode_number)}`
                                     : "";
-                                const progress = m.duration_seconds > 0
-                                    ? Math.min(100, Math.max(0, (m.position_seconds / m.duration_seconds) * 100))
-                                    : 0;
+                                const progress = progressPercent(m);
                                 return (
                                     <div key={m.id} className="group/card relative shrink-0 w-64 snap-start">
                                         <Link to={`/watch/${m.id}${episodeQuery}`} data-testid={`resume-${m.id}`} className="group block relative aspect-video rounded-xl overflow-hidden border border-[#262626] hover:border-[#E8D2A6]/60 transition-colors bg-[#111]">
@@ -337,7 +352,7 @@ export default function HomePage() {
                                                 )}
                                             </div>
                                             <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-                                                <div className="h-full bg-[#E8D2A6] transition-[width]" style={{ width: `${progress}%` }} />
+                                                <div className="h-full bg-[#E8D2A6] transition-[width] duration-500 ease-out" style={{ width: `${progress}%` }} />
                                             </div>
                                         </Link>
                                         <button
