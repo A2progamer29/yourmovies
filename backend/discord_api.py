@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import os
 import random
 import secrets
@@ -16,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from bson import ObjectId
+from bson.errors import InvalidId
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -28,6 +31,7 @@ except ImportError:
 
 ACTIVITY_TYPES = {"message", "reaction", "command"}
 LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+logger = logging.getLogger("yourmovies.discord_api")
 
 
 def api_error(status: int, code: str, message: str, action: str) -> HTTPException:
@@ -83,6 +87,15 @@ class BoostSetInput(BaseModel):
     boost_count: int = Field(ge=0, le=20)
 
 
+class MediaNotificationConfigInput(BaseModel):
+    guild_id: str = Field(pattern=r"^\\d{15,22}$")
+    channel_id: str = Field(pattern=r"^\\d{15,22}$")
+
+
+class MediaEventAckInput(BaseModel):
+    guild_id: str = Field(pattern=r"^\\d{15,22}$")
+
+
 def create_discord_router(
     *,
     db,
@@ -130,6 +143,8 @@ def create_discord_router(
             await db.discord_reward_events.create_index("event_id", unique=True)
             await db.discord_reward_events.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 180)
             await db.discord_boost_events.create_index("event_id", unique=True)
+            await db.discord_bot_config.create_index("guild_id", unique=True)
+            await db.media_events.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 180)
             indexes_ready = True
 
     async def require_service_key(
@@ -616,5 +631,78 @@ def create_discord_router(
         if not link:
             raise api_error(404, "YM-BOOST-NOT-LINKED", "Ce membre n’a pas lié son compte Discord.", "Demande-lui de générer un code sur le site puis d’utiliser /lier.")
         return {"ok": True, **await apply_boost_entitlement(link, inp.guild_id, inp.boost_count, inp.boost_count > 0)}
+
+    @router.post("/internal/discord/media-notifications/config", dependencies=[Depends(require_service_key)])
+    async def configure_media_notifications(inp: MediaNotificationConfigInput):
+        """Enregistre le salon dans MongoDB et démarre au dernier événement connu."""
+        await ensure_indexes()
+        existing = await db.discord_bot_config.find_one({"guild_id": inp.guild_id}, {"_id": 0})
+        latest = await db.media_events.find_one({}, {"_id": 1}, sort=[("_id", -1)])
+        cursor = (existing or {}).get("media_event_cursor")
+        if not cursor and latest:
+            cursor = str(latest["_id"])
+        now = datetime.now(timezone.utc)
+        await db.discord_bot_config.update_one(
+            {"guild_id": inp.guild_id},
+            {"$set": {
+                "guild_id": inp.guild_id,
+                "media_channel_id": inp.channel_id,
+                "media_event_cursor": cursor,
+                "media_notifications_updated_at": now,
+            }},
+            upsert=True,
+        )
+        return {
+            "ok": True,
+            "guild_id": inp.guild_id,
+            "channel_id": inp.channel_id,
+            "cursor": cursor,
+        }
+
+    @router.get("/internal/discord/media-events/{guild_id}", dependencies=[Depends(require_service_key)])
+    async def pending_media_events(guild_id: str, limit: int = Query(25, ge=1, le=100)):
+        """Retourne, dans l'ordre, les événements non encore confirmés par ce serveur."""
+        await ensure_indexes()
+        config = await db.discord_bot_config.find_one({"guild_id": guild_id}, {"_id": 0})
+        if not config or not config.get("media_channel_id"):
+            return {"configured": False, "channel_id": None, "events": []}
+        query = {}
+        cursor = config.get("media_event_cursor")
+        if cursor:
+            try:
+                query["_id"] = {"$gt": ObjectId(cursor)}
+            except (InvalidId, TypeError):
+                logger.warning("Curseur média Discord invalide pour le serveur %s", guild_id)
+        docs = await db.media_events.find(query).sort("_id", 1).to_list(limit)
+        return {
+            "configured": True,
+            "channel_id": config.get("media_channel_id"),
+            "events": [{
+                "cursor": str(doc["_id"]),
+                "event_id": doc.get("event_id"),
+                "action": doc.get("action"),
+                "media": doc.get("media") or {},
+                "created_at": doc.get("created_at").isoformat() if isinstance(doc.get("created_at"), datetime) else doc.get("created_at"),
+            } for doc in docs],
+        }
+
+    @router.post("/internal/discord/media-events/{cursor}/ack", dependencies=[Depends(require_service_key)])
+    async def acknowledge_media_event(cursor: str, inp: MediaEventAckInput):
+        """Avance le curseur seulement après l'envoi réussi du message Discord."""
+        await ensure_indexes()
+        try:
+            event_object_id = ObjectId(cursor)
+        except (InvalidId, TypeError) as exc:
+            raise api_error(400, "YM-MEDIA-CURSOR", "Le curseur de notification est invalide.", "Redémarre le bot puis reconfigure le salon de contenus.") from exc
+        event = await db.media_events.find_one({"_id": event_object_id}, {"_id": 1})
+        if not event:
+            raise api_error(404, "YM-MEDIA-EVENT-NOT-FOUND", "La notification n'existe plus.", "Reconfigure le salon de contenus pour repartir du dernier événement.")
+        result = await db.discord_bot_config.update_one(
+            {"guild_id": inp.guild_id, "media_channel_id": {"$ne": None}},
+            {"$set": {"media_event_cursor": cursor, "media_event_acknowledged_at": datetime.now(timezone.utc)}},
+        )
+        if result.matched_count == 0:
+            raise api_error(404, "YM-MEDIA-CHANNEL-NOT-CONFIGURED", "Aucun salon de contenus n'est configuré.", "Utilise /config_contenus dans Discord.")
+        return {"ok": True, "cursor": cursor}
 
     return router
