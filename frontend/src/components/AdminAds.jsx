@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Megaphone, Save, Plus, Trash2, PlayCircle, LayoutPanelTop, ExternalLink } from "lucide-react";
+import { Megaphone, Save, Plus, Trash2, PlayCircle, LayoutPanelTop, ExternalLink, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -46,6 +46,7 @@ export default function AdminAds() {
                 banner: cfg.banner,
                 popunder: cfg.popunder,
                 gate: cfg.gate,
+                reward: cfg.reward,
                 campaigns: cfg.campaigns,
             });
             toast.success("Publicité enregistrée");
@@ -137,6 +138,29 @@ export default function AdminAds() {
                     </label>
                     <label className="text-xs text-neutral-400">Re-demander après (min) — 0 = à chaque film
                         <Input type="number" min="0" value={cfg.gate?.frequency_minutes ?? 60} onChange={(e) => setPart("gate", { frequency_minutes: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                </div>
+            </section>
+
+            <section className="p-6 rounded-2xl border border-emerald-500/25 bg-[#0a0a0a]">
+                <div className="flex items-center gap-2 mb-1"><Heart size={18} className="text-emerald-400 shrink-0" fill="currentColor" /><h3 className="font-display text-xl">Soutien gratuit (pub contre Freemium)</h3></div>
+                <p className="text-xs text-neutral-500 mb-4">
+                    Affiché dans Paramètres → Abonnement pour les non-Premium : le visiteur regarde une pub et gagne des Freemium.
+                    Le quota et le délai limitent l&apos;abus (impossible de vérifier qu&apos;une pub a réellement été vue).
+                </p>
+                <Toggle checked={cfg.reward?.enabled} onChange={(v) => setPart("reward", { enabled: v })} label="Activer le soutien gratuit" />
+                <div className="grid sm:grid-cols-4 gap-3 mt-4">
+                    <label className="text-xs text-neutral-400">Freemium gagnés
+                        <Input type="number" step="0.5" value={cfg.reward?.coins ?? 1} onChange={(e) => setPart("reward", { coins: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                    <label className="text-xs text-neutral-400">Durée à patienter (s)
+                        <Input type="number" value={cfg.reward?.watch_seconds ?? 20} onChange={(e) => setPart("reward", { watch_seconds: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                    <label className="text-xs text-neutral-400">Délai entre 2 pubs (min)
+                        <Input type="number" value={cfg.reward?.cooldown_minutes ?? 10} onChange={(e) => setPart("reward", { cooldown_minutes: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                    <label className="text-xs text-neutral-400">Max par jour
+                        <Input type="number" value={cfg.reward?.daily_max ?? 10} onChange={(e) => setPart("reward", { daily_max: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                     </label>
                 </div>
             </section>

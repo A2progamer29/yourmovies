@@ -644,6 +644,7 @@ ADS_DEFAULTS = {
     "banner": {"enabled": False, "script_url": ""},
     "popunder": {"enabled": False, "script_url": "", "frequency_hours": 12},
     "gate": {"enabled": False, "steps": 1, "seconds": 3, "frequency_minutes": 60, "direct_link": ""},
+    "reward": {"enabled": False, "coins": 1, "watch_seconds": 20, "cooldown_minutes": 10, "daily_max": 10},
     "campaigns": [],
 }
 
@@ -689,6 +690,7 @@ async def _effective_ads() -> dict:
     ban = {**ADS_DEFAULTS["banner"], **(doc.get("banner") or {})}
     pop = {**ADS_DEFAULTS["popunder"], **(doc.get("popunder") or {})}
     gate = {**ADS_DEFAULTS["gate"], **(doc.get("gate") or {})}
+    reward = {**ADS_DEFAULTS["reward"], **(doc.get("reward") or {})}
     campaigns = [c for c in (
         _clean_campaign(entry, i) for i, entry in enumerate(doc.get("campaigns") or [])
     ) if c]
@@ -714,6 +716,13 @@ async def _effective_ads() -> dict:
             "seconds": int(_clamp_num(gate.get("seconds"), 0, 15, 3)),
             "frequency_minutes": int(_clamp_num(gate.get("frequency_minutes"), 0, 1440, 60)),
             "direct_link": _https_url(gate.get("direct_link")),
+        },
+        "reward": {
+            "enabled": bool(reward.get("enabled")),
+            "coins": round(_clamp_num(reward.get("coins"), 0.5, 50, 1), 1),
+            "watch_seconds": int(_clamp_num(reward.get("watch_seconds"), 5, 120, 20)),
+            "cooldown_minutes": int(_clamp_num(reward.get("cooldown_minutes"), 0, 1440, 10)),
+            "daily_max": int(_clamp_num(reward.get("daily_max"), 1, 100, 10)),
         },
         "campaigns": campaigns,
     }
@@ -2267,6 +2276,61 @@ async def delete_wish(wish_id: str, admin: dict = Depends(require_level(2))):
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
+# ---------- Soutien gratuit : regarder une pub contre des Freemium ----------
+def _reward_state(user: dict, cfg: dict) -> dict:
+    """Cooldown restant et quota du jour pour la récompense « regarder une pub »."""
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    used = int(user.get("ad_reward_count", 0) or 0) if user.get("ad_reward_day") == today else 0
+    remaining = max(0, int(cfg["daily_max"]) - used)
+    wait = 0
+    last = user.get("ad_reward_last")
+    if last and cfg["cooldown_minutes"] > 0:
+        try:
+            dt = datetime.fromisoformat(last) if isinstance(last, str) else last
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            elapsed = (now - dt).total_seconds()
+            wait = max(0, int(cfg["cooldown_minutes"] * 60 - elapsed))
+        except Exception:
+            wait = 0
+    return {"used_today": used, "remaining_today": remaining, "cooldown_seconds": wait}
+
+@api_router.get("/rewards/support/status")
+async def support_reward_status(user: dict = Depends(get_current_user)):
+    ads = await _effective_ads()
+    cfg = ads["reward"]
+    active = bool(ads["enabled"] and cfg["enabled"] and (ads["gate"]["direct_link"] or ads["popunder"]["script_url"]))
+    return {"available": active, **cfg, **_reward_state(user, cfg)}
+
+@api_router.post("/rewards/support")
+async def support_reward_claim(user: dict = Depends(get_current_user)):
+    ads = await _effective_ads()
+    cfg = ads["reward"]
+    if not (ads["enabled"] and cfg["enabled"]):
+        raise HTTPException(status_code=403, detail="Le soutien gratuit est désactivé.")
+    state = _reward_state(user, cfg)
+    if state["remaining_today"] <= 0:
+        raise HTTPException(status_code=429, detail="Quota du jour atteint. Reviens demain !")
+    if state["cooldown_seconds"] > 0:
+        raise HTTPException(status_code=429, detail=f"Patiente encore {state['cooldown_seconds'] // 60 + 1} min avant la prochaine pub.")
+
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    same_day = user.get("ad_reward_day") == today
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+        "ad_reward_day": today,
+        "ad_reward_count": (int(user.get("ad_reward_count", 0) or 0) + 1) if same_day else 1,
+        "ad_reward_last": now.isoformat(),
+    }})
+    balance = await award_coins(
+        user["user_id"], cfg["coins"],
+        f"+{cfg['coins']} Freemium · merci pour ton soutien 💛",
+        "Tu as soutenu YourMovie's en regardant une publicité.",
+    )
+    fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"awarded": cfg["coins"], "coins": balance, **_reward_state(fresh or user, cfg)}
+
 # ---------- Freemium : gains & achat ----------
 @api_router.post("/rewards/daily")
 async def rewards_daily(user: dict = Depends(get_current_user)):
@@ -3039,6 +3103,7 @@ class AdsInput(BaseModel):
     banner: Optional[dict] = None
     popunder: Optional[dict] = None
     gate: Optional[dict] = None
+    reward: Optional[dict] = None
     campaigns: Optional[list] = None
 
 @api_router.get("/promo/config")
@@ -3089,6 +3154,15 @@ async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_level(3))):
             "seconds": int(_clamp_num(g.get("seconds"), 0, 15, 3)),
             "frequency_minutes": int(_clamp_num(g.get("frequency_minutes"), 0, 1440, 60)),
             "direct_link": _https_url(g.get("direct_link")),
+        }
+    if inp.reward is not None:
+        r = inp.reward or {}
+        update["reward"] = {
+            "enabled": bool(r.get("enabled")),
+            "coins": round(_clamp_num(r.get("coins"), 0.5, 50, 1), 1),
+            "watch_seconds": int(_clamp_num(r.get("watch_seconds"), 5, 120, 20)),
+            "cooldown_minutes": int(_clamp_num(r.get("cooldown_minutes"), 0, 1440, 10)),
+            "daily_max": int(_clamp_num(r.get("daily_max"), 1, 100, 10)),
         }
     if inp.campaigns is not None:
         update["campaigns"] = [c for c in (

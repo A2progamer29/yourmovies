@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { PlayCircle, Loader2, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 import { loadAdsConfig, frequencyAllows, markShown, injectScript } from "@/lib/ads";
 
 const FREQ_KEY = "ym_gate_last";
@@ -98,10 +99,25 @@ export default function AdGate({ onUnlock }) {
                         : <>{step === 0 ? "Continuer" : `Continuer (${step + 1}/${total})`}</>}
                 </button>
 
-                <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-neutral-600">
-                    <ShieldCheck size={12} className="text-[#E8D2A6]" />
-                    Sans publicité avec un abonnement Premium.
-                </p>
+                <div className="mt-5 rounded-xl border border-[#262626] bg-[#0a0a0a]/70 p-3.5 text-left">
+                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-[#E8D2A6]">
+                        <ShieldCheck size={12} /> Ne plus voir de publicité
+                    </div>
+                    <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-neutral-400">
+                        <li>
+                            <Link to="/settings?tab=subscription" className="text-white underline decoration-[#E8D2A6]/50 underline-offset-2 hover:text-[#E8D2A6]">
+                                Soutenir gratuitement
+                            </Link>{" "}
+                            — regarde des pubs depuis tes paramètres, gagne des Freemium et échange-les contre du Premium.
+                        </li>
+                        <li>
+                            <Link to="/pricing" className="text-white underline decoration-[#E8D2A6]/50 underline-offset-2 hover:text-[#E8D2A6]">
+                                S&apos;abonner
+                            </Link>{" "}
+                            — Premium supprime toute publicité immédiatement.
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
     );
