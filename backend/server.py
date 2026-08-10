@@ -643,6 +643,7 @@ ADS_DEFAULTS = {
     "preroll": {"enabled": False, "vast_tag_url": "", "duration": 15, "skip_after": 5, "frequency_minutes": 30},
     "banner": {"enabled": False, "script_url": ""},
     "popunder": {"enabled": False, "script_url": "", "frequency_hours": 12},
+    "gate": {"enabled": False, "steps": 1, "seconds": 3, "frequency_minutes": 60},
     "campaigns": [],
 }
 
@@ -687,6 +688,7 @@ async def _effective_ads() -> dict:
     pre = {**ADS_DEFAULTS["preroll"], **(doc.get("preroll") or {})}
     ban = {**ADS_DEFAULTS["banner"], **(doc.get("banner") or {})}
     pop = {**ADS_DEFAULTS["popunder"], **(doc.get("popunder") or {})}
+    gate = {**ADS_DEFAULTS["gate"], **(doc.get("gate") or {})}
     campaigns = [c for c in (
         _clean_campaign(entry, i) for i, entry in enumerate(doc.get("campaigns") or [])
     ) if c]
@@ -705,6 +707,12 @@ async def _effective_ads() -> dict:
             "enabled": bool(pop.get("enabled")),
             "script_url": _https_url(pop.get("script_url")),
             "frequency_hours": int(_clamp_num(pop.get("frequency_hours"), 1, 168, 12)),
+        },
+        "gate": {
+            "enabled": bool(gate.get("enabled")),
+            "steps": int(_clamp_num(gate.get("steps"), 1, 5, 1)),
+            "seconds": int(_clamp_num(gate.get("seconds"), 0, 15, 3)),
+            "frequency_minutes": int(_clamp_num(gate.get("frequency_minutes"), 0, 1440, 60)),
         },
         "campaigns": campaigns,
     }
@@ -3029,6 +3037,7 @@ class AdsInput(BaseModel):
     preroll: Optional[dict] = None
     banner: Optional[dict] = None
     popunder: Optional[dict] = None
+    gate: Optional[dict] = None
     campaigns: Optional[list] = None
 
 @api_router.get("/ads/config")
@@ -3064,6 +3073,14 @@ async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_level(3))):
             "enabled": bool(pu.get("enabled")),
             "script_url": _https_url(pu.get("script_url")),
             "frequency_hours": int(_clamp_num(pu.get("frequency_hours"), 1, 168, 12)),
+        }
+    if inp.gate is not None:
+        g = inp.gate or {}
+        update["gate"] = {
+            "enabled": bool(g.get("enabled")),
+            "steps": int(_clamp_num(g.get("steps"), 1, 5, 1)),
+            "seconds": int(_clamp_num(g.get("seconds"), 0, 15, 3)),
+            "frequency_minutes": int(_clamp_num(g.get("frequency_minutes"), 0, 1440, 60)),
         }
     if inp.campaigns is not None:
         update["campaigns"] = [c for c in (

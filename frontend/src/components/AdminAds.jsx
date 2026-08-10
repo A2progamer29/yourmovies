@@ -45,6 +45,7 @@ export default function AdminAds() {
                 preroll: cfg.preroll,
                 banner: cfg.banner,
                 popunder: cfg.popunder,
+                gate: cfg.gate,
                 campaigns: cfg.campaigns,
             });
             toast.success("Publicité enregistrée");
@@ -108,6 +109,27 @@ export default function AdminAds() {
                     </label>
                     <label className="text-xs text-neutral-400">1 fois toutes les (heures)
                         <Input type="number" value={cfg.popunder.frequency_hours} onChange={(e) => setPart("popunder", { frequency_hours: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                </div>
+            </section>
+
+            <section className="p-6 rounded-2xl border border-amber-500/30 bg-[#0a0a0a]">
+                <div className="flex items-center gap-2 mb-1"><PlayCircle size={18} className="text-amber-400 shrink-0" /><h3 className="font-display text-xl">Porte avant lecture</h3></div>
+                <p className="text-xs text-neutral-500 mb-4">
+                    Bloque le lecteur tant que le visiteur n&apos;a pas validé les étapes ; chaque étape déclenche le popunder.
+                    Nécessite un script popunder configuré ci-dessus. Ne jamais forcer le clic <em>sur la publicité</em> :
+                    les régies ferment les comptes pour clic incité.
+                </p>
+                <Toggle checked={cfg.gate?.enabled} onChange={(v) => setPart("gate", { enabled: v })} label="Activer la porte avant lecture" />
+                <div className="grid sm:grid-cols-3 gap-3 mt-4">
+                    <label className="text-xs text-neutral-400">Nombre d&apos;étapes (1 à 5)
+                        <Input type="number" min="1" max="5" value={cfg.gate?.steps ?? 1} onChange={(e) => setPart("gate", { steps: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                    <label className="text-xs text-neutral-400">Attente entre étapes (s)
+                        <Input type="number" min="0" max="15" value={cfg.gate?.seconds ?? 3} onChange={(e) => setPart("gate", { seconds: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                    <label className="text-xs text-neutral-400">Re-demander après (min)
+                        <Input type="number" value={cfg.gate?.frequency_minutes ?? 60} onChange={(e) => setPart("gate", { frequency_minutes: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                     </label>
                 </div>
             </section>

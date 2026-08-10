@@ -12,6 +12,7 @@ import Header from "@/components/Header";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
+import AdGate from "@/components/AdGate";
 
 const PLAN_MAX_QUALITY = {
     null: "720p",
@@ -334,6 +335,7 @@ export default function WatchPage() {
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     const [adDone, setAdDone] = useState(false);
+    const [gateDone, setGateDone] = useState(false);
     const [playbackActive, setPlaybackActive] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
@@ -693,7 +695,8 @@ export default function WatchPage() {
     const userMaxQuality = "4k";
     const runAds = !user?.premium;
     const hasVideo = !!(bunnySource || qualities.length > 0);
-    const showAd = runAds && !partyOpen && !adDone && hasVideo;
+    const showGate = runAds && !partyOpen && !gateDone && hasVideo;
+    const showAd = runAds && !partyOpen && gateDone && !adDone && hasVideo;
     const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
 
     return (
@@ -740,7 +743,11 @@ export default function WatchPage() {
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
                         <div className="relative">
-                            {showAd ? (
+                            {showGate ? (
+                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                                <AdGate onUnlock={() => setGateDone(true)} />
+                            </div>
+                        ) : showAd ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
                             </div>
