@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import GivePremiumDialog from "@/components/GivePremiumDialog";
 import AdminRoleDialog from "@/components/AdminRoleDialog";
+import { can, canAny } from "@/lib/perms";
 import Header from "@/components/Header";
 
 function formatPlaybackTime(value) {
@@ -34,7 +35,6 @@ export default function AdminUserPage() {
     const [premiumOpen, setPremiumOpen] = useState(false);
     const [roleOpen, setRoleOpen] = useState(false);
     const [watchActivity, setWatchActivity] = useState(null);
-    const level = user?.admin_level || 0;
 
     const load = async () => {
         try {
@@ -239,7 +239,7 @@ export default function AdminUserPage() {
                 </div>
 
                 {/* Édition — super-admin uniquement */}
-                {level >= 3 && (
+                {can(user, "users.edit") && (
                 <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] space-y-4">
                     <h2 className="font-display text-xl">Modifier le compte</h2>
                     <div>
@@ -271,27 +271,27 @@ export default function AdminUserPage() {
                 <div className="mt-6 p-5 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                     <div className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Actions rapides</div>
                     <div className="flex flex-wrap gap-2">
-                        {level >= 3 && (
+                        {can(user, "roles.manage") && (
                             <Button variant="outline" onClick={() => setRoleOpen(true)} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
                                 <Shield size={14} className="mr-2" /> Gérer le rôle admin
                             </Button>
                         )}
-                        {level >= 3 && (
+                        {can(user, "users.premium") && (
                             <Button variant="outline" onClick={() => setPremiumOpen(true)} className="border-[#262626] bg-transparent text-white hover:bg-white/5 rounded-full">
                                 <Crown size={14} className="mr-2" /> {target.premium ? "Gérer le Premium" : "Donner un Premium"}
                             </Button>
                         )}
-                        {level >= 2 && (
+                        {can(user, "users.block") && (
                             <Button variant="outline" onClick={toggleBlock} className={`rounded-full bg-transparent ${target.blocked ? "border-[#262626] text-white hover:bg-white/5" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`}>
                                 <Ban size={14} className="mr-2" /> {target.blocked ? "Débloquer" : "Bloquer le compte"}
                             </Button>
                         )}
-                        {level >= 3 && (
+                        {can(user, "users.delete") && (
                             <Button variant="outline" onClick={removeUser} className="border-red-500/40 text-red-400 bg-transparent hover:bg-red-500/10 rounded-full">
                                 <Trash2 size={14} className="mr-2" /> Supprimer le compte
                             </Button>
                         )}
-                        {level < 2 && <span className="text-sm text-neutral-500">Consultation seule (Éditeur).</span>}
+                        {!canAny(user, "roles.manage", "users.premium", "users.block", "users.delete") && <span className="text-sm text-neutral-500">Consultation seule.</span>}
                     </div>
                 </div>
             </div>

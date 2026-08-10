@@ -452,14 +452,67 @@ def _admin_role(user: dict):
     return "editor" if user.get("is_admin") else None
 
 def _admin_level(user: dict) -> int:
-    return ROLE_LEVEL.get(_admin_role(user), 0)
+    """Palier hérité, désormais déduit des permissions effectives."""
+    perms = _admin_perms(user)
+    if not perms:
+        return 0
+    if perms >= set(ROLE_PRESETS["super"]):
+        return 3
+    if perms >= set(ROLE_PRESETS["moderator"]):
+        return 2
+    return 1
+
+# ---------- Permissions admin (cochables individuellement) ----------
+ALL_PERMS = [
+    "content.add", "content.edit", "content.delete",
+    "wishboard.view", "wishboard.approve", "wishboard.moderate",
+    "users.view", "users.block", "users.edit", "users.delete", "users.premium", "users.coins",
+    "reviews.moderate", "announcements.manage",
+    "pricing.manage", "ads.manage", "cagnotte.manage", "keys.manage",
+    "roles.manage",
+]
+
+ROLE_PRESETS = {
+    "editor": ["content.add", "wishboard.view", "wishboard.approve", "users.view"],
+    "moderator": [
+        "content.add", "content.edit",
+        "wishboard.view", "wishboard.approve", "wishboard.moderate",
+        "users.view", "users.block", "users.coins",
+        "reviews.moderate", "announcements.manage",
+    ],
+    "super": list(ALL_PERMS),
+}
+
+def _admin_perms(user: dict) -> set:
+    """Permissions effectives. Les comptes créés avant ce système sont traduits
+    à la volée depuis leur ancien rôle : aucune migration en base n'est requise."""
+    if _is_superadmin_locked(user):
+        return set(ALL_PERMS)
+    stored = user.get("admin_perms")
+    if isinstance(stored, list):
+        return {p for p in stored if p in ALL_PERMS}
+    role = user.get("admin_role")
+    if role in ROLE_PRESETS:
+        return set(ROLE_PRESETS[role])
+    return set(ROLE_PRESETS["editor"]) if user.get("is_admin") else set()
+
+def has_perm(user: dict, perm: str) -> bool:
+    return perm in _admin_perms(user)
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if _admin_level(user) < 1:
+    if not _admin_perms(user):
         raise HTTPException(status_code=403, detail="Admin only")
     return user
 
+def require_perm(perm: str):
+    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        if not has_perm(user, perm):
+            raise HTTPException(status_code=403, detail="Tu n'as pas la permission pour cette action.")
+        return user
+    return _dep
+
 def require_level(n: int):
+    """Conservé pour compatibilité : traduit le palier en permission équivalente."""
     async def _dep(user: dict = Depends(get_current_user)) -> dict:
         if _admin_level(user) < n:
             raise HTTPException(status_code=403, detail="Permission insuffisante pour cette action")
@@ -570,9 +623,10 @@ def user_public_dict(user: dict) -> dict:
         "name": user.get("name"),
         "picture": user.get("picture"),
         "banner": user.get("banner"),
-        "is_admin": _admin_level(user) >= 1,
+        "is_admin": bool(_admin_perms(user)),
         "admin_role": _admin_role(user),
         "admin_level": _admin_level(user),
+        "admin_perms": sorted(_admin_perms(user)),
         "superadmin_locked": _is_superadmin_locked(user),
         "auth_provider": user.get("auth_provider", "jwt"),
         "premium": premium_active,
@@ -1194,7 +1248,7 @@ async def get_media_timeline(media_id: str):
     }
 
 @api_router.post("/media")
-async def create_media(m: MediaCreate, user: dict = Depends(require_admin)):
+async def create_media(m: MediaCreate, user: dict = Depends(require_perm("content.add"))):
     media_id = f"m_{uuid.uuid4().hex[:12]}"
     doc = m.model_dump()
     doc["id"] = media_id
@@ -1208,7 +1262,7 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_admin)):
     return serialize_media(doc)
 
 @api_router.put("/media/{media_id}")
-async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(require_level(2))):
+async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(require_perm("content.edit"))):
     doc = {k: v for k, v in m.model_dump(exclude_unset=True).items()}
     if not doc:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -1224,7 +1278,7 @@ class AdminMediaFlagsInput(BaseModel):
     in_theaters: Optional[bool] = None
 
 @api_router.patch("/admin/media/{media_id}/flags")
-async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, user: dict = Depends(require_admin)):
+async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, user: dict = Depends(require_perm("content.edit"))):
     changes = flags.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=400, detail="Aucun statut à modifier")
@@ -1252,7 +1306,7 @@ async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, u
     return serialize_media(fresh)
 
 @api_router.delete("/media/{media_id}")
-async def delete_media(media_id: str, user: dict = Depends(require_level(3))):
+async def delete_media(media_id: str, user: dict = Depends(require_perm("content.delete"))):
     media = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not media:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
@@ -1494,7 +1548,7 @@ async def _decorate_imdb_discovery(items: List[dict], limit: int) -> List[dict]:
 
 
 @api_router.get("/discovery/imdb")
-async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
+async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_perm("content.add"))):
     """Veille externe basée sur les fiches, notes et volumes de votes IMDb."""
     if not OMDB_API_KEY:
         raise HTTPException(status_code=503, detail="Veille IMDb non configurée (clé OMDb manquante).")
@@ -1530,7 +1584,7 @@ async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
 
 
 @api_router.delete("/admin/discovery/imdb/{imdb_id}")
-async def dismiss_imdb_discovery(imdb_id: str, admin: dict = Depends(require_admin)):
+async def dismiss_imdb_discovery(imdb_id: str, admin: dict = Depends(require_perm("content.add"))):
     if not re.fullmatch(r"tt\d{5,12}", imdb_id or ""):
         raise HTTPException(status_code=400, detail="Identifiant IMDb invalide")
     await db.admin_discovery_dismissals.update_one(
@@ -1546,7 +1600,7 @@ async def dismiss_imdb_discovery(imdb_id: str, admin: dict = Depends(require_adm
 
 
 @api_router.get("/discovery/ai", include_in_schema=False)
-async def legacy_ai_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
+async def legacy_ai_discovery(limit: int = 15, admin: dict = Depends(require_perm("content.add"))):
     return await imdb_discovery(limit=limit, admin=admin)
 
 @api_router.get("/genres")
@@ -1745,7 +1799,7 @@ async def mark_notifications_read(user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 @api_router.get("/admin/reviews")
-async def admin_list_reviews(admin: dict = Depends(require_level(2))):
+async def admin_list_reviews(admin: dict = Depends(require_perm("reviews.moderate"))):
     docs = await db.reviews.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     media_ids = list({d.get("media_id") for d in docs if d.get("media_id")})
     medias = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0, "id": 1, "title": 1}).to_list(1000)
@@ -1759,7 +1813,7 @@ async def list_announcements():
     return await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
 
 @api_router.post("/announcements")
-async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(require_level(2))):
+async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(require_perm("announcements.manage"))):
     title = (a.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Titre requis")
@@ -1774,7 +1828,7 @@ async def create_announcement(a: AnnouncementCreate, admin: dict = Depends(requi
     return {k: v for k, v in doc.items() if k != "_id"}
 
 @api_router.delete("/announcements/{announcement_id}")
-async def delete_announcement(announcement_id: str, admin: dict = Depends(require_level(2))):
+async def delete_announcement(announcement_id: str, admin: dict = Depends(require_perm("announcements.manage"))):
     res = await db.announcements.delete_one({"id": announcement_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2243,7 +2297,7 @@ async def vote_wish(wish_id: str, user: dict = Depends(get_current_user)):
     return {"voted": voted, "vote_count": len(updated.get("voters", []))}
 
 @api_router.get("/admin/wishboard")
-async def admin_list_wishboard(admin: dict = Depends(require_admin)):
+async def admin_list_wishboard(admin: dict = Depends(require_perm("wishboard.view"))):
     docs = await db.wishboard.find({}, {"_id": 0}).to_list(1000)
     out = [_wish_out(d, None) for d in docs]
     out.sort(key=lambda x: x["vote_count"], reverse=True)
@@ -2251,8 +2305,9 @@ async def admin_list_wishboard(admin: dict = Depends(require_admin)):
 
 @api_router.patch("/wishboard/{wish_id}/status")
 async def set_wish_status(wish_id: str, s: WishStatus, admin: dict = Depends(require_admin)):
-    if s.status != "approved" and _admin_level(admin) < 2:
-        raise HTTPException(status_code=403, detail="Refuser ou mettre en attente est réservé au Modérateur")
+    needed = "wishboard.approve" if s.status == "approved" else "wishboard.moderate"
+    if not has_perm(admin, needed):
+        raise HTTPException(status_code=403, detail="Tu n'as pas la permission pour cette action.")
     update: dict = {"$set": {"status": s.status}}
     if s.status == "approved":
         approved_at = datetime.now(timezone.utc)
@@ -2270,7 +2325,7 @@ async def set_wish_status(wish_id: str, s: WishStatus, admin: dict = Depends(req
     return {"ok": True, "status": s.status}
 
 @api_router.delete("/wishboard/{wish_id}")
-async def delete_wish(wish_id: str, admin: dict = Depends(require_level(2))):
+async def delete_wish(wish_id: str, admin: dict = Depends(require_perm("wishboard.moderate"))):
     res = await db.wishboard.delete_one({"id": wish_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2615,7 +2670,7 @@ async def unread_messages_count(user: dict = Depends(get_current_user)):
     return {"count": n}
 
 @api_router.post("/admin/coins/{user_id}")
-async def admin_set_coins(user_id: str, inp: AdminCoinsInput, admin: dict = Depends(require_level(2))):
+async def admin_set_coins(user_id: str, inp: AdminCoinsInput, admin: dict = Depends(require_perm("users.coins"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2782,7 +2837,7 @@ async def upload_sign(kind: str = Form("image"), user: dict = Depends(get_curren
     }
 
 @api_router.post("/bunny/create-video")
-async def bunny_create_video(title: str = Form("video"), user: dict = Depends(require_admin)):
+async def bunny_create_video(title: str = Form("video"), user: dict = Depends(require_perm("content.add"))):
     if not BUNNY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
     import hashlib, time
@@ -3041,11 +3096,11 @@ async def _pricing_payload() -> dict:
     }
 
 @api_router.get("/admin/pricing")
-async def get_admin_pricing(admin: dict = Depends(require_level(3))):
+async def get_admin_pricing(admin: dict = Depends(require_perm("pricing.manage"))):
     return await _pricing_payload()
 
 @api_router.post("/admin/pricing")
-async def set_admin_pricing(inp: PricingInput, admin: dict = Depends(require_level(3))):
+async def set_admin_pricing(inp: PricingInput, admin: dict = Depends(require_perm("pricing.manage"))):
     update = {}
     if inp.premium is not None:
         clean = {}
@@ -3118,11 +3173,11 @@ async def public_ads_config():
     return await _effective_ads()
 
 @api_router.get("/admin/ads")
-async def get_admin_ads(admin: dict = Depends(require_level(3))):
+async def get_admin_ads(admin: dict = Depends(require_perm("ads.manage"))):
     return await _effective_ads()
 
 @api_router.post("/admin/ads")
-async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_level(3))):
+async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_perm("ads.manage"))):
     update = {}
     if inp.enabled is not None:
         update["enabled"] = bool(inp.enabled)
@@ -3174,7 +3229,7 @@ async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_level(3))):
 
 # ---------- Clés SellAuth ----------
 @api_router.get("/admin/license-keys")
-async def admin_list_license_keys(limit: int = Query(200, ge=1, le=500), admin: dict = Depends(require_level(3))):
+async def admin_list_license_keys(limit: int = Query(200, ge=1, le=500), admin: dict = Depends(require_perm("keys.manage"))):
     docs = await db.license_keys.find({}, {"_id": 0, "key_hash": 0}).sort("created_at", -1).to_list(limit)
     total, available, redeemed, revoked = await asyncio.gather(
         db.license_keys.count_documents({}),
@@ -3188,7 +3243,7 @@ async def admin_list_license_keys(limit: int = Query(200, ge=1, le=500), admin: 
     }
 
 @api_router.post("/admin/license-keys")
-async def admin_add_license_keys(inp: AdminLicenseKeysInput, admin: dict = Depends(require_level(3))):
+async def admin_add_license_keys(inp: AdminLicenseKeysInput, admin: dict = Depends(require_perm("keys.manage"))):
     raw_keys = [line.strip() for line in inp.keys.splitlines() if line.strip()]
     if not raw_keys:
         raise HTTPException(status_code=422, detail="Ajoutez au moins une clé")
@@ -3229,7 +3284,7 @@ async def admin_add_license_keys(inp: AdminLicenseKeysInput, admin: dict = Depen
     return {"ok": True, "added": added, "duplicates": len(unique_hashes) - added}
 
 @api_router.post("/admin/license-keys/revoke")
-async def admin_revoke_license_key(inp: LicenseActivationInput, admin: dict = Depends(require_level(3))):
+async def admin_revoke_license_key(inp: LicenseActivationInput, admin: dict = Depends(require_perm("keys.manage"))):
     key_hash = _license_key_hash(inp.key)
     now = datetime.now(timezone.utc).isoformat()
     result = await db.license_keys.update_one(
@@ -3241,7 +3296,7 @@ async def admin_revoke_license_key(inp: LicenseActivationInput, admin: dict = De
     return {"ok": True}
 
 @api_router.delete("/admin/license-keys/{license_key_id}")
-async def admin_revoke_license_key_by_id(license_key_id: str, admin: dict = Depends(require_level(3))):
+async def admin_revoke_license_key_by_id(license_key_id: str, admin: dict = Depends(require_perm("keys.manage"))):
     now = datetime.now(timezone.utc).isoformat()
     result = await db.license_keys.update_one(
         {"id": license_key_id, "revoked_at": None},
@@ -3513,7 +3568,7 @@ async def get_cagnotte():
     return await _get_cagnotte()
 
 @api_router.post("/admin/cagnotte")
-async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_level(3))):
+async def set_cagnotte(inp: CagnotteSetInput, admin: dict = Depends(require_perm("cagnotte.manage"))):
     total = max(0.0, round(float(inp.total), 2))
     await db.cagnotte.update_one({"id": "main"}, {"$set": {"total": total, "goal": CAGNOTTE_GOAL}}, upsert=True)
     return await _get_cagnotte()
@@ -3873,13 +3928,13 @@ async def delete_profile(profile_id: str, user: dict = Depends(get_current_user)
 
 # ---------- Admin: Users list ----------
 @api_router.get("/admin/users")
-async def admin_list_users(user: dict = Depends(require_admin)):
+async def admin_list_users(user: dict = Depends(require_perm("users.view"))):
     await _purge_expired_blocked()
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
     return [user_public_dict(u) | {"created_at": u.get("created_at")} for u in users]
 
 @api_router.get("/admin/users/{user_id}")
-async def admin_get_user(user_id: str, admin: dict = Depends(require_admin)):
+async def admin_get_user(user_id: str, admin: dict = Depends(require_perm("users.view"))):
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
     if not u:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -3887,7 +3942,7 @@ async def admin_get_user(user_id: str, admin: dict = Depends(require_admin)):
     return user_public_dict(u) | {"created_at": u.get("created_at"), "review_count": review_count}
 
 @api_router.get("/admin/users/{user_id}/watching")
-async def admin_get_user_watching(user_id: str, admin: dict = Depends(require_admin)):
+async def admin_get_user_watching(user_id: str, admin: dict = Depends(require_perm("users.view"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -3972,7 +4027,7 @@ async def admin_get_user_watching(user_id: str, admin: dict = Depends(require_ad
     }
 
 @api_router.patch("/admin/users/{user_id}")
-async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = Depends(require_level(3))):
+async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = Depends(require_perm("users.edit"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -4009,24 +4064,45 @@ async def admin_update_user(user_id: str, inp: AdminUserUpdate, admin: dict = De
     return user_public_dict(updated) | {"created_at": updated.get("created_at")}
 
 class AdminRoleInput(BaseModel):
-    role: Literal["editor", "moderator", "super", "none"]
+    role: Optional[Literal["editor", "moderator", "super", "none"]] = None
+    perms: Optional[List[str]] = None
+
+@api_router.get("/admin/permissions")
+async def admin_list_permissions(admin: dict = Depends(require_perm("roles.manage"))):
+    return {"all": ALL_PERMS, "presets": ROLE_PRESETS}
 
 @api_router.post("/admin/users/{user_id}/role")
-async def admin_set_role(user_id: str, inp: AdminRoleInput, admin: dict = Depends(require_level(3))):
+async def admin_set_role(user_id: str, inp: AdminRoleInput, admin: dict = Depends(require_perm("roles.manage"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
     if _is_superadmin_locked(target):
         raise HTTPException(status_code=403, detail="Ce compte est super-admin protégé et ne peut pas être modifié.")
-    if inp.role == "none":
-        await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": False, "admin_role": None}})
+
+    if inp.perms is not None:
+        perms = [p for p in inp.perms if p in ALL_PERMS]
+        if perms:
+            await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": True, "admin_perms": perms, "admin_role": None}})
+        else:
+            await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": False, "admin_perms": [], "admin_role": None}})
+    elif inp.role == "none":
+        await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": False, "admin_perms": [], "admin_role": None}})
+    elif inp.role in ROLE_PRESETS:
+        await db.users.update_one({"user_id": user_id}, {"$set": {
+            "is_admin": True, "admin_perms": list(ROLE_PRESETS[inp.role]), "admin_role": inp.role,
+        }})
     else:
-        await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": True, "admin_role": inp.role}})
+        raise HTTPException(status_code=400, detail="Fournis « perms » ou « role ».")
+
     fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    return {"admin_role": _admin_role(fresh), "is_admin": _admin_level(fresh) >= 1}
+    return {
+        "admin_perms": sorted(_admin_perms(fresh)),
+        "admin_role": _admin_role(fresh),
+        "is_admin": bool(_admin_perms(fresh)),
+    }
 
 @api_router.post("/admin/users/{user_id}/toggle-premium")
-async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_level(3))):
+async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_perm("users.premium"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
@@ -4048,7 +4124,7 @@ async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_level
     return {"premium": True}
 
 @api_router.post("/admin/users/{user_id}/premium")
-async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = Depends(require_level(3))):
+async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = Depends(require_perm("users.premium"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
@@ -4097,7 +4173,7 @@ async def _dedupe_accounts() -> int:
     return len(to_delete)
 
 @api_router.post("/admin/dedupe")
-async def admin_dedupe(admin: dict = Depends(require_level(3))):
+async def admin_dedupe(admin: dict = Depends(require_perm("users.delete"))):
     removed = await _dedupe_accounts()
     return {"removed": removed}
 
@@ -4112,7 +4188,7 @@ async def _purge_expired_blocked() -> int:
     return len(expired)
 
 @api_router.post("/admin/users/{user_id}/toggle-block")
-async def admin_toggle_block(user_id: str, admin: dict = Depends(require_level(2))):
+async def admin_toggle_block(user_id: str, admin: dict = Depends(require_perm("users.block"))):
     if user_id == admin["user_id"]:
         raise HTTPException(status_code=400, detail="Vous ne pouvez pas bloquer votre propre compte")
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -4126,7 +4202,7 @@ async def admin_toggle_block(user_id: str, admin: dict = Depends(require_level(2
     return {"blocked": True, "blocked_at": now, "delete_after_days": BLOCK_DELETE_DAYS}
 
 @api_router.delete("/admin/users/{user_id}")
-async def admin_delete_user(user_id: str, admin: dict = Depends(require_level(3))):
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_perm("users.delete"))):
     if user_id == admin["user_id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     await _delete_user_data(user_id)

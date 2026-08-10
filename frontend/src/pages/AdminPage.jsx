@@ -15,6 +15,7 @@ import AdminRoleDialog from "@/components/AdminRoleDialog";
 import AdminPricing from "@/components/AdminPricing";
 import AdminAds from "@/components/AdminAds";
 import { showError } from "@/lib/errors";
+import { can } from "@/lib/perms";
 
 function hasPlayableVideo(item = {}) {
     if (item.bunny_video_id || item.video_url || item.video_file_path) return true;
@@ -34,7 +35,6 @@ export default function AdminPage() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    const level = user?.admin_level || 0;
     const [items, setItems] = useState([]);
     const [users, setUsers] = useState([]);
     const [announcements, setAnnouncements] = useState([]);
@@ -392,7 +392,7 @@ export default function AdminPage() {
                         <TabsTrigger value="media" data-testid="admin-tab-media" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Film size={14} className="mr-2" /> Contenus
                         </TabsTrigger>
-                        {level >= 2 && (
+                        {can(user, "content.add") && (
                             <TabsTrigger value="discovery" data-testid="admin-tab-discovery" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Sparkles size={14} className="mr-2" /> Tendances
                             </TabsTrigger>
@@ -400,7 +400,7 @@ export default function AdminPage() {
                         <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <Users size={14} className="mr-2" /> Utilisateurs
                         </TabsTrigger>
-                        {level >= 2 && (
+                        {can(user, "reviews.moderate") && (
                             <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <MessageSquare size={14} className="mr-2" /> Commentaires
                             </TabsTrigger>
@@ -408,32 +408,32 @@ export default function AdminPage() {
                         <TabsTrigger value="wishboard" data-testid="admin-tab-wishboard" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                             <ChevronUp size={14} className="mr-2" /> Wishboard
                         </TabsTrigger>
-                        {level >= 2 && (
+                        {can(user, "users.coins") && (
                             <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Coins size={14} className="mr-2" /> Freemium
                             </TabsTrigger>
                         )}
-                        {level >= 3 && (
+                        {can(user, "cagnotte.manage") && (
                             <TabsTrigger value="cagnotte" data-testid="admin-tab-cagnotte" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <PiggyBank size={14} className="mr-2" /> Cagnotte
                             </TabsTrigger>
                         )}
-                        {level >= 2 && (
+                        {can(user, "announcements.manage") && (
                             <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Megaphone size={14} className="mr-2" /> Annonces
                             </TabsTrigger>
                         )}
-                        {level >= 3 && (
+                        {can(user, "pricing.manage") && (
                             <TabsTrigger value="pricing" data-testid="admin-tab-pricing" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Tag size={14} className="mr-2" /> Tarifs
                             </TabsTrigger>
                         )}
-                        {level >= 3 && (
+                        {can(user, "ads.manage") && (
                             <TabsTrigger value="ads" data-testid="admin-tab-ads" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <Megaphone size={14} className="mr-2" /> Publicité
                             </TabsTrigger>
                         )}
-                        {level >= 3 && (
+                        {can(user, "keys.manage") && (
                             <TabsTrigger value="license-keys" data-testid="admin-tab-license-keys" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
                                 <KeyRound size={14} className="mr-2" /> Clés SellAuth
                             </TabsTrigger>
@@ -446,9 +446,9 @@ export default function AdminPage() {
                                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                                 <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher..." className="pl-9 bg-[#111] border-[#262626] text-white" />
                             </div>
-                            <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-5 font-semibold">
+                            {can(user, "content.add") && <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-5 font-semibold">
                                 <Plus size={16} className="mr-2" /> Ajouter un contenu
-                            </Button>
+                            </Button>}
                         </div>
 
                         <div className="border border-[#262626] rounded-lg overflow-hidden">
@@ -484,7 +484,7 @@ export default function AdminPage() {
                                             <div className="flex items-center gap-2">
                                                 <Switch
                                                     checked={!!m.in_theaters}
-                                                    disabled={!!mediaFlagSaving[m.id + ":in_theaters"] || level < 2}
+                                                    disabled={!!mediaFlagSaving[m.id + ":in_theaters"] || !can(user, "content.edit")}
                                                     onCheckedChange={(checked) => toggleMediaFlag(m, "in_theaters", checked)}
                                                     aria-label={"Statut cinéma de " + m.title}
                                                     data-testid={"toggle-in-theaters-" + m.id}
@@ -497,7 +497,7 @@ export default function AdminPage() {
                                         <div className="flex flex-wrap items-center justify-center gap-2">
                                             <Switch
                                                 checked={!!m.featured}
-                                                disabled={!!mediaFlagSaving[m.id + ":featured"] || level < 2}
+                                                disabled={!!mediaFlagSaving[m.id + ":featured"] || !can(user, "content.edit")}
                                                 onCheckedChange={(checked) => toggleMediaFlag(m, "featured", checked)}
                                                 aria-label={"Mise à l’affiche de " + m.title}
                                                 data-testid={"toggle-featured-" + m.id}
@@ -511,7 +511,7 @@ export default function AdminPage() {
                                                         min="1"
                                                         max="999"
                                                         value={m.featured_order ?? 1}
-                                                        disabled={!!mediaFlagSaving[m.id + ":featured_order"] || level < 2}
+                                                        disabled={!!mediaFlagSaving[m.id + ":featured_order"] || !can(user, "content.edit")}
                                                         onChange={(event) => {
                                                             const value = event.target.value;
                                                             setItems((current) => current.map((item) => item.id === m.id ? { ...item, featured_order: value } : item));
@@ -529,16 +529,16 @@ export default function AdminPage() {
                                         </div>
                                     </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
-                                        {level >= 2 && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
-                                        {level >= 3 && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
-                                        {level < 2 && <span className="text-xs text-neutral-600">Lecture</span>}
+                                        {can(user, "content.edit") && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
+                                        {can(user, "content.delete") && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
+                                        {!can(user, "content.edit") && !can(user, "content.delete") && <span className="text-xs text-neutral-600">Lecture</span>}
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </TabsContent>
 
-                    {level >= 2 && (
+                    {can(user, "content.add") && (
                         <TabsContent value="discovery" className="mt-8 space-y-6">
                             <div className="flex flex-col gap-4 border-b border-[#262626] pb-6 sm:flex-row sm:items-end sm:justify-between">
                                 <div className="max-w-2xl">
@@ -729,7 +729,7 @@ export default function AdminPage() {
                                         {u.premium_until ? new Date(u.premium_until).toLocaleDateString("fr-FR") : "—"}
                                     </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
-                                        {level >= 3 ? (
+                                        {can(user, "roles.manage") ? (
                                             <>
                                                 <Button
                                                     variant="ghost"
@@ -829,7 +829,7 @@ export default function AdminPage() {
                                         <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "approved")} className={w.status === "approved" ? "text-black bg-[#E8D2A6] hover:bg-[#D4BB8B]" : "text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"}>
                                             <Check size={13} className="mr-1" /> Approuver
                                         </Button>
-                                        {level >= 2 && (
+                                        {can(user, "wishboard.moderate") && (
                                             <>
                                                 <Button variant="ghost" size="sm" onClick={() => setWishStatus(w, "pending")} className={w.status === "pending" ? "text-white bg-white/10" : "text-neutral-400 hover:text-white hover:bg-white/5"}>
                                                     <Clock size={13} className="mr-1" /> En attente
@@ -975,7 +975,7 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    {level >= 3 && (
+                    {can(user, "keys.manage") && (
                         <TabsContent value="license-keys" className="mt-8 space-y-6">
                             <div>
                                 <div className="text-xs uppercase tracking-widest text-neutral-500">SellAuth</div>
@@ -1109,13 +1109,13 @@ export default function AdminPage() {
                         </TabsContent>
                     )}
 
-                    {level >= 3 && (
+                    {can(user, "pricing.manage") && (
                         <TabsContent value="pricing" className="mt-8">
                             <AdminPricing />
                         </TabsContent>
                     )}
 
-                    {level >= 3 && (
+                    {can(user, "ads.manage") && (
                         <TabsContent value="ads" className="mt-8">
                             <AdminAds />
                         </TabsContent>
