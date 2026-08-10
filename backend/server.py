@@ -113,6 +113,12 @@ TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/original"
 
+# Les signaux publics de sorties/tendances sont gardés brièvement en mémoire afin
+# que l'accueil ne sollicite pas TMDB à chaque visite. Le classement final reste
+# calculé avec le catalogue et les visionnages YourMovie's les plus récents.
+AI_DISCOVERY_CACHE_TTL_SECONDS = 30 * 60
+_ai_discovery_cache = {"expires_at": 0.0, "signals": {}}
+
 # ---------- Models ----------
 class UserPublic(BaseModel):
     user_id: str
@@ -1088,6 +1094,142 @@ async def trending(limit: int = 10):
             item["view_count"] = views_map.get(d["id"], 0)
             result.append(item)
     return result[:limit]
+
+
+async def _get_ai_discovery_signals() -> dict:
+    now_tick = time.monotonic()
+    if _ai_discovery_cache["expires_at"] > now_tick:
+        return _ai_discovery_cache["signals"]
+
+    if not (TMDB_API_TOKEN or TMDB_API_KEY):
+        _ai_discovery_cache.update({
+            "expires_at": now_tick + 5 * 60,
+            "signals": {},
+        })
+        return {}
+
+    sources = [
+        ("/trending/all/week", {"language": "fr-FR"}, None, "trending", 120),
+        ("/movie/now_playing", {"language": "fr-FR", "region": "FR", "page": 1}, "movie", "new", 135),
+        ("/tv/on_the_air", {"language": "fr-FR", "page": 1}, "tv", "new", 125),
+    ]
+    responses = await asyncio.gather(*[
+        run_in_threadpool(_tmdb_request, path, params)
+        for path, params, _, _, _ in sources
+    ], return_exceptions=True)
+
+    signals = {}
+    for response, (_, _, forced_kind, tag, base_score) in zip(responses, sources):
+        if not isinstance(response, dict):
+            logger.warning("Signal Radar IA indisponible : %s", response)
+            continue
+        for position, item in enumerate((response.get("results") or [])[:30]):
+            tmdb_id = item.get("id")
+            media_kind = forced_kind or item.get("media_type")
+            if media_kind not in {"movie", "tv"} or tmdb_id is None:
+                continue
+            key = f"{media_kind}:{tmdb_id}"
+            signal = signals.setdefault(key, {
+                "score": 0.0,
+                "tags": set(),
+                "release_date": None,
+            })
+            signal["score"] += max(10, base_score - position * 3)
+            signal["tags"].add(tag)
+            release_date = item.get("release_date") or item.get("first_air_date")
+            if release_date and not signal["release_date"]:
+                signal["release_date"] = release_date
+
+    for signal in signals.values():
+        signal["tags"] = sorted(signal["tags"])
+    _ai_discovery_cache.update({
+        "expires_at": now_tick + AI_DISCOVERY_CACHE_TTL_SECONDS,
+        "signals": signals,
+    })
+    return signals
+
+
+def _catalog_freshness_score(created_at: Optional[str], now: datetime) -> float:
+    if not created_at:
+        return 0.0
+    try:
+        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        age_days = max(0, (now - created.astimezone(timezone.utc)).days)
+        return max(0.0, 30 - age_days) * 1.4
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@api_router.get("/discovery/ai")
+async def ai_discovery(limit: int = 15):
+    """Classe les titres disponibles selon sorties, tendances et activité locale."""
+    limit = max(1, min(limit, 30))
+    catalog = await db.media.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    if not catalog:
+        return []
+
+    view_rows = await db.watch_progress.aggregate([
+        {"$group": {"_id": "$media_id", "views": {"$sum": 1}}},
+        {"$sort": {"views": -1}},
+        {"$limit": 500},
+    ]).to_list(500)
+    views = {row["_id"]: int(row.get("views") or 0) for row in view_rows if row.get("_id")}
+    external_signals = await _get_ai_discovery_signals()
+    now = datetime.now(timezone.utc)
+    current_year = now.year
+    ranked = []
+
+    for media in catalog:
+        tmdb_id = media.get("tmdb_id")
+        tmdb_kind = media.get("tmdb_kind") or ("movie" if media.get("type") == "movie" else "tv")
+        external = external_signals.get(f"{tmdb_kind}:{tmdb_id}", {}) if tmdb_id is not None else {}
+        tags = set(external.get("tags") or [])
+        local_views = views.get(media.get("id"), 0)
+        year = media.get("year")
+        rating = float(media.get("rating") or 0)
+        freshness = _catalog_freshness_score(media.get("created_at"), now)
+        year_score = 38 if year == current_year else 18 if year == current_year - 1 else 0
+        local_score = min(45, local_views * 4)
+        score = float(external.get("score") or 0) + freshness + year_score + local_score + min(20, rating * 2)
+
+        if "new" in tags and "trending" in tags:
+            label = "Nouveau & tendance"
+            reason = "Une sortie récente qui fait partie des titres les plus suivis du moment."
+        elif "new" in tags:
+            label = "Nouvelle sortie"
+            reason = "Une sortie récente désormais disponible dans le catalogue."
+        elif "trending" in tags:
+            label = "Tendance du moment"
+            reason = "Ce titre fait partie des contenus les plus suivis actuellement."
+        elif local_views > 0:
+            label = "Tendance sur YourMovie's"
+            reason = "Ce contenu gagne en popularité auprès des spectateurs de YourMovie's."
+        elif freshness > 0 or year == current_year:
+            label = "Ajout récent"
+            reason = "Un contenu récent repéré dans les nouveautés du catalogue."
+        else:
+            label = "Choix de l'IA"
+            reason = "Sélectionné selon sa note, sa fraîcheur et sa popularité."
+
+        item = serialize_media(media)
+        item.update({
+            "ai_label": label,
+            "ai_reason": reason,
+            "ai_score": round(score, 2),
+            "release_date": external.get("release_date"),
+        })
+        ranked.append(item)
+
+    ranked.sort(key=lambda item: (
+        item.get("ai_score", 0),
+        item.get("rating") or 0,
+        item.get("created_at") or "",
+    ), reverse=True)
+    for position, item in enumerate(ranked[:limit], start=1):
+        item["ai_rank"] = position
+    return ranked[:limit]
 
 @api_router.get("/genres")
 async def list_genres(limit: int = 30):
@@ -2984,7 +3126,6 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
     previous = await db.watch_progress.find_one(key, {"_id": 0})
     same_selection = bool(
         previous
-        and not previous.get("completed")
         and previous.get("season_number") == inp.season_number
         and previous.get("episode_number") == inp.episode_number
     )
@@ -2994,7 +3135,6 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
         "media_id": inp.media_id,
         "season_number": inp.season_number,
         "episode_number": inp.episode_number,
-        "completed": False,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if same_selection:
@@ -3003,11 +3143,7 @@ async def start_progress(inp: WatchProgressStartInput, user: dict = Depends(get_
     else:
         update["position_seconds"] = 0
         update["duration_seconds"] = inp.duration_seconds
-    await db.watch_progress.update_one(
-        key,
-        {"$set": update, "$unset": {"completed_at": ""}},
-        upsert=True,
-    )
+    await db.watch_progress.update_one(key, {"$set": update}, upsert=True)
     await _touch_watch_activity(
         user["user_id"], profile_id, inp.media_id,
         inp.season_number, inp.episode_number,
@@ -3025,29 +3161,18 @@ async def heartbeat_watch_activity(inp: WatchProgressStartInput, user: dict = De
 
 @api_router.post("/watch-progress")
 async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
-    position_seconds = max(0.0, float(inp.position_seconds or 0))
-    duration_seconds = max(0.0, float(inp.duration_seconds or 0)) if inp.duration_seconds is not None else None
-    completed = bool(duration_seconds and position_seconds / duration_seconds >= 0.95)
-    now = datetime.now(timezone.utc).isoformat()
-    progress_update = {
-        "user_id": user["user_id"],
-        "profile_id": profile_id,
-        "media_id": inp.media_id,
-        "position_seconds": position_seconds,
-        "duration_seconds": duration_seconds,
-        "season_number": inp.season_number,
-        "episode_number": inp.episode_number,
-        "completed": completed,
-        "updated_at": now,
-    }
-    update_operation = {"$set": progress_update}
-    if completed:
-        progress_update["completed_at"] = now
-    else:
-        update_operation["$unset"] = {"completed_at": ""}
     await db.watch_progress.update_one(
         {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id},
-        update_operation,
+        {"$set": {
+            "user_id": user["user_id"],
+            "profile_id": profile_id,
+            "media_id": inp.media_id,
+            "position_seconds": inp.position_seconds,
+            "duration_seconds": inp.duration_seconds,
+            "season_number": inp.season_number,
+            "episode_number": inp.episode_number,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
         upsert=True,
     )
     await _touch_watch_activity(
@@ -3059,15 +3184,11 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
         "profile_id": profile_id,
         "media_id": inp.media_id,
     })
-    return {"ok": True, "completed": completed}
+    return {"ok": True}
 
 @api_router.get("/watch-progress")
 async def list_progress(user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
-    docs = await db.watch_progress.find({
-        "user_id": user["user_id"],
-        "profile_id": profile_id,
-        "completed": {"$ne": True},
-    }, {"_id": 0}).sort("updated_at", -1).to_list(50)
+    docs = await db.watch_progress.find({"user_id": user["user_id"], "profile_id": profile_id}, {"_id": 0}).sort("updated_at", -1).to_list(50)
     media_ids = [d["media_id"] for d in docs]
     media_docs = await db.media.find({"id": {"$in": media_ids}}, {"_id": 0}).to_list(50)
     media_map = {m["id"]: m for m in media_docs}
@@ -3076,13 +3197,9 @@ async def list_progress(user: dict = Depends(get_current_user), profile_id: Opti
         m = media_map.get(d["media_id"])
         if not m:
             continue
-        position_seconds = max(0.0, float(d.get("position_seconds") or 0))
-        duration_seconds = max(0.0, float(d.get("duration_seconds") or 0))
-        if duration_seconds > 0 and position_seconds / duration_seconds >= 0.95:
-            continue
         item = serialize_media(m)
-        item["position_seconds"] = position_seconds
-        item["duration_seconds"] = duration_seconds or None
+        item["position_seconds"] = d["position_seconds"]
+        item["duration_seconds"] = d.get("duration_seconds")
         item["season_number"] = d.get("season_number")
         item["episode_number"] = d.get("episode_number")
         item["updated_at"] = d.get("updated_at")
