@@ -9,6 +9,7 @@ import Header from "@/components/Header";
 import MediaCarousel from "@/components/MediaCarousel";
 import TopTenCarousel from "@/components/TopTenCarousel";
 import HScroller from "@/components/HScroller";
+import AiDiscoveryCarousel from "@/components/AiDiscoveryCarousel";
 
 const HERO_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const AUTO_ROTATE_MS = 7000;
@@ -41,6 +42,7 @@ export default function HomePage() {
     const [genres, setGenres] = useState([]);
     const [continueWatching, setContinueWatching] = useState([]);
     const [recommendations, setRecommendations] = useState([]);
+    const [aiDiscovery, setAiDiscovery] = useState([]);
     const [removingProgressId, setRemovingProgressId] = useState(null);
     const [progressRemovalError, setProgressRemovalError] = useState("");
     const rotateTimer = useRef(null);
@@ -66,6 +68,12 @@ export default function HomePage() {
             } catch (e) { }
             try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
+            try {
+                const discovery = await api.get("/discovery/ai?limit=15", { silent: true });
+                setAiDiscovery(Array.isArray(discovery.data) ? discovery.data : []);
+            } catch (e) {
+                setAiDiscovery([]);
+            }
             if (user) {
                 try {
                     const watchResult = await api.get("/watch-progress", { silent: true });
@@ -395,6 +403,8 @@ export default function HomePage() {
                     testId="carousel-recommendations"
                 />
             )}
+
+            <AiDiscoveryCarousel items={aiDiscovery} />
 
             {!user?.premium && (
                 <section className="max-w-7xl mx-auto px-6 mt-14">
