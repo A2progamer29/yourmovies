@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Navigate, Link } from "react-router-dom";
-import { ChevronLeft, Shield, Crown, Trash2, Save, ExternalLink, Coins, Calendar, MessageSquare, Ban } from "lucide-react";
+import { ChevronLeft, Shield, Crown, Trash2, Save, ExternalLink, Coins, Calendar, MessageSquare, Ban, Play, Clock3, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -13,6 +13,16 @@ import GivePremiumDialog from "@/components/GivePremiumDialog";
 import AdminRoleDialog from "@/components/AdminRoleDialog";
 import Header from "@/components/Header";
 
+function formatPlaybackTime(value) {
+    const seconds = Math.max(0, Math.floor(Number(value) || 0));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    return hours > 0
+        ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+        : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
 export default function AdminUserPage() {
     const { id } = useParams();
     const { user, loading } = useAuth();
@@ -23,6 +33,7 @@ export default function AdminUserPage() {
     const [saving, setSaving] = useState(false);
     const [premiumOpen, setPremiumOpen] = useState(false);
     const [roleOpen, setRoleOpen] = useState(false);
+    const [watchActivity, setWatchActivity] = useState(null);
     const level = user?.admin_level || 0;
 
     const load = async () => {
@@ -36,6 +47,25 @@ export default function AdminUserPage() {
     };
 
     useEffect(() => { if (user?.is_admin) load(); }, [id, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!user?.is_admin) return undefined;
+        let mounted = true;
+        const refreshActivity = async () => {
+            try {
+                const r = await api.get(`/admin/users/${id}/watching`, { silent: true });
+                if (mounted) setWatchActivity(r.data);
+            } catch (e) {
+                if (mounted) setWatchActivity({ watching: false });
+            }
+        };
+        refreshActivity();
+        const interval = window.setInterval(refreshActivity, 20_000);
+        return () => {
+            mounted = false;
+            window.clearInterval(interval);
+        };
+    }, [id, user?.is_admin]);
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
@@ -142,6 +172,70 @@ export default function AdminUserPage() {
                             <div className="text-sm mt-1 truncate">{s.val}</div>
                         </div>
                     ))}
+                </div>
+
+                {/* Activité de lecture — visible uniquement dans cette fiche admin */}
+                <div className={`mb-8 overflow-hidden rounded-2xl border bg-[#0a0a0a] ${watchActivity?.watching ? "border-[#E8D2A6]/35" : "border-[#262626]"}`}>
+                    <div className="flex items-center justify-between gap-3 border-b border-[#262626] px-5 py-4">
+                        <div className="flex items-center gap-2">
+                            <Play size={15} className={watchActivity?.watching ? "text-[#E8D2A6]" : "text-neutral-600"} fill={watchActivity?.watching ? "currentColor" : "none"} />
+                            <h2 className="font-display text-lg">Lecture en cours</h2>
+                        </div>
+                        <span className={`flex items-center gap-1.5 text-[10px] uppercase tracking-widest ${watchActivity?.watching ? "text-emerald-400" : "text-neutral-600"}`}>
+                            <span className={`h-2 w-2 rounded-full ${watchActivity?.watching ? "bg-emerald-400 animate-pulse" : "bg-neutral-700"}`} />
+                            {watchActivity?.watching ? "Actif" : "Inactif"}
+                        </span>
+                    </div>
+
+                    {watchActivity === null ? (
+                        <div className="px-5 py-7 text-sm text-neutral-500">Vérification de l’activité…</div>
+                    ) : watchActivity.watching ? (
+                        <div className="flex gap-4 p-5">
+                            {watchActivity.media?.poster_url ? (
+                                <img src={watchActivity.media.poster_url} alt="" className="h-28 w-20 shrink-0 rounded-lg border border-[#262626] object-cover" />
+                            ) : (
+                                <div className="flex h-28 w-20 shrink-0 items-center justify-center rounded-lg border border-[#262626] bg-[#111]">
+                                    <Play size={20} className="text-neutral-600" />
+                                </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] uppercase tracking-widest text-[#E8D2A6]">
+                                    {watchActivity.media?.type === "movie" ? "Film" : watchActivity.media?.type === "anime" ? "Animé" : "Série"}
+                                </div>
+                                <Link to={`/media/${watchActivity.media?.id}`} className="mt-1 block truncate font-display text-2xl tracking-tight hover:text-[#E8D2A6] transition-colors">
+                                    {watchActivity.media?.title}
+                                </Link>
+                                {watchActivity.media?.type !== "movie" && (
+                                    <p className="mt-1 truncate text-sm text-neutral-400">
+                                        Saison {watchActivity.season_number ?? "—"} · Épisode {watchActivity.episode_number ?? "—"}
+                                        {watchActivity.episode_title ? ` — ${watchActivity.episode_title}` : ""}
+                                    </p>
+                                )}
+                                {watchActivity.profile_name && (
+                                    <p className="mt-2 flex items-center gap-1.5 text-xs text-neutral-500">
+                                        <UserRound size={12} /> Profil : {watchActivity.profile_name}
+                                    </p>
+                                )}
+                                <div className="mt-4">
+                                    <div className="mb-1.5 flex items-center justify-between gap-3 text-[11px] text-neutral-500">
+                                        <span className="flex items-center gap-1"><Clock3 size={11} /> Progression</span>
+                                        <span>
+                                            {formatPlaybackTime(watchActivity.position_seconds)}
+                                            {watchActivity.duration_seconds > 0 ? ` / ${formatPlaybackTime(watchActivity.duration_seconds)}` : ""}
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 overflow-hidden rounded-full bg-[#1d1d1d]">
+                                        <div className="h-full rounded-full bg-[#E8D2A6] transition-[width] duration-500" style={{ width: `${watchActivity.progress_percent ?? 0}%` }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="px-5 py-7">
+                            <p className="text-sm text-neutral-400">Ne regarde rien actuellement.</p>
+                            <p className="mt-1 text-xs text-neutral-600">L’activité apparaîtra ici dès qu’une lecture commencera.</p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Édition — super-admin uniquement */}
