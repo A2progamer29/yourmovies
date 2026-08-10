@@ -560,8 +560,12 @@ export default function WatchPage() {
 
         return () => {
             disposed = true;
+            // L'iframe peut déjà avoir quitté le DOM (porte pub, changement d'épisode) :
+            // player.off() ferait alors un postMessage sur un contentWindow null.
             if (player?.off) {
-                listeners.forEach(([eventName, handler]) => player.off(eventName, handler));
+                listeners.forEach(([eventName, handler]) => {
+                    try { player.off(eventName, handler); } catch { }
+                });
             }
         };
     }, [user, bunnyPlaybackUrl, saveProgress]);
