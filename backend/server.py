@@ -945,6 +945,74 @@ def serialize_media(doc) -> dict:
         "created_at": doc.get("created_at", ""),
     }
 
+
+def _catalog_history_key(doc: dict) -> str:
+    if doc.get("tmdb_id") is not None:
+        kind = doc.get("tmdb_kind") or ("movie" if doc.get("type") == "movie" else "tv")
+        return f"tmdb:{kind}:{doc['tmdb_id']}"
+    return ":".join([
+        "title",
+        _timeline_title_key(doc.get("title")),
+        str(doc.get("year") or ""),
+        str(doc.get("type") or "movie"),
+    ])
+
+
+async def _record_catalog_history(doc: dict, *, active: bool, user_id: Optional[str]) -> None:
+    now = datetime.now(timezone.utc)
+    history_key = _catalog_history_key(doc)
+    common = {
+        "history_key": history_key,
+        "title": doc.get("title", ""),
+        "type": doc.get("type", "movie"),
+        "year": doc.get("year"),
+        "tmdb_id": doc.get("tmdb_id"),
+        "tmdb_kind": doc.get("tmdb_kind"),
+        "poster_url": doc.get("poster_url"),
+        "active": active,
+        "updated_at": now,
+    }
+    if active:
+        common.update({
+            "current_media_id": doc.get("id"),
+            "last_added_at": now,
+            "deleted_at": None,
+            "deleted_by": None,
+        })
+        await db.media_catalog_history.update_one(
+            {"history_key": history_key},
+            {"$set": common, "$setOnInsert": {"first_added_at": now, "first_added_by": user_id}},
+            upsert=True,
+        )
+    else:
+        common.update({
+            "current_media_id": None,
+            "deleted_at": now,
+            "deleted_by": user_id,
+        })
+        await db.media_catalog_history.update_one(
+            {"history_key": history_key},
+            {"$set": common, "$setOnInsert": {"first_added_at": doc.get("created_at") or now}},
+            upsert=True,
+        )
+
+
+async def _record_media_event(action: Literal["added", "deleted"], doc: dict, *, user_id: Optional[str]) -> None:
+    await db.media_events.insert_one({
+        "event_id": f"media_evt_{uuid.uuid4().hex}",
+        "action": action,
+        "media": {
+            "id": doc.get("id"),
+            "title": doc.get("title", ""),
+            "type": doc.get("type", "movie"),
+            "year": doc.get("year"),
+            "poster_url": doc.get("poster_url"),
+            "tmdb_id": doc.get("tmdb_id"),
+        },
+        "created_at": datetime.now(timezone.utc),
+        "created_by": user_id,
+    })
+
 @api_router.get("/media")
 async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100):
     query = {}
@@ -1042,6 +1110,11 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_admin)):
     doc["id"] = media_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     await db.media.insert_one(doc)
+    try:
+        await _record_catalog_history(doc, active=True, user_id=user.get("user_id"))
+        await _record_media_event("added", doc, user_id=user.get("user_id"))
+    except Exception as exc:
+        logger.error("Journalisation de l'ajout du média %s impossible : %s", media_id, exc)
     return serialize_media(doc)
 
 @api_router.put("/media/{media_id}")
@@ -1090,9 +1163,17 @@ async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, u
 
 @api_router.delete("/media/{media_id}")
 async def delete_media(media_id: str, user: dict = Depends(require_level(3))):
+    media = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not media:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
     await db.media.delete_one({"id": media_id})
     await db.reviews.delete_many({"media_id": media_id})
     await db.favorites.delete_many({"media_id": media_id})
+    try:
+        await _record_catalog_history(media, active=False, user_id=user.get("user_id"))
+        await _record_media_event("deleted", media, user_id=user.get("user_id"))
+    except Exception as exc:
+        logger.error("Journalisation de la suppression du média %s impossible : %s", media_id, exc)
     return {"ok": True}
 
 # ---------- Trending / Genres ----------
@@ -1246,6 +1327,8 @@ async def _resolve_imdb_discovery_item(signal: dict) -> Optional[dict]:
     return {
         "id": imdb_id,
         "imdb_id": imdb_id,
+        "tmdb_id": tmdb_id,
+        "tmdb_kind": tmdb_kind,
         "imdb_url": f"https://www.imdb.com/title/{imdb_id}/",
         "title": details.get("Title") or signal.get("title") or "",
         "year": year,
@@ -1261,6 +1344,65 @@ async def _resolve_imdb_discovery_item(signal: dict) -> Optional[dict]:
     }
 
 
+def _find_discovery_catalog_match(item: dict, records: List[dict]) -> Optional[dict]:
+    tmdb_id = item.get("tmdb_id")
+    if tmdb_id is not None:
+        for record in records:
+            if record.get("tmdb_id") == tmdb_id:
+                return record
+    title_key = _timeline_title_key(item.get("title"))
+    item_year = item.get("year")
+    for record in records:
+        if _timeline_title_key(record.get("title")) != title_key:
+            continue
+        record_year = record.get("year")
+        if item_year is None or record_year is None or int(record_year) == int(item_year):
+            return record
+    return None
+
+
+async def _decorate_imdb_discovery(items: List[dict], limit: int) -> List[dict]:
+    candidates = [dict(item) for item in items if isinstance(item, dict)]
+    imdb_ids = [item.get("imdb_id") for item in candidates if item.get("imdb_id")]
+    dismissed = set()
+    if imdb_ids:
+        dismissed = set(await db.admin_discovery_dismissals.distinct("imdb_id", {"imdb_id": {"$in": imdb_ids}}))
+    visible = [item for item in candidates if item.get("imdb_id") not in dismissed]
+    if not visible:
+        return []
+
+    tmdb_ids = [item.get("tmdb_id") for item in visible if item.get("tmdb_id") is not None]
+    titles = [item.get("title") for item in visible if item.get("title")]
+    clauses = []
+    if tmdb_ids:
+        clauses.append({"tmdb_id": {"$in": tmdb_ids}})
+    if titles:
+        clauses.append({"title": {"$in": titles}})
+    active_records = []
+    history_records = []
+    if clauses:
+        active_records = await db.media.find(
+            {"$or": clauses},
+            {"_id": 0, "id": 1, "title": 1, "type": 1, "year": 1, "tmdb_id": 1},
+        ).to_list(200)
+        history_records = await db.media_catalog_history.find(
+            {"$or": clauses},
+            {"_id": 0, "current_media_id": 1, "title": 1, "type": 1, "year": 1, "tmdb_id": 1, "active": 1},
+        ).to_list(200)
+
+    decorated = []
+    for item in visible:
+        active_match = _find_discovery_catalog_match(item, active_records)
+        history_match = _find_discovery_catalog_match(item, history_records)
+        item["already_added"] = bool(active_match)
+        item["previously_added"] = bool(history_match)
+        item["catalog_media_id"] = (active_match or {}).get("id")
+        decorated.append(item)
+    for position, item in enumerate(decorated[:limit], start=1):
+        item["ai_rank"] = position
+    return decorated[:limit]
+
+
 @api_router.get("/discovery/imdb")
 async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
     """Veille externe basée sur les fiches, notes et volumes de votes IMDb."""
@@ -1269,7 +1411,7 @@ async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
     limit = max(1, min(limit, 30))
     now_tick = time.monotonic()
     if _imdb_discovery_cache["items_expires_at"] > now_tick and _imdb_discovery_cache["items"]:
-        return _imdb_discovery_cache["items"][:limit]
+        return await _decorate_imdb_discovery(_imdb_discovery_cache["items"], limit)
 
     signals = await _get_imdb_discovery_signals()
     candidate_limit = min(36, max(24, limit + 12))
@@ -1294,7 +1436,23 @@ async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
         "items_expires_at": now_tick + IMDB_DISCOVERY_CACHE_TTL_SECONDS,
         "items": ranked[:30],
     })
-    return ranked[:limit]
+    return await _decorate_imdb_discovery(ranked, limit)
+
+
+@api_router.delete("/admin/discovery/imdb/{imdb_id}")
+async def dismiss_imdb_discovery(imdb_id: str, admin: dict = Depends(require_admin)):
+    if not re.fullmatch(r"tt\d{5,12}", imdb_id or ""):
+        raise HTTPException(status_code=400, detail="Identifiant IMDb invalide")
+    await db.admin_discovery_dismissals.update_one(
+        {"imdb_id": imdb_id},
+        {"$set": {
+            "imdb_id": imdb_id,
+            "dismissed_at": datetime.now(timezone.utc),
+            "dismissed_by": admin.get("user_id"),
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
 
 
 @api_router.get("/discovery/ai", include_in_schema=False)
@@ -4106,6 +4264,10 @@ async def startup():
         await db.license_keys.create_index("id", unique=True)
         await db.license_keys.create_index([("redeemed_at", 1), ("revoked_at", 1)])
         await db.watch_activity.create_index("user_id", unique=True)
+        await db.media_catalog_history.create_index("history_key", unique=True)
+        await db.media_catalog_history.create_index([("tmdb_id", 1), ("active", 1)])
+        await db.media_events.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 180)
+        await db.admin_discovery_dismissals.create_index("imdb_id", unique=True)
         # MongoDB supprime automatiquement les demandes 24 h après leur
         # approbation. Les documents non approuvés n'ont pas ce champ.
         await db.wishboard.create_index("approved_expires_at", expireAfterSeconds=0)
