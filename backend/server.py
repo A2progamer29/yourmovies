@@ -647,9 +647,13 @@ ADS_DEFAULTS = {
 }
 
 def _https_url(value) -> str:
+    """URL https uniquement. Les tags de régie fournis en protocole-relatif
+    (//exemple.com/invoke.js) sont normalisés en https."""
     raw = str(value or "").strip()
     if not raw:
         return ""
+    if raw.startswith("//"):
+        raw = f"https:{raw}"
     return raw if raw.startswith("https://") else ""
 
 def _clamp_num(value, low, high, default):
