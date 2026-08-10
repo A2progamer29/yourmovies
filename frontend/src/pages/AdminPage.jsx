@@ -626,14 +626,6 @@ export default function AdminPage() {
                                                 )}
                                                 <p className="mt-1 line-clamp-2 min-h-8 text-xs leading-relaxed text-neutral-500">{media.ai_reason}</p>
                                                 <div className="mt-3 flex items-center gap-2">
-                                                    <a
-                                                        href={media.imdb_url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="inline-flex h-8 flex-1 items-center justify-center rounded-full bg-[#E8D2A6] px-3 text-xs font-semibold text-black transition-colors hover:bg-[#D4BB8B]"
-                                                    >
-                                                        Voir sur IMDb
-                                                    </a>
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
