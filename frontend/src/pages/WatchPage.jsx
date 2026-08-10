@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
@@ -147,11 +147,14 @@ function EpisodeSelectorOverlay({
                 aria-expanded={open}
                 aria-controls="episode-selector-panel"
                 data-testid="episode-selector-open"
-                className="absolute right-3 top-3 z-[35] flex h-10 items-center gap-2 rounded-full border border-white/15 bg-black/80 px-3 text-xs font-medium text-white shadow-xl backdrop-blur-md transition-colors hover:border-[#E8D2A6]/70 hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:right-4 sm:top-4 sm:px-4"
+                className="absolute right-3 top-3 z-[35] flex h-11 max-w-[70%] items-center gap-2.5 rounded-full border border-white/15 bg-black/80 px-3.5 text-xs font-medium text-white shadow-xl backdrop-blur-md transition-colors hover:border-[#E8D2A6]/70 hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:right-4 sm:top-4 sm:px-4"
             >
-                <ListVideo size={16} className="text-[#E8D2A6]" />
-                <span className="hidden sm:inline">Épisodes</span>
-                <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[#E8D2A6]">{currentLabel}</span>
+                <ListVideo size={16} className="shrink-0 text-[#E8D2A6]" />
+                <span className="shrink-0 rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 font-semibold text-[#E8D2A6]">{currentLabel}</span>
+                {selectedEpisode?.title && (
+                    <span className="hidden min-w-0 truncate text-neutral-300 sm:inline">{selectedEpisode.title}</span>
+                )}
+                <ChevronDown size={14} className="shrink-0 text-neutral-400" />
             </button>
 
             <AnimatePresence>
@@ -814,6 +817,52 @@ export default function WatchPage() {
                                 />
                             )}
                         </div>
+
+                        {media.type !== "movie" && episodes.length > 0 && (
+                            <div className="mt-3 flex items-center gap-2 sm:gap-3" data-testid="episode-nav">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => previousEpisode && selectEpisode(previousEpisode)}
+                                    disabled={!previousEpisode}
+                                    data-testid="episode-prev"
+                                    title={previousEpisode ? `S${previousEpisode.season_number}E${previousEpisode.ep_number} — ${previousEpisode.title || "Sans titre"}` : "Aucun épisode précédent"}
+                                    className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
+                                >
+                                    <ChevronLeft size={16} className="sm:mr-1.5" />
+                                    <span className="hidden sm:inline">Précédent</span>
+                                </Button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setEpisodePanelOpen(true)}
+                                    data-testid="episode-picker"
+                                    className="group flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border border-[#262626] bg-[#0a0a0a] px-4 text-left transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/[0.03]"
+                                >
+                                    <ListVideo size={16} className="shrink-0 text-[#E8D2A6]" />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block text-[10px] uppercase tracking-[0.16em] text-neutral-500 leading-none">
+                                            {selectedEpisode ? `Saison ${selectedEpisode.season_number} · Épisode ${selectedEpisode.ep_number}` : "Épisodes"}
+                                        </span>
+                                        <span className="mt-0.5 block truncate text-sm text-white group-hover:text-[#E8D2A6] transition-colors">
+                                            {selectedEpisode?.title || "Choisir un épisode"}
+                                        </span>
+                                    </span>
+                                    <span className="hidden shrink-0 text-[11px] text-neutral-500 sm:inline">Tout voir</span>
+                                </button>
+
+                                <Button
+                                    variant="outline"
+                                    onClick={() => nextEpisode && selectEpisode(nextEpisode)}
+                                    disabled={!nextEpisode}
+                                    data-testid="episode-next"
+                                    title={nextEpisode ? `S${nextEpisode.season_number}E${nextEpisode.ep_number} — ${nextEpisode.title || "Sans titre"}` : "Aucun épisode suivant"}
+                                    className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
+                                >
+                                    <span className="hidden sm:inline">Suivant</span>
+                                    <ChevronRight size={16} className="sm:ml-1.5" />
+                                </Button>
+                            </div>
+                        )}
 
                         {resumeAt > 0 && !bunnySource && (
                             <div className="mt-4 text-xs text-neutral-500">
