@@ -88,12 +88,12 @@ class BoostSetInput(BaseModel):
 
 
 class MediaNotificationConfigInput(BaseModel):
-    guild_id: str = Field(pattern=r"^\\d{15,22}$")
-    channel_id: str = Field(pattern=r"^\\d{15,22}$")
+    guild_id: str = Field(pattern=r"^\d{15,22}$")
+    channel_id: str = Field(pattern=r"^\d{15,22}$")
 
 
 class MediaEventAckInput(BaseModel):
-    guild_id: str = Field(pattern=r"^\\d{15,22}$")
+    guild_id: str = Field(pattern=r"^\d{15,22}$")
 
 
 def create_discord_router(
