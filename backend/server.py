@@ -3717,6 +3717,29 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
     })
     return {"ok": True}
 
+def _flatten_episodes(media: dict) -> list:
+    """Épisodes d'une série à plat, dans l'ordre saison puis numéro."""
+    out = []
+    for si, season in enumerate(media.get("seasons") or []):
+        season_no = int(season.get("season_number") or si + 1)
+        for ei, episode in enumerate(season.get("episodes") or []):
+            out.append({
+                "season_number": season_no,
+                "episode_number": int(episode.get("ep_number") or ei + 1),
+                "duration_minutes": episode.get("duration_minutes") or episode.get("duration"),
+            })
+    out.sort(key=lambda e: (e["season_number"], e["episode_number"]))
+    return out
+
+def _next_episode_of(media: dict, season_no, episode_no):
+    episodes = _flatten_episodes(media)
+    if not episodes or season_no is None or episode_no is None:
+        return None
+    for i, ep in enumerate(episodes):
+        if ep["season_number"] == int(season_no) and ep["episode_number"] == int(episode_no):
+            return episodes[i + 1] if i + 1 < len(episodes) else None
+    return None
+
 @api_router.get("/watch-progress")
 async def list_progress(user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
     docs = await db.watch_progress.find({"user_id": user["user_id"], "profile_id": profile_id}, {"_id": 0}).sort("updated_at", -1).to_list(50)
@@ -3729,10 +3752,25 @@ async def list_progress(user: dict = Depends(get_current_user), profile_id: Opti
         if not m:
             continue
         item = serialize_media(m)
-        item["position_seconds"] = d["position_seconds"]
-        item["duration_seconds"] = d.get("duration_seconds")
-        item["season_number"] = d.get("season_number")
-        item["episode_number"] = d.get("episode_number")
+        position = d.get("position_seconds") or 0
+        duration = d.get("duration_seconds")
+        season_no = d.get("season_number")
+        episode_no = d.get("episode_number")
+
+        # Épisode terminé : on enchaîne sur le suivant plutôt que de faire
+        # disparaître la série de « Continuer à regarder ».
+        if m.get("type") != "movie" and duration and position / duration >= 0.95:
+            nxt = _next_episode_of(m, season_no, episode_no)
+            if nxt:
+                season_no = nxt["season_number"]
+                episode_no = nxt["episode_number"]
+                position = 0
+                duration = (int(nxt["duration_minutes"]) * 60) if nxt.get("duration_minutes") else None
+
+        item["position_seconds"] = position
+        item["duration_seconds"] = duration
+        item["season_number"] = season_no
+        item["episode_number"] = episode_no
         item["updated_at"] = d.get("updated_at")
         result.append(item)
     return result
