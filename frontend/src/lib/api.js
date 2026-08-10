@@ -36,7 +36,7 @@ api.interceptors.response.use(
         const status = err?.response?.status;
         const url = cfg.url || "";
         // Silent probes: 401 during /auth/me, /favorites/status/*, /watch-progress on load
-        const silentUrls = ["/auth/me", "/favorites/status/", "/watch-progress"];
+        const silentUrls = ["/auth/me", "/favorites/status/", "/watch-progress", "/bunny/video-status/"];
         const isSilentUrl = silentUrls.some((u) => url.includes(u)) && status === 401;
 
         // Une limitation temporaire est gérée par l'appelant (notamment le suivi

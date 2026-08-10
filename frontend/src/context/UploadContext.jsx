@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 const UploadContext = createContext(null);
 const STORAGE_KEY = "yourmovies_admin_uploads_v2";
@@ -27,6 +28,8 @@ function restoreUploads() {
 }
 
 export function UploadProvider({ children }) {
+    const { user } = useAuth();
+    const isAdmin = Boolean(user?.is_admin);
     const [uploads, setUploads] = useState(restoreUploads);
     const [uploadsMinimized, setUploadsMinimized] = useState(false);
     const cleanupTimers = useRef(new Map());
@@ -151,6 +154,9 @@ export function UploadProvider({ children }) {
 
         const verifyUploads = async () => {
             if (stopped || requestInFlight) return;
+            // Le suivi d'encodage Bunny est réservé aux admins : sans ce contrôle,
+            // les téléversements restaurés déclencheraient des 401 en boucle.
+            if (!isAdmin) return;
             requestInFlight = true;
 
             const seen = new Set();
@@ -219,7 +225,7 @@ export function UploadProvider({ children }) {
             stopped = true;
             if (timer) window.clearTimeout(timer);
         };
-    }, []);
+    }, [isAdmin]);
 
     const activeUpload = useCallback(
         (key) => uploads.find((item) => item.key === key && ["uploading", "checking", "cancelling"].includes(item.status)),
