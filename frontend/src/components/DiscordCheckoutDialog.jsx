@@ -72,7 +72,7 @@ export default function DiscordCheckoutDialog({
     <>
       Ouvre le salon{" "}
       <span className="px-1.5 py-0.5 rounded bg-[#5865F2]/15 text-[#8b93f5] font-medium">
-        🎫・ticket
+        #ticket
       </span>
       .
     </>,
