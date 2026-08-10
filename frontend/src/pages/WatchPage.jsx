@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Users, Play, Film } from "lucide-react";
+import { ChevronLeft, ChevronRight, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -70,6 +71,221 @@ function fallbackQualities(media) {
     return [{ quality: "720p", url: single }];
 }
 
+
+function formatEpisodeDuration(episode) {
+    const raw = episode?.duration_minutes ?? episode?.duration;
+    if (raw === null || raw === undefined || raw === "") return null;
+    if (typeof raw === "string" && raw.includes(":")) return raw;
+    const minutes = Number.parseFloat(raw);
+    if (!Number.isFinite(minutes) || minutes <= 0) return null;
+    return Math.round(minutes) + " min";
+}
+
+function getEpisodeProgress(episode, watchProgress) {
+    if (!episode || !watchProgress) return 0;
+    const isSameEpisode = String(watchProgress.season_number) === String(episode.season_number)
+        && String(watchProgress.episode_number) === String(episode.ep_number);
+    if (!isSameEpisode) return 0;
+    const position = Number(watchProgress.position_seconds || 0);
+    const duration = Number(watchProgress.duration_seconds || 0);
+    if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return 0;
+    return Math.min(100, Math.max(0, (position / duration) * 100));
+}
+
+function EpisodeSelectorOverlay({
+    open,
+    onOpenChange,
+    seasons,
+    seasonEpisodes,
+    selectedEpisode,
+    selectedSeasonNumber,
+    previousEpisode,
+    nextEpisode,
+    watchProgress,
+    onSeasonChange,
+    onEpisodeSelect,
+}) {
+    const currentLabel = selectedEpisode
+        ? "S" + selectedEpisode.season_number + " E" + selectedEpisode.ep_number
+        : "Épisodes";
+
+    return (
+        <>
+            <button
+                type="button"
+                onClick={() => onOpenChange(true)}
+                aria-label="Choisir une saison ou un épisode"
+                aria-expanded={open}
+                aria-controls="episode-selector-panel"
+                data-testid="episode-selector-open"
+                className="absolute right-3 top-3 z-[35] flex h-10 items-center gap-2 rounded-full border border-white/15 bg-black/80 px-3 text-xs font-medium text-white shadow-xl backdrop-blur-md transition-colors hover:border-[#E8D2A6]/70 hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:right-4 sm:top-4 sm:px-4"
+            >
+                <ListVideo size={16} className="text-[#E8D2A6]" />
+                <span className="hidden sm:inline">Épisodes</span>
+                <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[#E8D2A6]">{currentLabel}</span>
+            </button>
+
+            <AnimatePresence>
+                {open && (
+                    <motion.div
+                        id="episode-selector-panel"
+                        className="absolute inset-0 z-[60] flex items-end overflow-hidden rounded-lg"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                    >
+                        <button
+                            type="button"
+                            className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-[2px]"
+                            onClick={() => onOpenChange(false)}
+                            aria-label="Fermer le choix des épisodes"
+                        />
+                        <motion.section
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label="Saisons et épisodes"
+                            onClick={(event) => event.stopPropagation()}
+                            initial={{ y: 36, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: 24, opacity: 0 }}
+                            transition={{ duration: 0.22, ease: "easeOut" }}
+                            className="relative z-10 w-full max-h-[94%] overflow-y-auto border-t border-[#E8D2A6]/25 bg-gradient-to-b from-[#15130f]/98 to-[#080808]/[0.99] px-3 pb-3 pt-3 shadow-[0_-18px_55px_rgba(0,0,0,0.65)] [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin] sm:px-5 sm:pb-5 sm:pt-4"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-[#E8D2A6]">
+                                        <ListVideo size={13} />
+                                        Lecture en cours
+                                    </div>
+                                    <div className="mt-1 truncate text-sm font-semibold text-white sm:text-base">
+                                        {selectedEpisode
+                                            ? "Saison " + selectedEpisode.season_number + " · Épisode " + selectedEpisode.ep_number + " — " + (selectedEpisode.title || "Sans titre")
+                                            : "Choisissez un épisode"}
+                                    </div>
+                                </div>
+
+                                <div className="flex shrink-0 items-center gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={!previousEpisode}
+                                        onClick={() => previousEpisode && onEpisodeSelect(previousEpisode)}
+                                        aria-label="Épisode précédent"
+                                        title="Épisode précédent"
+                                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[#333] bg-black/30 text-white transition-colors hover:border-[#E8D2A6]/60 hover:text-[#E8D2A6] disabled:cursor-not-allowed disabled:opacity-30"
+                                    >
+                                        <ChevronLeft size={17} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!nextEpisode}
+                                        onClick={() => nextEpisode && onEpisodeSelect(nextEpisode)}
+                                        aria-label="Épisode suivant"
+                                        title="Épisode suivant"
+                                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[#333] bg-black/30 text-white transition-colors hover:border-[#E8D2A6]/60 hover:text-[#E8D2A6] disabled:cursor-not-allowed disabled:opacity-30"
+                                    >
+                                        <ChevronRight size={17} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onOpenChange(false)}
+                                        aria-label="Fermer"
+                                        className="ml-1 flex h-9 w-9 items-center justify-center rounded-full border border-[#333] bg-black/30 text-neutral-300 transition-colors hover:border-[#E8D2A6]/60 hover:text-white"
+                                    >
+                                        <X size={17} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                {(seasons || []).map((season) => {
+                                    const seasonNumber = String(season.season_number);
+                                    const isActive = selectedSeasonNumber === seasonNumber;
+                                    return (
+                                        <button
+                                            key={seasonNumber}
+                                            type="button"
+                                            onClick={() => onSeasonChange(seasonNumber)}
+                                            className={"shrink-0 snap-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/60 sm:px-4 sm:py-2 sm:text-xs " + (
+                                                isActive
+                                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
+                                                    : "border-[#343434] bg-[#0d0d0d] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white"
+                                            )}
+                                        >
+                                            Saison {season.season_number}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="mt-3 flex snap-x gap-2.5 overflow-x-auto pb-1 [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin] sm:gap-3 sm:pb-2">
+                                {seasonEpisodes.map((episode) => {
+                                    const playable = Boolean(episode.bunny_video_id || episode.video_url || episode.video_file_path);
+                                    const isActive = selectedEpisode?._key === episode._key;
+                                    const duration = formatEpisodeDuration(episode);
+                                    const progress = getEpisodeProgress(episode, watchProgress);
+                                    return (
+                                        <button
+                                            key={episode._key}
+                                            type="button"
+                                            disabled={!playable}
+                                            onClick={() => onEpisodeSelect(episode)}
+                                            title={playable ? (episode.title || "Épisode " + episode.ep_number) : "Aucun fichier vidéo pour cet épisode"}
+                                            className={"relative min-w-[12rem] snap-start overflow-hidden rounded-xl border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:min-w-[16rem] " + (
+                                                isActive
+                                                    ? "border-[#E8D2A6] bg-[#E8D2A6]/12 text-white"
+                                                    : playable
+                                                        ? "border-[#2a2a2a] bg-[#0d0d0d]/95 text-neutral-300 hover:border-[#E8D2A6]/50 hover:bg-[#141414]"
+                                                        : "cursor-not-allowed border-[#202020] bg-[#090909] text-neutral-600 opacity-60"
+                                            )}
+                                        >
+                                            <span className="flex items-center gap-3">
+                                                <span className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold " + (
+                                                    isActive ? "bg-[#E8D2A6] text-black" : "bg-[#1d1d1d] text-neutral-400"
+                                                )}>
+                                                    {episode.ep_number}
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block text-[9px] uppercase tracking-[0.15em] text-neutral-500">
+                                                        Épisode {episode.ep_number}
+                                                    </span>
+                                                    <span className="mt-0.5 block truncate text-xs font-medium sm:text-sm">
+                                                        {episode.title || "Épisode " + episode.ep_number}
+                                                    </span>
+                                                </span>
+                                                {isActive && <Play size={14} className="shrink-0 text-[#E8D2A6]" fill="currentColor" />}
+                                            </span>
+
+                                            {(duration || progress > 0) && (
+                                                <span className="mt-2.5 flex items-center justify-between gap-3 text-[10px] text-neutral-500">
+                                                    {duration ? (
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock3 size={11} />
+                                                            {duration}
+                                                        </span>
+                                                    ) : <span />}
+                                                    {progress > 0 && progress < 95 && <span className="text-[#E8D2A6]">À reprendre</span>}
+                                                    {progress >= 95 && <span className="text-[#E8D2A6]">Terminé</span>}
+                                                </span>
+                                            )}
+
+                                            {progress > 0 && (
+                                                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/10">
+                                                    <span className="block h-full bg-[#E8D2A6]" style={{ width: progress + "%" }} />
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </motion.section>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </>
+    );
+}
+
 export default function WatchPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -79,6 +295,8 @@ export default function WatchPage() {
     const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
     const [selectedSeason, setSelectedSeason] = useState("");
     const [resumeAt, setResumeAt] = useState(0);
+    const [watchProgress, setWatchProgress] = useState(null);
+    const [episodePanelOpen, setEpisodePanelOpen] = useState(false);
     const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
@@ -116,9 +334,24 @@ export default function WatchPage() {
         : null;
     const selectEpisode = (episode) => {
         if (!episode) return;
+        const isSameEpisode = selectedEpisode?._key === episode._key;
         setSelectedEpisodeKey(episode._key);
         setSelectedSeason(String(episode.season_number));
-        setAdDone(false);
+        setEpisodePanelOpen(false);
+
+        const next = new URLSearchParams(searchParams);
+        next.set("season", String(episode.season_number));
+        next.set("episode", String(episode.ep_number));
+        setSearchParams(next, { replace: true });
+
+        const matchesSavedProgress = watchProgress
+            && String(watchProgress.season_number) === String(episode.season_number)
+            && String(watchProgress.episode_number) === String(episode.ep_number);
+        setResumeAt(matchesSavedProgress && Number(watchProgress.position_seconds) > 5
+            ? Number(watchProgress.position_seconds)
+            : 0);
+
+        if (!isSameEpisode) setAdDone(false);
     };
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     const bunnySource = resolveBunnySource(playbackMedia);
@@ -173,6 +406,7 @@ export default function WatchPage() {
         (async () => {
             const r = await api.get(`/media/${id}`);
             setMedia(r.data);
+            let initialEpisode = null;
             if (r.data.type !== "movie") {
                 const allEpisodes = (r.data.seasons || []).flatMap((season) =>
                     (season.episodes || []).map((episode) => ({ ...episode, season_number: season.season_number }))
@@ -188,6 +422,7 @@ export default function WatchPage() {
                     episode.bunny_video_id || episode.video_url || episode.video_file_path
                 );
                 if (firstPlayable) {
+                    initialEpisode = firstPlayable;
                     setSelectedEpisodeKey(`${firstPlayable.season_number}:${firstPlayable.ep_number}`);
                     setSelectedSeason(String(firstPlayable.season_number));
                 }
@@ -196,7 +431,16 @@ export default function WatchPage() {
                 try {
                     const p = await api.get("/watch-progress");
                     const item = p.data.find((x) => x.id === id);
-                    if (item && item.position_seconds > 5) setResumeAt(item.position_seconds);
+                    setWatchProgress(item || null);
+                    const appliesToInitialEpisode = r.data.type === "movie"
+                        || (
+                            initialEpisode
+                            && String(item?.season_number) === String(initialEpisode.season_number)
+                            && String(item?.episode_number) === String(initialEpisode.ep_number)
+                        );
+                    setResumeAt(item && appliesToInitialEpisode && Number(item.position_seconds) > 5
+                        ? Number(item.position_seconds)
+                        : 0);
                 } catch (e) { }
             }
         })();
@@ -213,6 +457,14 @@ export default function WatchPage() {
                 season_number: media?.type === "movie" ? null : selectedEpisode?.season_number,
                 episode_number: media?.type === "movie" ? null : selectedEpisode?.ep_number,
             });
+            setWatchProgress((current) => ({
+                ...(current || {}),
+                id,
+                position_seconds: pos,
+                duration_seconds: dur,
+                season_number: media?.type === "movie" ? null : selectedEpisode?.season_number,
+                episode_number: media?.type === "movie" ? null : selectedEpisode?.ep_number,
+            }));
         } catch (e) { }
     }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
 
@@ -351,107 +603,8 @@ export default function WatchPage() {
 
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
-                        {media.type !== "movie" && episodes.length > 0 && (
-                            <div className="mb-5 rounded-2xl border border-[#262626] bg-[#0a0a0a] p-4 sm:p-5">
-                                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <div>
-                                        <div className="text-sm font-semibold text-[#E8D2A6]">Saisons et épisodes</div>
-                                        <div className="mt-1 text-xs text-neutral-500">
-                                            {selectedEpisode
-                                                ? `Saison ${selectedEpisode.season_number} · Épisode ${selectedEpisode.ep_number}`
-                                                : "Choisissez un épisode"}
-                                        </div>
-                                    </div>
-                                    <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
-                                        {(media.seasons || []).map((season) => {
-                                            const seasonNumber = String(season.season_number);
-                                            const isActive = selectedSeasonNumber === seasonNumber;
-                                            return (
-                                                <button
-                                                    key={seasonNumber}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedSeason(seasonNumber);
-                                                        const firstEpisode = episodes.find(
-                                                            (episode) => String(episode.season_number) === seasonNumber
-                                                                && (episode.bunny_video_id || episode.video_url || episode.video_file_path)
-                                                        ) || episodes.find(
-                                                            (episode) => String(episode.season_number) === seasonNumber
-                                                        );
-                                                        if (firstEpisode) selectEpisode(firstEpisode);
-                                                    }}
-                                                    className={`shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${isActive
-                                                        ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
-                                                        : "border-[#333] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white"}`}
-                                                >
-                                                    Saison {season.season_number}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                <div className="max-h-64 space-y-2 overflow-y-auto pr-2 [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin]">
-                                    {seasonEpisodes.map((episode) => {
-                                        const playable = !!(episode.bunny_video_id || episode.video_url || episode.video_file_path);
-                                        const isActive = selectedEpisode?._key === episode._key;
-                                        return (
-                                            <button
-                                                key={episode._key}
-                                                type="button"
-                                                disabled={!playable}
-                                                onClick={() => selectEpisode(episode)}
-                                                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${isActive
-                                                    ? "border-[#E8D2A6] bg-[#E8D2A6]/10 text-white"
-                                                    : playable
-                                                        ? "border-[#242424] bg-[#101010] text-neutral-300 hover:border-[#E8D2A6]/50 hover:bg-[#141414]"
-                                                        : "cursor-not-allowed border-[#1d1d1d] bg-[#0c0c0c] text-neutral-600"}`}
-                                                title={playable ? episode.title : "Aucun fichier vidéo pour cet épisode"}
-                                            >
-                                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isActive
-                                                    ? "bg-[#E8D2A6] text-black"
-                                                    : "bg-[#1d1d1d] text-neutral-400"}`}>
-                                                    {episode.ep_number}
-                                                </span>
-                                                <span className="min-w-0">
-                                                    <span className="block text-xs uppercase tracking-[0.14em] text-neutral-500">
-                                                        Épisode {episode.ep_number}
-                                                    </span>
-                                                    <span className="mt-0.5 block truncate text-sm">
-                                                        {episode.title || `Épisode ${episode.ep_number}`}
-                                                    </span>
-                                                </span>
-                                                {isActive && <Play size={15} className="ml-auto shrink-0 text-[#E8D2A6]" fill="currentColor" />}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-
-                                <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[#202020] pt-4">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        disabled={!previousEpisode}
-                                        onClick={() => selectEpisode(previousEpisode)}
-                                        className="h-11 rounded-full border-[#333] bg-transparent text-white hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35"
-                                    >
-                                        <ChevronLeft size={16} className="mr-2" />
-                                        Précédent
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        disabled={!nextEpisode}
-                                        onClick={() => selectEpisode(nextEpisode)}
-                                        className="h-11 rounded-full border-[#333] bg-transparent text-white hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-35"
-                                    >
-                                        Suivant
-                                        <ChevronRight size={16} className="ml-2" />
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                        {showAd ? (
+                        <div className="relative">
+                            {showAd ? (
                             <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
                             </div>
@@ -495,7 +648,24 @@ export default function WatchPage() {
                                 preferredQuality={user?.preferred_quality}
                                 videoRefOut={videoElRef}
                             />
-                        )}
+                            )}
+
+                            {media.type !== "movie" && episodes.length > 0 && (
+                                <EpisodeSelectorOverlay
+                                    open={episodePanelOpen}
+                                    onOpenChange={setEpisodePanelOpen}
+                                    seasons={media.seasons || []}
+                                    seasonEpisodes={seasonEpisodes}
+                                    selectedEpisode={selectedEpisode}
+                                    selectedSeasonNumber={selectedSeasonNumber}
+                                    previousEpisode={previousEpisode}
+                                    nextEpisode={nextEpisode}
+                                    watchProgress={watchProgress}
+                                    onSeasonChange={setSelectedSeason}
+                                    onEpisodeSelect={selectEpisode}
+                                />
+                            )}
+                        </div>
 
                         {resumeAt > 0 && !bunnySource && (
                             <div className="mt-4 text-xs text-neutral-500">
