@@ -28,7 +28,7 @@ export default function AdBanner({ className = "" }) {
             <div className="text-[10px] uppercase tracking-[0.18em] text-neutral-600 mb-2">Publicité</div>
             <div
                 ref={slotRef}
-                data-testid="ad-banner-slot"
+                data-testid="promo-slot"
                 className="min-h-[90px] w-full overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]"
             />
         </section>

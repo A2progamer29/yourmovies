@@ -83,7 +83,7 @@ export default function AdGate({ onUnlock }) {
                     type="button"
                     onClick={advance}
                     disabled={wait > 0}
-                    data-testid="ad-gate-btn"
+                    data-testid="gate-continue-btn"
                     className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#E8D2A6] px-6 font-semibold text-black transition-colors hover:bg-[#D4BB8B] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                     {wait > 0

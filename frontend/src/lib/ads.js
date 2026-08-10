@@ -21,7 +21,8 @@ export async function loadAdsConfig() {
     const now = Date.now();
     if (cached && now - cachedAt < CACHE_MS) return cached;
     if (inFlight) return inFlight;
-    inFlight = api.get("/ads/config", { silent: true })
+    // Chemin neutre : « /ads/ » est filtré par les bloqueurs de publicité.
+    inFlight = api.get("/promo/config", { silent: true })
         .then((r) => {
             cached = r.data && typeof r.data === "object" ? r.data : EMPTY_ADS;
             cachedAt = Date.now();

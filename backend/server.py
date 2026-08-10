@@ -3040,9 +3040,15 @@ class AdsInput(BaseModel):
     gate: Optional[dict] = None
     campaigns: Optional[list] = None
 
+@api_router.get("/promo/config")
+async def public_promo_config():
+    """Config publicitaire — publique : les visiteurs non connectés doivent la lire.
+    Le chemin évite volontairement le mot « ads », bloqué par les bloqueurs de publicité."""
+    return await _effective_ads()
+
 @api_router.get("/ads/config")
 async def public_ads_config():
-    """Config publicitaire — publique : les visiteurs non connectés doivent la lire."""
+    """Ancien chemin, conservé pour compatibilité (souvent bloqué côté navigateur)."""
     return await _effective_ads()
 
 @api_router.get("/admin/ads")
