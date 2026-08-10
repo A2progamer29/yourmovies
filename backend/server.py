@@ -113,11 +113,11 @@ TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_URL = "https://image.tmdb.org/t/p/original"
 
-# Les signaux publics de sorties/tendances sont gardés brièvement en mémoire afin
-# que l'accueil ne sollicite pas TMDB à chaque visite. Le classement final reste
-# calculé avec le catalogue et les visionnages YourMovie's les plus récents.
-AI_DISCOVERY_CACHE_TTL_SECONDS = 30 * 60
-_ai_discovery_cache = {"expires_at": 0.0, "signals": {}}
+# La veille admin combine des signaux externes de sortie/tendance avec les
+# fiches, notes et volumes de votes IMDb récupérés via OMDb. Elle ne consulte
+# jamais le catalogue ni les visionnages YourMovie's.
+IMDB_DISCOVERY_CACHE_TTL_SECONDS = 30 * 60
+_imdb_discovery_cache = {"expires_at": 0.0, "signals": {}}
 
 # ---------- Models ----------
 class UserPublic(BaseModel):
@@ -949,7 +949,16 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
         query["title"] = {"$regex": re.escape(q), "$options": "i"}
     if featured is not None:
         query["featured"] = featured
-    docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    if featured is True:
+        docs = await db.media.find(query, {"_id": 0}).to_list(max(limit, 500))
+        docs.sort(key=lambda doc: (
+            doc.get("featured_order") is None,
+            int(doc.get("featured_order") or 10**9),
+            doc.get("created_at") or "",
+        ))
+        docs = docs[:limit]
+    else:
+        docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     return [serialize_media(d) for d in docs]
 
 @api_router.get("/media/{media_id}")
@@ -1043,6 +1052,7 @@ async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(requi
 
 class AdminMediaFlagsInput(BaseModel):
     featured: Optional[bool] = None
+    featured_order: Optional[int] = Field(default=None, ge=1, le=999)
     in_theaters: Optional[bool] = None
 
 @api_router.patch("/admin/media/{media_id}/flags")
@@ -1050,9 +1060,26 @@ async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, u
     changes = flags.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=400, detail="Aucun statut à modifier")
-    result = await db.media.update_one({"id": media_id}, {"$set": changes})
-    if result.matched_count == 0:
+
+    current = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not current:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
+
+    will_be_featured = changes.get("featured", current.get("featured", False))
+    if "featured_order" in changes and not will_be_featured:
+        raise HTTPException(status_code=400, detail="Activez d’abord le contenu « À l’affiche »")
+
+    if changes.get("featured") is True and current.get("featured_order") is None and "featured_order" not in changes:
+        highest = await db.media.find_one(
+            {"featured": True, "featured_order": {"$ne": None}},
+            {"_id": 0, "featured_order": 1},
+            sort=[("featured_order", -1)],
+        )
+        changes["featured_order"] = int((highest or {}).get("featured_order") or 0) + 1
+    elif changes.get("featured") is False:
+        changes["featured_order"] = None
+
+    await db.media.update_one({"id": media_id}, {"$set": changes})
     fresh = await db.media.find_one({"id": media_id}, {"_id": 0})
     return serialize_media(fresh)
 
@@ -1096,17 +1123,26 @@ async def trending(limit: int = 10):
     return result[:limit]
 
 
-async def _get_ai_discovery_signals() -> dict:
+def _omdb_discovery_details(imdb_id: str) -> dict:
+    if not OMDB_API_KEY:
+        raise HTTPException(status_code=503, detail="Veille IMDb non configurée (clé OMDb manquante).")
+    response = requests.get(
+        "https://www.omdbapi.com/",
+        params={"apikey": OMDB_API_KEY, "i": imdb_id, "plot": "short"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data if data.get("Response") != "False" else {}
+
+
+async def _get_imdb_discovery_signals() -> dict:
     now_tick = time.monotonic()
-    if _ai_discovery_cache["expires_at"] > now_tick:
-        return _ai_discovery_cache["signals"]
+    if _imdb_discovery_cache["expires_at"] > now_tick:
+        return _imdb_discovery_cache["signals"]
 
     if not (TMDB_API_TOKEN or TMDB_API_KEY):
-        _ai_discovery_cache.update({
-            "expires_at": now_tick + 5 * 60,
-            "signals": {},
-        })
-        return {}
+        raise HTTPException(status_code=503, detail="Les signaux externes de sorties et tendances ne sont pas configurés.")
 
     sources = [
         ("/trending/all/week", {"language": "fr-FR"}, None, "trending", 120),
@@ -1121,7 +1157,7 @@ async def _get_ai_discovery_signals() -> dict:
     signals = {}
     for response, (_, _, forced_kind, tag, base_score) in zip(responses, sources):
         if not isinstance(response, dict):
-            logger.warning("Signal Radar IA indisponible : %s", response)
+            logger.warning("Signal externe de veille indisponible : %s", response)
             continue
         for position, item in enumerate((response.get("results") or [])[:30]):
             tmdb_id = item.get("id")
@@ -1130,6 +1166,10 @@ async def _get_ai_discovery_signals() -> dict:
                 continue
             key = f"{media_kind}:{tmdb_id}"
             signal = signals.setdefault(key, {
+                "tmdb_id": tmdb_id,
+                "tmdb_kind": media_kind,
+                "title": item.get("title") or item.get("name") or "",
+                "poster_url": _tmdb_image(item.get("poster_path")),
                 "score": 0.0,
                 "tags": set(),
                 "release_date": None,
@@ -1142,96 +1182,110 @@ async def _get_ai_discovery_signals() -> dict:
 
     for signal in signals.values():
         signal["tags"] = sorted(signal["tags"])
-    _ai_discovery_cache.update({
-        "expires_at": now_tick + AI_DISCOVERY_CACHE_TTL_SECONDS,
+    _imdb_discovery_cache.update({
+        "expires_at": now_tick + IMDB_DISCOVERY_CACHE_TTL_SECONDS,
         "signals": signals,
     })
     return signals
 
 
-def _catalog_freshness_score(created_at: Optional[str], now: datetime) -> float:
-    if not created_at:
-        return 0.0
+async def _resolve_imdb_discovery_item(signal: dict) -> Optional[dict]:
+    tmdb_kind = signal["tmdb_kind"]
+    tmdb_id = signal["tmdb_id"]
+    external = await run_in_threadpool(
+        _tmdb_request,
+        f"/{tmdb_kind}/{tmdb_id}/external_ids",
+        {},
+    )
+    imdb_id = external.get("imdb_id")
+    if not imdb_id:
+        return None
+
+    details = await run_in_threadpool(_omdb_discovery_details, imdb_id)
+    if not details:
+        return None
+
+    year_match = re.search(r"\d{4}", str(details.get("Year") or ""))
+    year = int(year_match.group(0)) if year_match else None
     try:
-        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
-        age_days = max(0, (now - created.astimezone(timezone.utc)).days)
-        return max(0.0, 30 - age_days) * 1.4
+        rating = float(details.get("imdbRating"))
     except (TypeError, ValueError):
-        return 0.0
+        rating = None
+    try:
+        imdb_votes = int(re.sub(r"[^0-9]", "", str(details.get("imdbVotes") or "0")) or 0)
+    except ValueError:
+        imdb_votes = 0
+
+    genres = [value.strip() for value in str(details.get("Genre") or "").split(",") if value.strip() and value != "N/A"]
+    countries = [value.strip() for value in str(details.get("Country") or "").split(",") if value.strip() and value != "N/A"]
+    raw_type = details.get("Type")
+    if raw_type == "series":
+        media_type = "anime" if "Animation" in genres and "Japan" in countries else "series"
+    else:
+        media_type = "movie"
+
+    tags = set(signal.get("tags") or [])
+    if "new" in tags and "trending" in tags:
+        label = "Nouvelle sortie tendance"
+        reason = "Une sortie récente très suivie, classée à partir de sa note et de sa popularité IMDb."
+    elif "new" in tags:
+        label = "Nouvelle sortie"
+        reason = "Une sortie récente repérée puis vérifiée grâce à sa fiche IMDb."
+    else:
+        label = "Tendance du moment"
+        reason = "Un titre populaire classé à partir de sa note et de son volume de votes IMDb."
+
+    vote_score = min(45.0, (imdb_votes / 25000) * 10)
+    imdb_score = (rating or 0) * 10 + vote_score
+    poster = details.get("Poster")
+    return {
+        "id": imdb_id,
+        "imdb_id": imdb_id,
+        "imdb_url": f"https://www.imdb.com/title/{imdb_id}/",
+        "title": details.get("Title") or signal.get("title") or "",
+        "year": year,
+        "type": media_type,
+        "poster_url": poster if poster and poster != "N/A" else signal.get("poster_url"),
+        "rating": rating,
+        "imdb_votes": imdb_votes,
+        "genres": genres,
+        "release_date": details.get("Released") if details.get("Released") != "N/A" else signal.get("release_date"),
+        "ai_label": label,
+        "ai_reason": reason,
+        "ai_score": round(float(signal.get("score") or 0) + imdb_score, 2),
+    }
 
 
-@api_router.get("/discovery/ai")
-async def ai_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
-    """Classe les titres disponibles selon sorties, tendances et activité locale."""
+@api_router.get("/discovery/imdb")
+async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
+    """Veille externe basée sur les fiches, notes et volumes de votes IMDb."""
+    if not OMDB_API_KEY:
+        raise HTTPException(status_code=503, detail="Veille IMDb non configurée (clé OMDb manquante).")
     limit = max(1, min(limit, 30))
-    catalog = await db.media.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    if not catalog:
-        return []
-
-    now = datetime.now(timezone.utc)
-    local_trend_cutoff = (now - timedelta(days=30)).isoformat()
-    view_rows = await db.watch_progress.aggregate([
-        {"$match": {"updated_at": {"$gte": local_trend_cutoff}}},
-        {"$group": {"_id": "$media_id", "views": {"$sum": 1}}},
-        {"$sort": {"views": -1}},
-        {"$limit": 500},
-    ]).to_list(500)
-    views = {row["_id"]: int(row.get("views") or 0) for row in view_rows if row.get("_id")}
-    external_signals = await _get_ai_discovery_signals()
-    current_year = now.year
-    ranked = []
-
-    for media in catalog:
-        tmdb_id = media.get("tmdb_id")
-        tmdb_kind = media.get("tmdb_kind") or ("movie" if media.get("type") == "movie" else "tv")
-        external = external_signals.get(f"{tmdb_kind}:{tmdb_id}", {}) if tmdb_id is not None else {}
-        tags = set(external.get("tags") or [])
-        local_views = views.get(media.get("id"), 0)
-        year = media.get("year")
-        rating = float(media.get("rating") or 0)
-        freshness = _catalog_freshness_score(media.get("created_at"), now)
-        year_score = 38 if year == current_year else 18 if year == current_year - 1 else 0
-        local_score = min(45, local_views * 4)
-        score = float(external.get("score") or 0) + freshness + year_score + local_score + min(20, rating * 2)
-
-        if "new" in tags and "trending" in tags:
-            label = "Nouveau & tendance"
-            reason = "Une sortie récente qui fait partie des titres les plus suivis du moment."
-        elif "new" in tags:
-            label = "Nouvelle sortie"
-            reason = "Une sortie récente désormais disponible dans le catalogue."
-        elif "trending" in tags:
-            label = "Tendance du moment"
-            reason = "Ce titre fait partie des contenus les plus suivis actuellement."
-        elif local_views > 0:
-            label = "Tendance sur YourMovie's"
-            reason = "Ce contenu gagne en popularité auprès des spectateurs de YourMovie's."
-        elif freshness > 0 or year == current_year:
-            label = "Ajout récent"
-            reason = "Un contenu récent repéré dans les nouveautés du catalogue."
-        else:
-            label = "Choix de l'IA"
-            reason = "Sélectionné selon sa note, sa fraîcheur et sa popularité."
-
-        item = serialize_media(media)
-        item.update({
-            "ai_label": label,
-            "ai_reason": reason,
-            "ai_score": round(score, 2),
-            "release_date": external.get("release_date"),
-        })
-        ranked.append(item)
-
+    signals = await _get_imdb_discovery_signals()
+    candidates = sorted(
+        signals.values(),
+        key=lambda item: item.get("score", 0),
+        reverse=True,
+    )[:max(24, limit * 2)]
+    resolved = await asyncio.gather(*[
+        _resolve_imdb_discovery_item(candidate)
+        for candidate in candidates
+    ], return_exceptions=True)
+    ranked = [item for item in resolved if isinstance(item, dict)]
     ranked.sort(key=lambda item: (
         item.get("ai_score", 0),
         item.get("rating") or 0,
-        item.get("created_at") or "",
+        item.get("imdb_votes") or 0,
     ), reverse=True)
     for position, item in enumerate(ranked[:limit], start=1):
         item["ai_rank"] = position
     return ranked[:limit]
+
+
+@api_router.get("/discovery/ai", include_in_schema=False)
+async def legacy_ai_discovery(limit: int = 15, admin: dict = Depends(require_admin)):
+    return await imdb_discovery(limit=limit, admin=admin)
 
 @api_router.get("/genres")
 async def list_genres(limit: int = 30):
@@ -1243,6 +1297,33 @@ async def list_genres(limit: int = 30):
         {"$limit": limit},
     ]).to_list(limit)
     return [{"genre": a["_id"], "count": a["count"]} for a in agg if a.get("_id")]
+
+
+@api_router.get("/public/stats")
+async def public_stats():
+    contents, users_count, comments = await asyncio.gather(
+        db.media.count_documents({}),
+        db.users.count_documents({}),
+        db.reviews.count_documents({}),
+    )
+    users = await db.users.find(
+        {},
+        {
+            "_id": 0,
+            "premium_plan": 1,
+            "premium_until": 1,
+            "discord_premium_plan": 1,
+            "discord_premium_until": 1,
+            "license_entitlements": 1,
+        },
+    ).to_list(100000)
+    subscribers = sum(1 for user in users if _is_premium(user))
+    return {
+        "contents": contents,
+        "users": users_count,
+        "comments": comments,
+        "subscribers": subscribers,
+    }
 
 # ---------- Reviews ----------
 @api_router.get("/media/{media_id}/reviews")
