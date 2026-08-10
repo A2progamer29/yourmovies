@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch } from "lucide-react";
+import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch, CheckCircle2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
 import * as tus from "tus-js-client";
@@ -58,6 +58,60 @@ function parseYouTubeId(input) {
     } catch { return s; }
 }
 
+function hasPlayableVideo(item = {}) {
+    if (item.bunny_video_id || item.video_url || item.video_file_path) return true;
+    return Array.isArray(item.qualities) && item.qualities.some((quality) =>
+        quality?.url || quality?.video_url || quality?.file_path
+    );
+}
+
+function getContentCompletionStatus(media) {
+    if (media.type === "movie") {
+        const complete = hasPlayableVideo(media);
+        return {
+            complete,
+            missingSeasons: [],
+            missingEpisodes: [],
+            message: complete ? "Le fichier du film est prêt." : "Le fichier principal du film est manquant.",
+        };
+    }
+
+    const seasons = Array.isArray(media.seasons) ? media.seasons : [];
+    const missingSeasons = new Set();
+    const missingEpisodes = [];
+    const seasonNumbers = seasons
+        .map((season, seasonIndex) => Number(season.season_number) || seasonIndex + 1)
+        .filter((number) => number > 0);
+    const highestSeason = seasonNumbers.length ? Math.max(...seasonNumbers) : 0;
+    for (let seasonNumber = 1; seasonNumber <= highestSeason; seasonNumber += 1) {
+        if (!seasonNumbers.includes(seasonNumber)) missingSeasons.add(`S${seasonNumber}`);
+    }
+    seasons.forEach((season, seasonIndex) => {
+        const seasonNumber = Number(season.season_number) || seasonIndex + 1;
+        const episodes = Array.isArray(season.episodes) ? season.episodes : [];
+        if (episodes.length === 0 || episodes.every((episode) => !hasPlayableVideo(episode))) {
+            missingSeasons.add(`S${seasonNumber}`);
+        }
+        episodes.forEach((episode, episodeIndex) => {
+            if (!hasPlayableVideo(episode)) {
+                missingEpisodes.push(`S${seasonNumber}E${Number(episode.ep_number) || episodeIndex + 1}`);
+            }
+        });
+    });
+
+    const complete = seasons.length > 0 && missingEpisodes.length === 0 && missingSeasons.size === 0;
+    return {
+        complete,
+        missingSeasons: Array.from(missingSeasons),
+        missingEpisodes,
+        message: seasons.length === 0
+            ? "Aucune saison n’a encore été ajoutée."
+            : complete
+                ? "Toutes les saisons et tous les épisodes possèdent un fichier."
+                : "Le contenu reste en cours tant que les fichiers indiqués ci-dessous sont manquants.",
+    };
+}
+
 function MediaFlagControl({ checked, disabled, onToggle, label, testId }) {
     return (
         <button
@@ -90,7 +144,11 @@ export default function AdminMediaForm() {
     const navigate = useNavigate();
     const { id } = useParams();
     const isEdit = Boolean(id);
-    const [form, setForm] = useState(EMPTY);
+    const requestedType = new URLSearchParams(window.location.search).get("type");
+    const [form, setForm] = useState(() => ({
+        ...EMPTY,
+        type: ["movie", "series", "anime"].includes(requestedType) ? requestedType : "movie",
+    }));
     const { uploads, beginUpload, updateUpload, completeUpload, failUpload, setUploadCancelHandler, activeUpload: findActiveUpload } = useUploads();
     const [uploadScope] = useState(() => {
         if (isEdit) return `media:${id}`;
@@ -634,6 +692,9 @@ export default function AdminMediaForm() {
             return { ...f, seasons };
         });
     };
+
+    const completionStatus = getContentCompletionStatus(form);
+    const visibleMissingEpisodes = completionStatus.missingEpisodes.slice(0, 30);
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -1232,6 +1293,52 @@ export default function AdminMediaForm() {
                             </div>
                         </section>
                     )}
+
+                    <section data-testid="content-completion-status">
+                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]">
+                            {completionStatus.complete ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
+                            État du contenu
+                        </h2>
+                        <div className={`rounded-xl border p-5 ${completionStatus.complete
+                            ? "border-emerald-400/25 bg-emerald-400/[0.05]"
+                            : "border-amber-400/25 bg-amber-400/[0.05]"
+                        }`}>
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className={`text-xs font-semibold uppercase tracking-widest ${completionStatus.complete ? "text-emerald-300" : "text-amber-300"}`}>
+                                        {completionStatus.complete ? "Complet" : "En cours"}
+                                    </div>
+                                    <p className="mt-1 text-sm text-neutral-400">{completionStatus.message}</p>
+                                </div>
+                                {!completionStatus.complete && (
+                                    <div className="rounded-full border border-amber-400/25 bg-black/20 px-3 py-1 text-xs text-amber-200">
+                                        {form.type === "movie"
+                                            ? "1 fichier manquant"
+                                            : `${completionStatus.missingSeasons.length} saison${completionStatus.missingSeasons.length > 1 ? "s" : ""} · ${completionStatus.missingEpisodes.length} épisode${completionStatus.missingEpisodes.length > 1 ? "s" : ""} à compléter`}
+                                    </div>
+                                )}
+                            </div>
+                            {!completionStatus.complete && form.type !== "movie" && (
+                                <div className="mt-4 grid gap-4 border-t border-white/[0.07] pt-4 sm:grid-cols-2">
+                                    <div>
+                                        <div className="text-[10px] uppercase tracking-widest text-neutral-500">Saisons manquantes ou sans vidéo</div>
+                                        <div className="mt-2 text-sm text-neutral-300">
+                                            {completionStatus.missingSeasons.length ? completionStatus.missingSeasons.join(", ") : "Aucune saison entière"}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] uppercase tracking-widest text-neutral-500">Épisodes sans fichier</div>
+                                        <div className="mt-2 text-sm leading-relaxed text-neutral-300">
+                                            {visibleMissingEpisodes.length ? visibleMissingEpisodes.join(", ") : "Aucun épisode répertorié"}
+                                            {completionStatus.missingEpisodes.length > visibleMissingEpisodes.length
+                                                ? ` · +${completionStatus.missingEpisodes.length - visibleMissingEpisodes.length} autre(s)`
+                                                : ""}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </section>
                 </div>
 
                 <div className="mt-12 flex justify-end gap-2 border-t border-[#262626] pt-6">
