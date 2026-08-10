@@ -47,8 +47,6 @@ const EMPTY = {
     featured_order: "",
 };
 
-const QUALITY_OPTIONS = ["4k", "1080p", "720p", "480p"];
-
 function parseYouTubeId(input) {
     if (!input) return "";
     const s = input.trim();
@@ -587,21 +585,6 @@ export default function AdminMediaForm() {
         });
     };
 
-    // Qualities helpers
-    const addQuality = () => {
-        const used = new Set((form.qualities || []).map((q) => q.quality));
-        const next = QUALITY_OPTIONS.find((q) => !used.has(q)) || "720p";
-        setForm({ ...form, qualities: [...(form.qualities || []), { quality: next, url: "", file_path: "" }] });
-    };
-    const updateQuality = (i, patch) => {
-        const arr = [...(form.qualities || [])];
-        arr[i] = { ...arr[i], ...patch };
-        setForm({ ...form, qualities: arr });
-    };
-    const removeQuality = (i) => {
-        setForm({ ...form, qualities: form.qualities.filter((_, idx) => idx !== i) });
-    };
-
     // Season helpers (kept from AdminPage)
     const addSeason = () => {
         setForm((f) => ({ ...f, seasons: [...(f.seasons || []), { season_number: (f.seasons?.length || 0) + 1, title: "", episodes: [] }] }));
@@ -1080,9 +1063,9 @@ export default function AdminMediaForm() {
                         </div>
                     </section>
 
-                    {/* SECTION: Vidéo & qualités */}
+                    {/* SECTION: Vidéo */}
                     <section>
-                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Vidéo & qualités multiples</h2>
+                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Vidéo</h2>
 
                         <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
                             <div className="flex items-center gap-2 mb-2">
@@ -1107,11 +1090,11 @@ export default function AdminMediaForm() {
                             {form.bunny_video_id && (
                                 <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
                             )}
-                            <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présent, cette vidéo est prioritaire sur les champs ci-dessous.</div>
+                            <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présente, cette vidéo est utilisée en priorité.</div>
                         </div>
 
                         <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
-                            <Label className="text-neutral-300 text-xs">Vidéo par défaut (fallback si aucune qualité)</Label>
+                            <Label className="text-neutral-300 text-xs">Vidéo externe de secours</Label>
                             <div className="flex gap-2 mt-1.5">
                                 <Input value={form.video_url} onChange={(e) => setForm({ ...form, video_url: e.target.value })} placeholder="URL MP4/HLS externe" className="bg-[#111] border-[#262626] text-white flex-1" />
                                     <label className="cursor-pointer">
@@ -1120,36 +1103,6 @@ export default function AdminMediaForm() {
                                     </label>
                             </div>
                             {form.video_file_path && <div className="text-xs text-neutral-500 mt-1.5">Fichier: {form.video_file_path}</div>}
-                        </div>
-
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="text-sm text-neutral-300">Qualités disponibles</div>
-                            <Button variant="outline" size="sm" onClick={addQuality} data-testid="add-quality-btn" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">
-                                <Plus size={12} className="mr-1" /> Ajouter une qualité
-                            </Button>
-                        </div>
-                        <div className="space-y-3">
-                            {(form.qualities || []).length === 0 && (
-                                <div className="text-xs text-neutral-500 p-3 rounded border border-dashed border-[#262626]">
-                                    Ajoutez plusieurs qualités — toutes accessibles à tous les utilisateurs (sans abonnement).
-                                </div>
-                            )}
-                            {(form.qualities || []).map((q, i) => (
-                                <div key={i} className="flex items-center gap-2 p-3 rounded-lg border border-[#262626] bg-[#0a0a0a]" data-testid={`quality-row-${i}`}>
-                                    <Select value={q.quality} onValueChange={(v) => updateQuality(i, { quality: v })}>
-                                        <SelectTrigger className="w-32 bg-[#111] border-[#262626] text-white"><SelectValue /></SelectTrigger>
-                                        <SelectContent className="bg-[#111] border-[#262626] text-white">
-                                            {QUALITY_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o.toUpperCase()}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                    <Input value={q.url || ""} onChange={(e) => updateQuality(i, { url: e.target.value })} placeholder="URL MP4/HLS" className="bg-[#111] border-[#262626] text-white flex-1" />
-                                    <label className="cursor-pointer">
-                                        <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", `q${i}`, (p) => updateQuality(i, { url: buildFileUrl(p), file_path: p }))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-3 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">{activeUpload(`q${i}`) ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(`q${i}`)}%</> : <><Upload size={12} /> Upload</>}</span>
-                                    </label>
-                                    <Button variant="ghost" size="icon" onClick={() => removeQuality(i)} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><X size={14} /></Button>
-                                </div>
-                            ))}
                         </div>
                     </section>
 
