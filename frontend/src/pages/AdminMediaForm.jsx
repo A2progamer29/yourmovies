@@ -1165,6 +1165,9 @@ export default function AdminMediaForm() {
                                         <div className="space-y-2">
                                             {(s.episodes || []).map((ep, j) => {
                                                 const episodeKey = `episode:${s.season_number || i + 1}:${ep.ep_number || j + 1}`;
+                                                const hasEpisodeVideo = Boolean(
+                                                    ep.bunny_video_id || ep.video_url || ep.video_file_path,
+                                                );
                                                 return (
                                                     <div key={ep.tmdb_id || j} className="rounded-lg border border-[#222] bg-[#080808] p-3 space-y-3">
                                                         <div className="flex items-center gap-2">
@@ -1201,10 +1204,18 @@ export default function AdminMediaForm() {
                                                                         },
                                                                     )}
                                                                 />
-                                                                <span className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-xs text-neutral-300">
+                                                                <span
+                                                                    className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${hasEpisodeVideo
+                                                                        ? "border-[#E8D2A6]/45 bg-[#E8D2A6]/[0.06] text-[#E8D2A6] hover:border-[#E8D2A6]/75"
+                                                                        : "border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50"
+                                                                    }`}
+                                                                    title={hasEpisodeVideo ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
+                                                                >
                                                                     {activeUpload(episodeKey)
                                                                         ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(episodeKey)}%</>
-                                                                        : <><Upload size={12} /> Ajouter le MP4</>}
+                                                                        : hasEpisodeVideo
+                                                                            ? <><Film size={12} /> Fichier déjà ajouté</>
+                                                                            : <><Upload size={12} /> Ajouter le MP4</>}
                                                                 </span>
                                                             </label>
                                                         </div>
