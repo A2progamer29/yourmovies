@@ -134,29 +134,8 @@ function EpisodeSelectorOverlay({
     onSeasonChange,
     onEpisodeSelect,
 }) {
-    const currentLabel = selectedEpisode
-        ? "S" + selectedEpisode.season_number + " E" + selectedEpisode.ep_number
-        : "Épisodes";
-
     return (
         <>
-            <button
-                type="button"
-                onClick={() => onOpenChange(true)}
-                aria-label="Choisir une saison ou un épisode"
-                aria-expanded={open}
-                aria-controls="episode-selector-panel"
-                data-testid="episode-selector-open"
-                className="absolute right-3 top-3 z-[35] flex h-11 max-w-[70%] items-center gap-2.5 rounded-full border border-white/15 bg-black/80 px-3.5 text-xs font-medium text-white shadow-xl backdrop-blur-md transition-colors hover:border-[#E8D2A6]/70 hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:right-4 sm:top-4 sm:px-4"
-            >
-                <ListVideo size={16} className="shrink-0 text-[#E8D2A6]" />
-                <span className="shrink-0 rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 font-semibold text-[#E8D2A6]">{currentLabel}</span>
-                {selectedEpisode?.title && (
-                    <span className="hidden min-w-0 truncate text-neutral-300 sm:inline">{selectedEpisode.title}</span>
-                )}
-                <ChevronDown size={14} className="shrink-0 text-neutral-400" />
-            </button>
-
             <AnimatePresence>
                 {open && (
                     <motion.div
@@ -749,17 +728,17 @@ export default function WatchPage() {
 
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
-                        <div className="relative">
+                        <div className="relative overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             {showGate ? (
-                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <AdGate onUnlock={() => setGateDone(true)} />
                             </div>
                         ) : showAd ? (
-                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
                             </div>
                         ) : bunnySource ? (
-                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 {bunnyPlaybackError ? (
                                     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505] p-6">
                                         <div className="max-w-xl text-center">
@@ -816,10 +795,9 @@ export default function WatchPage() {
                                     onEpisodeSelect={selectEpisode}
                                 />
                             )}
-                        </div>
 
                         {media.type !== "movie" && episodes.length > 0 && (
-                            <div className="mt-3 flex items-center gap-2 sm:gap-3" data-testid="episode-nav">
+                            <div className="flex items-center gap-2 border-t border-[#262626] bg-[#0a0a0a] px-2.5 py-2.5 sm:gap-3 sm:px-3" data-testid="episode-nav">
                                 <Button
                                     variant="outline"
                                     onClick={() => previousEpisode && selectEpisode(previousEpisode)}
@@ -834,9 +812,11 @@ export default function WatchPage() {
 
                                 <button
                                     type="button"
-                                    onClick={() => setEpisodePanelOpen(true)}
+                                    onClick={() => setEpisodePanelOpen((v) => !v)}
+                                    aria-expanded={episodePanelOpen}
+                                    aria-controls="episode-selector-panel"
                                     data-testid="episode-picker"
-                                    className="group flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border border-[#262626] bg-[#0a0a0a] px-4 text-left transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/[0.03]"
+                                    className={`group flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border px-4 text-left transition-colors ${episodePanelOpen ? "border-[#E8D2A6]/60 bg-[#E8D2A6]/[0.07]" : "border-[#262626] bg-[#111] hover:border-[#E8D2A6]/60 hover:bg-white/[0.03]"}`}
                                 >
                                     <ListVideo size={16} className="shrink-0 text-[#E8D2A6]" />
                                     <span className="min-w-0 flex-1">
@@ -847,7 +827,7 @@ export default function WatchPage() {
                                             {selectedEpisode?.title || "Choisir un épisode"}
                                         </span>
                                     </span>
-                                    <span className="hidden shrink-0 text-[11px] text-neutral-500 sm:inline">Tout voir</span>
+                                    <ChevronDown size={16} className={`shrink-0 text-neutral-400 transition-transform ${episodePanelOpen ? "rotate-180 text-[#E8D2A6]" : ""}`} />
                                 </button>
 
                                 <Button
@@ -863,6 +843,7 @@ export default function WatchPage() {
                                 </Button>
                             </div>
                         )}
+                        </div>
 
                         {resumeAt > 0 && !bunnySource && (
                             <div className="mt-4 text-xs text-neutral-500">
