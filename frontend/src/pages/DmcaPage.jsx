@@ -63,7 +63,7 @@ export default function DmcaPage() {
                 <Section title="Contact">
                     <p>
                         Pour une demande de retrait ou une proposition concernant des droits de diffusion, écrivez à{" "}
-                        <a href="mailto:yourmovies@proton.me" className="text-[#E8D2A6] hover:underline">yourmovies@proton.me</a>.
+                        <a href="mailto:yourmovies@proton.me" className="text-[#E8D2A6] hover:underline">yourmoviesfr@proton.me</a>.
                     </p>
                     <p className="text-neutral-500 text-sm">
                         Objet conseillé : « Demande de retrait — Droits d&apos;auteur » ou « Proposition de licence ».
