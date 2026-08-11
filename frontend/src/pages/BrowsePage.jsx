@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Search, Filter, X } from "lucide-react";
+import { useSearchParams, Link } from "react-router-dom";
+import { Search, Filter, X, Sparkles, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { api } from "@/lib/api";
@@ -156,15 +156,46 @@ export default function BrowsePage() {
                 )}
 
                 {filtered.length === 0 ? (
-                    <div className="py-24 text-center text-neutral-500">
-                        Aucun résultat.
+                    <div className="mx-auto max-w-xl rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-b from-[#171208] to-[#0a0a0a] px-6 py-12 text-center">
+                        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#E8D2A6] text-black">
+                            <Sparkles size={24} />
+                        </div>
+                        <h2 className="font-display text-2xl tracking-tight text-white">Aucun résultat</h2>
+                        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-neutral-400">
+                            Le site est encore en <span className="text-[#E8D2A6]">développement</span> et le catalogue
+                            s&apos;étoffe chaque semaine. Ce titre n&apos;y est pas encore ? Propose-le sur le Wishboard :
+                            les demandes les plus votées sont ajoutées en priorité.
+                        </p>
+                        <Link
+                            to="/wishboard"
+                            data-testid="browse-empty-wishboard"
+                            className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#E8D2A6] px-6 font-semibold text-black transition-colors hover:bg-[#D4BB8B]"
+                        >
+                            Proposer ce titre <ArrowRight size={16} />
+                        </Link>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-                        {filtered.map((m) => (
-                            <MediaCard key={m.id} media={m} size="sm" />
-                        ))}
-                    </div>
+                    <>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                            {filtered.map((m) => (
+                                <MediaCard key={m.id} media={m} size="sm" />
+                            ))}
+                        </div>
+
+                        <div className="mt-12 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#262626] bg-[#0a0a0a] px-6 py-5">
+                            <p className="text-sm text-neutral-400">
+                                <span className="text-white">Le catalogue s&apos;agrandit chaque semaine.</span>{" "}
+                                Un titre manque à l&apos;appel ? Propose-le, on l&apos;ajoute selon les votes.
+                            </p>
+                            <Link
+                                to="/wishboard"
+                                data-testid="browse-wishboard-cta"
+                                className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-[#E8D2A6]/40 px-5 text-sm font-semibold text-[#E8D2A6] transition-colors hover:bg-[#E8D2A6] hover:text-black"
+                            >
+                                Aller au Wishboard <ArrowRight size={15} />
+                            </Link>
+                        </div>
+                    </>
                 )}
             </div>
             <AdBanner className="!mt-0 pb-12" />
