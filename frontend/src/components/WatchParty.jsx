@@ -14,7 +14,35 @@ import { toast } from "sonner";
  *   onClose: () => void
  *   token?: string (JWT to authenticate)
  */
-export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, onClose, token }) {
+export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, bunnyPlayerRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token }) {
+    // Contrôleur unifié : la lecture se fait soit dans un <video>, soit dans
+    // l'iframe Bunny piloté par playerjs. Sans cette abstraction, rien n'était
+    // synchronisé en lecture Bunny (videoRef restait vide).
+    const ctl = () => {
+        const v = videoRef?.current;
+        if (v) return {
+            kind: "video",
+            play: () => v.play().catch(() => {}),
+            pause: () => v.pause(),
+            seek: (t) => { try { v.currentTime = t; } catch {} },
+            time: () => Promise.resolve(v.currentTime || 0),
+            paused: () => v.paused,
+            on: (ev, cb) => v.addEventListener(ev, cb),
+            off: (ev, cb) => v.removeEventListener(ev, cb),
+        };
+        const p = bunnyPlayerRef?.current;
+        if (p) return {
+            kind: "bunny",
+            play: () => { try { p.play(); } catch {} },
+            pause: () => { try { p.pause(); } catch {} },
+            seek: (t) => { try { p.setCurrentTime(t); } catch {} },
+            time: () => new Promise((res) => { try { p.getCurrentTime((t) => res(Number(t) || 0)); } catch { res(0); } }),
+            paused: () => pausedRef.current,
+            on: (ev, cb) => { try { p.on(ev, cb); } catch {} },
+            off: (ev, cb) => { try { p.off(ev, cb); } catch {} },
+        };
+        return null;
+    };
     const [participants, setParticipants] = useState([]);
     const [isHost, setIsHost] = useState(false);
     const [messages, setMessages] = useState([]);
@@ -24,6 +52,8 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
     const [pauseAsked, setPauseAsked] = useState(false);
     const [fatal, setFatal] = useState(null);
     const wsRef = useRef(null);
+    const pausedRef = useRef(true);
+    const lastStateRef = useRef(null);
     const listRef = useRef(null);
 
     useEffect(() => {
@@ -70,13 +100,14 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             if (data.type === "hello") {
                 setFatal(null);
                 setIsHost(!!data.you?.is_host);
-                if (data.state && videoRef?.current && !data.you?.is_host) {
-                    applyState(data.state);
-                }
+                onHostChange?.(!!data.you?.is_host);
+                if (data.state && !data.you?.is_host) applyState(data.state);
             } else if (data.type === "participants") {
                 setParticipants(data.participants);
             } else if (data.type === "sync") {
                 if (data.host_id !== currentUserId) applyState(data.state);
+            } else if (data.type === "episode") {
+                onEpisodeSync?.(data.season_number, data.episode_number);
             } else if (data.type === "pause_request") {
                 setPauseRequest({ name: data.name, at: Date.now() });
                 window.setTimeout(() => setPauseRequest(null), 12000);
@@ -96,54 +127,77 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         // eslint-disable-next-line
     }, [code]);
 
-    const applyState = (state) => {
-        const v = videoRef?.current;
-        if (!v || !state) return;
-        // Compensation de latence : depuis l'envoi de l'hôte, la vidéo a continué
-        // d'avancer. On vise donc la position attendue « maintenant ».
-        // Borné à 5 s : l'hôte publie toutes les 2 s, donc l'écart réel est petit.
-        // Sans cette borne, une horloge client décalée enverrait la lecture n'importe où.
+    const applyState = async (state) => {
+        const c = ctl();
+        if (!c || !state) return;
+        lastStateRef.current = state;
+        // Compensation de latence, bornée à 5 s (l'hôte publie toutes les 2 s) :
+        // sans borne, une horloge client décalée enverrait la lecture n'importe où.
         const sentAt = Number(state.updated_at) || 0;
         const elapsed = state.playing && sentAt > 0
             ? Math.min(5, Math.max(0, Date.now() / 1000 - sentAt))
             : 0;
         const target = Number(state.position_seconds || 0) + elapsed;
-        const drift = Math.abs((v.currentTime || 0) - target);
-        if (drift > 0.6) {
-            try { v.currentTime = target; } catch { }
-        }
-        if (state.playing && v.paused) {
-            v.play().catch(() => { });
-        } else if (!state.playing && !v.paused) {
-            v.pause();
-        }
+        const current = await c.time();
+        if (Math.abs(current - target) > 0.8) c.seek(target);
+        if (state.playing) c.play(); else c.pause();
     };
 
-    // If host, publish state on play/pause/seek
+    // L'hôte publie son état ; un participant est au contraire réaligné sur l'hôte.
     useEffect(() => {
-        if (!isHost || !videoRef?.current || !wsRef.current) return;
-        const v = videoRef.current;
-        const push = () => {
+        const c = ctl();
+        if (!c) return undefined;
+
+        const markPaused = () => { pausedRef.current = true; };
+        const markPlaying = () => { pausedRef.current = false; };
+        c.on("pause", markPaused);
+        c.on("play", markPlaying);
+
+        if (!isHost) {
+            // Toute action locale d'un participant est annulée : la lecture
+            // appartient à l'hôte. On réapplique le dernier état connu.
+            const realign = () => { if (lastStateRef.current) applyState(lastStateRef.current); };
+            c.on("pause", realign);
+            c.on("play", realign);
+            c.on("seeked", realign);
+            const guard = setInterval(realign, 2000);
+            return () => {
+                c.off("pause", markPaused); c.off("play", markPlaying);
+                c.off("pause", realign); c.off("play", realign); c.off("seeked", realign);
+                clearInterval(guard);
+            };
+        }
+
+        const push = async () => {
             if (wsRef.current?.readyState !== 1) return;
+            const position = await c.time();
             wsRef.current.send(JSON.stringify({
                 type: "sync",
-                position_seconds: v.currentTime || 0,
-                playing: !v.paused,
+                position_seconds: position,
+                playing: !c.paused(),
             }));
         };
-        v.addEventListener("play", push);
-        v.addEventListener("pause", push);
-        v.addEventListener("seeked", push);
-        v.addEventListener("ratechange", push);
-        const interval = setInterval(() => { if (!v.paused) push(); }, 2000);
+        c.on("play", push);
+        c.on("pause", push);
+        c.on("seeked", push);
+        const interval = setInterval(push, 2000);
         return () => {
-            v.removeEventListener("play", push);
-            v.removeEventListener("pause", push);
-            v.removeEventListener("seeked", push);
-            v.removeEventListener("ratechange", push);
+            c.off("pause", markPaused); c.off("play", markPlaying);
+            c.off("play", push); c.off("pause", push); c.off("seeked", push);
             clearInterval(interval);
         };
-    }, [isHost, videoRef]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isHost, connected]);
+
+    // L'hôte annonce le changement d'épisode : tout le salon suit.
+    useEffect(() => {
+        if (!isHost || !currentEpisode || wsRef.current?.readyState !== 1) return;
+        wsRef.current.send(JSON.stringify({
+            type: "episode",
+            season_number: currentEpisode.season_number,
+            episode_number: currentEpisode.episode_number,
+        }));
+    }, [isHost, currentEpisode?.season_number, currentEpisode?.episode_number]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;

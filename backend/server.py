@@ -4612,6 +4612,23 @@ async def party_ws(websocket: WebSocket, code: str):
                         "text": text,
                         "at": datetime.now(timezone.utc).timestamp(),
                     })
+            elif t == "episode":
+                # Changement d'épisode : réservé à l'hôte, répercuté sur tout le salon.
+                if conn["account_id"] == party.host_id:
+                    payload = {
+                        "type": "episode",
+                        "season_number": data.get("season_number"),
+                        "episode_number": data.get("episode_number"),
+                    }
+                    party.state = {
+                        "position_seconds": 0.0,
+                        "playing": True,
+                        "updated_at": datetime.now(timezone.utc).timestamp(),
+                        "season_number": payload["season_number"],
+                        "episode_number": payload["episode_number"],
+                    }
+                    await party.broadcast(payload, exclude_ws=websocket)
+                    await _persist_party_state(party)
             elif t == "request_pause":
                 # Un participant ne contrôle pas la lecture : il la demande à l'hôte.
                 if conn["account_id"] != party.host_id:

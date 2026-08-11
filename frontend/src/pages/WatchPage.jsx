@@ -179,7 +179,7 @@ function EpisodeSelectorOverlay({
                                 <div className="flex shrink-0 items-center gap-1">
                                     <button
                                         type="button"
-                                        disabled={!previousEpisode}
+                                        disabled={!previousEpisode || (partyOpen && !isPartyHost)}
                                         onClick={() => previousEpisode && onEpisodeSelect(previousEpisode)}
                                         aria-label="Épisode précédent"
                                         title="Épisode précédent"
@@ -189,7 +189,7 @@ function EpisodeSelectorOverlay({
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={!nextEpisode}
+                                        disabled={!nextEpisode || (partyOpen && !isPartyHost)}
                                         onClick={() => nextEpisode && onEpisodeSelect(nextEpisode)}
                                         aria-label="Épisode suivant"
                                         title="Épisode suivant"
@@ -301,11 +301,13 @@ export default function WatchPage() {
     const [resumeAt, setResumeAt] = useState(0);
     const [watchProgress, setWatchProgress] = useState(null);
     const [episodePanelOpen, setEpisodePanelOpen] = useState(false);
+    const [isPartyHost, setIsPartyHost] = useState(false);
     const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
     const bunnyIframeRef = useRef(null);
+    const bunnyPlayerRef = useRef(null);
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
@@ -536,6 +538,7 @@ export default function WatchPage() {
             .then((playerjs) => {
                 if (disposed || !bunnyIframeRef.current) return;
                 player = new playerjs.Player(bunnyIframeRef.current);
+                bunnyPlayerRef.current = player;
                 on("ready", () => {
                     player.getDuration((duration) => {
                         const parsed = Number(duration);
@@ -563,6 +566,7 @@ export default function WatchPage() {
 
         return () => {
             disposed = true;
+            bunnyPlayerRef.current = null;
             if (fallbackTimer) window.clearInterval(fallbackTimer);
             // L'iframe peut déjà avoir quitté le DOM (porte pub, changement d'épisode) :
             // player.off() ferait alors un postMessage sur un contentWindow null.
@@ -829,6 +833,19 @@ export default function WatchPage() {
                                 />
                             )}
 
+                        {/* Participant d'une Watch Party : la lecture appartient à l'hôte,
+                            on neutralise les commandes du lecteur. */}
+                        {partyOpen && !isPartyHost && (
+                            <div
+                                className="absolute inset-x-0 top-0 bottom-[60px] z-30 flex items-start justify-center"
+                                data-testid="party-guest-shield"
+                            >
+                                <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
+                                    Lecture contrôlée par l&apos;hôte
+                                </span>
+                            </div>
+                        )}
+
                         {media.type !== "movie" && episodes.length > 0 && (
                             <div className="flex items-center gap-2 border-t border-[#262626] bg-[#0a0a0a] px-2.5 py-2.5 sm:gap-3 sm:px-3" data-testid="episode-nav">
                                 <Button
@@ -845,6 +862,7 @@ export default function WatchPage() {
 
                                 <button
                                     type="button"
+                                    disabled={partyOpen && !isPartyHost}
                                     onClick={() => setEpisodePanelOpen((v) => !v)}
                                     aria-expanded={episodePanelOpen}
                                     aria-controls="episode-selector-panel"
@@ -896,6 +914,13 @@ export default function WatchPage() {
                             profileId={activeProfile?.id}
                             profileName={activeProfile?.name}
                             videoRef={videoElRef}
+                            bunnyPlayerRef={bunnyPlayerRef}
+                            onHostChange={setIsPartyHost}
+                            currentEpisode={selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
+                            onEpisodeSync={(sn, en) => {
+                                const target = episodes.find((e) => String(e.season_number) === String(sn) && String(e.ep_number) === String(en));
+                                if (target) selectEpisode(target);
+                            }}
                             onClose={closeParty}
                             token={token}
                         />
