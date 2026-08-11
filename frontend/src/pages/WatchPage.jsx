@@ -133,6 +133,7 @@ function EpisodeSelectorOverlay({
     watchProgress,
     onSeasonChange,
     onEpisodeSelect,
+    locked,
 }) {
     return (
         <>
@@ -179,7 +180,7 @@ function EpisodeSelectorOverlay({
                                 <div className="flex shrink-0 items-center gap-1">
                                     <button
                                         type="button"
-                                        disabled={!previousEpisode || (partyOpen && !isPartyHost)}
+                                        disabled={!previousEpisode || locked}
                                         onClick={() => previousEpisode && onEpisodeSelect(previousEpisode)}
                                         aria-label="Épisode précédent"
                                         title="Épisode précédent"
@@ -189,7 +190,7 @@ function EpisodeSelectorOverlay({
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={!nextEpisode || (partyOpen && !isPartyHost)}
+                                        disabled={!nextEpisode || locked}
                                         onClick={() => nextEpisode && onEpisodeSelect(nextEpisode)}
                                         aria-label="Épisode suivant"
                                         title="Épisode suivant"
@@ -840,6 +841,7 @@ export default function WatchPage() {
                                     watchProgress={watchProgress}
                                     onSeasonChange={setSelectedSeason}
                                     onEpisodeSelect={selectEpisode}
+                                    locked={partyOpen && !isPartyHost}
                                 />
                             )}
 

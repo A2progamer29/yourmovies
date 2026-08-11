@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import Header from "@/components/Header";
 
 const COLORS = ["#E8D2A6", "#8AB4F8", "#F28B82", "#81C995", "#C58AF9", "#FDD663", "#F5F5F5"];
@@ -198,6 +198,7 @@ export default function ProfilesPage() {
                 <DialogContent className="bg-[#0a0a0a] border-[#262626] text-white">
                     <DialogHeader>
                         <DialogTitle className="font-display text-2xl">{editing ? "Modifier le profil" : "Nouveau profil"}</DialogTitle>
+                        <DialogDescription className="sr-only">Gestion des profils de votre compte.</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 mt-4">
                         <div>
@@ -256,6 +257,7 @@ export default function ProfilesPage() {
                         <DialogTitle className="font-display text-2xl flex items-center gap-2">
                             <Lock size={18} className="text-[#E8D2A6]" /> PIN parental
                         </DialogTitle>
+                        <DialogDescription className="sr-only">Gestion des profils de votre compte.</DialogDescription>
                     </DialogHeader>
                     <p className="text-sm text-neutral-400 mt-1">Entrez le PIN pour accéder à <span className="text-white">{pinPrompt?.profile?.name}</span>.</p>
                     <Input
@@ -283,6 +285,7 @@ export default function ProfilesPage() {
                         <DialogTitle className="font-display text-2xl flex items-center gap-2">
                             <Lock size={18} className="text-[#E8D2A6]" /> Activer un PIN
                         </DialogTitle>
+                        <DialogDescription className="sr-only">Gestion des profils de votre compte.</DialogDescription>
                     </DialogHeader>
                     <p className="text-sm text-neutral-400 mt-1">Ajoutez un PIN à 4-6 chiffres à <span className="text-white">{pinManage?.profile?.name}</span>.</p>
                     <Input

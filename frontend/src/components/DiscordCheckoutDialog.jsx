@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 
 const DISCORD_URL = "https://discord.gg/6mGTfvcNeD";
@@ -102,6 +103,7 @@ export default function DiscordCheckoutDialog({
                 <ShieldCheck size={24} className="text-[#E8D2A6]" /> Choisir le
                 paiement
               </DialogTitle>
+                <DialogDescription className="sr-only">Finalisez votre commande sur le serveur Discord.</DialogDescription>
             </DialogHeader>
 
             <p className="text-sm text-neutral-400 -mt-2 leading-relaxed">
@@ -183,6 +185,7 @@ export default function DiscordCheckoutDialog({
                 <DiscordIcon size={19} className="text-[#5865F2]" /> Finaliser
                 sur Discord
               </DialogTitle>
+                <DialogDescription className="sr-only">Finalisez votre commande sur le serveur Discord.</DialogDescription>
             </DialogHeader>
 
             <p className="text-[13px] text-neutral-400 -mt-1.5 leading-snug">

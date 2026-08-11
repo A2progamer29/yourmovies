@@ -73,9 +73,18 @@ let webpackConfig = {
   eslint: {
     configure: {
       extends: ["plugin:react-hooks/recommended"],
+      // Sans env ni no-undef, une variable hors de portée passait le build et
+      // ne plantait qu'en production, au rendu du composant concerné.
+      env: { browser: true, node: true, es2021: true, jest: true },
+      parserOptions: {
+        ecmaVersion: 2021,
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
       rules: {
         "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",
+        "no-undef": "error",
       },
     },
   },

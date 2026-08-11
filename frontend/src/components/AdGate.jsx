@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { PlayCircle, Loader2, ShieldCheck, Lock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { loadAdsConfig, frequencyAllows, markShown, injectScript } from "@/lib/ads";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const FREQ_KEY = "ym_gate_last";
 
@@ -91,6 +91,7 @@ export default function AdGate({ onUnlock }) {
                         <DialogTitle className="font-display text-2xl flex items-center gap-2.5">
                             <PlayCircle size={22} className="text-[#E8D2A6]" /> Lancer la lecture
                         </DialogTitle>
+                        <DialogDescription className="sr-only">Regardez la publicité proposée pour débloquer la lecture.</DialogDescription>
                     </DialogHeader>
 
                     <p className="text-sm leading-relaxed text-neutral-400 -mt-1">
