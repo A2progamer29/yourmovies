@@ -26,6 +26,7 @@ export default function MediaDetailPage() {
     const [reviews, setReviews] = useState([]);
     const [similar, setSimilar] = useState([]);
     const [timeline, setTimeline] = useState({ title: "", items: [] });
+    const [tab, setTab] = useState(null);
     const [status, setStatus] = useState({ favorite: false, watchlist: false });
     const [ratingInput, setRatingInput] = useState(7);
     const [commentInput, setCommentInput] = useState("");
@@ -121,6 +122,16 @@ export default function MediaDetailPage() {
 
     const banner = media.banner_url || media.poster_url || BANNER_FALLBACK;
     const totalEpisodes = (media.seasons || []).reduce((acc, s) => acc + (s.episodes?.length || 0), 0);
+
+    // Rubriques : seules celles qui ont réellement du contenu sont proposées.
+    const sections = [
+        media.type !== "movie" && media.seasons?.length > 0 && { id: "episodes", label: "Épisodes" },
+        media.trailer_youtube_id && { id: "trailer", label: "Bande-annonce" },
+        (media.director || media.cast?.length > 0) && { id: "cast", label: "Distribution" },
+        { id: "reviews", label: `Avis${reviews.filter((r) => !r.parent_id).length ? ` (${reviews.filter((r) => !r.parent_id).length})` : ""}` },
+        (similar.length > 0 || timeline.items?.length > 1) && { id: "similar", label: "Similaires" },
+    ].filter(Boolean);
+    const activeTab = sections.some((s) => s.id === tab) ? tab : (sections[0]?.id || "reviews");
 
     const topReviews = reviews.filter((r) => !r.parent_id);
     const repliesByParent = reviews.reduce((acc, r) => {
@@ -258,10 +269,30 @@ export default function MediaDetailPage() {
                 </motion.div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 space-y-14">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
+                <div className="flex gap-1 overflow-x-auto no-scrollbar border-b border-white/10" role="tablist">
+                    {sections.map((s) => (
+                        <button
+                            key={s.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={activeTab === s.id}
+                            onClick={() => setTab(s.id)}
+                            data-testid={`media-tab-${s.id}`}
+                            className={`shrink-0 border-b-2 -mb-px px-4 py-3 text-sm transition-colors ${activeTab === s.id
+                                ? "border-[#E8D2A6] text-[#E8D2A6]"
+                                : "border-transparent text-neutral-400 hover:text-white"}`}
+                        >
+                            {s.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 lg:py-12 space-y-14">
                 <main className="space-y-14 min-w-0">
                     {/* Trailer */}
-                    {media.trailer_youtube_id && (
+                    {activeTab === "trailer" && media.trailer_youtube_id && (
                         <section>
                             <div className="flex items-end justify-between mb-5">
                                 <div>
@@ -283,7 +314,7 @@ export default function MediaDetailPage() {
                     )}
 
                     {/* Seasons */}
-                    {media.type !== "movie" && media.seasons?.length > 0 && (
+                    {activeTab === "episodes" && media.type !== "movie" && media.seasons?.length > 0 && (
                         <section>
                             <div className="mb-5">
                                 <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Épisodes</div>
@@ -323,7 +354,7 @@ export default function MediaDetailPage() {
                 </main>
 
                 <aside className="w-full">
-                    {(media.director || media.cast?.length > 0) && (
+                    {activeTab === "cast" && (media.director || media.cast?.length > 0) && (
                         <div className="p-6 rounded-2xl border border-white/10 bg-[#0a0a0a]">
                             <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-5">Distribution</div>
                             {media.director && (
@@ -345,7 +376,7 @@ export default function MediaDetailPage() {
                 </aside>
             </div>
 
-            {timeline.items?.length > 1 && (
+            {activeTab === "similar" && timeline.items?.length > 1 && (
                 <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="media-timeline-section">
                     <div className="mb-7 flex items-end justify-between gap-4">
                         <div>
@@ -406,7 +437,7 @@ export default function MediaDetailPage() {
                 </section>
             )}
 
-            {similar.length > 0 && (
+            {activeTab === "similar" && similar.length > 0 && (
                 <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="similar-section">
                     <div className="mb-6">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Vous aimerez aussi</div>
@@ -423,6 +454,7 @@ export default function MediaDetailPage() {
                 </section>
             )}
 
+            {activeTab === "reviews" && (
             <section className="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="reviews-section">
                 <div className="mb-6">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">La communauté</div>
@@ -562,6 +594,7 @@ export default function MediaDetailPage() {
                     </div>
                 )}
             </section>
+            )}
         </div>
     );
 }
