@@ -161,7 +161,7 @@ function EpisodeSelectorOverlay({
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: 24, opacity: 0 }}
                             transition={{ duration: 0.22, ease: "easeOut" }}
-                            className="relative z-10 w-full max-h-[94%] overflow-y-auto border-t border-[#E8D2A6]/25 bg-gradient-to-b from-[#15130f]/98 to-[#080808]/[0.99] px-3 pb-3 pt-3 shadow-[0_-18px_55px_rgba(0,0,0,0.65)] [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin] sm:px-5 sm:pb-5 sm:pt-4"
+                            className="relative z-10 max-h-[94%] w-full overflow-y-auto no-scrollbar border-t border-[#262626] bg-[#0a0a0a]/[0.98] px-4 pb-4 pt-4 shadow-[0_-18px_55px_rgba(0,0,0,0.65)] sm:px-6 sm:pb-6 sm:pt-5"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="min-w-0 flex-1">
@@ -208,7 +208,7 @@ function EpisodeSelectorOverlay({
                                 </div>
                             </div>
 
-                            <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar pb-1">
                                 {(seasons || []).map((season) => {
                                     const seasonNumber = String(season.season_number);
                                     const isActive = selectedSeasonNumber === seasonNumber;
@@ -217,10 +217,10 @@ function EpisodeSelectorOverlay({
                                             key={seasonNumber}
                                             type="button"
                                             onClick={() => onSeasonChange(seasonNumber)}
-                                            className={"shrink-0 snap-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/60 sm:px-4 sm:py-2 sm:text-xs " + (
+                                            className={"shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] " + (
                                                 isActive
                                                     ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
-                                                    : "border-[#343434] bg-[#0d0d0d] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white"
+                                                    : "border-[#262626] bg-[#0a0a0a] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white"
                                             )}
                                         >
                                             Saison {season.season_number}
@@ -229,66 +229,59 @@ function EpisodeSelectorOverlay({
                                 })}
                             </div>
 
-                            <div className="mt-3 flex snap-x gap-2.5 overflow-x-auto pb-1 [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin] sm:gap-3 sm:pb-2">
+                            <ul className="mt-4 divide-y divide-[#1a1a1a] border-t border-[#1a1a1a]">
                                 {seasonEpisodes.map((episode) => {
                                     const playable = Boolean(episode.bunny_video_id || episode.video_url || episode.video_file_path);
                                     const isActive = selectedEpisode?._key === episode._key;
                                     const duration = formatEpisodeDuration(episode);
                                     const progress = getEpisodeProgress(episode, watchProgress);
+                                    const label = episode.title || "Épisode " + episode.ep_number;
+
                                     return (
-                                        <button
-                                            key={episode._key}
-                                            type="button"
-                                            disabled={!playable}
-                                            onClick={() => onEpisodeSelect(episode)}
-                                            title={playable ? (episode.title || "Épisode " + episode.ep_number) : "Aucun fichier vidéo pour cet épisode"}
-                                            className={"relative min-w-[12rem] snap-start overflow-hidden rounded-xl border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:min-w-[16rem] " + (
-                                                isActive
-                                                    ? "border-[#E8D2A6] bg-[#E8D2A6]/12 text-white"
-                                                    : playable
-                                                        ? "border-[#2a2a2a] bg-[#0d0d0d]/95 text-neutral-300 hover:border-[#E8D2A6]/50 hover:bg-[#141414]"
-                                                        : "cursor-not-allowed border-[#202020] bg-[#090909] text-neutral-600 opacity-60"
-                                            )}
-                                        >
-                                            <span className="flex items-center gap-3">
-                                                <span className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold " + (
-                                                    isActive ? "bg-[#E8D2A6] text-black" : "bg-[#1d1d1d] text-neutral-400"
+                                        <li key={episode._key}>
+                                            <button
+                                                type="button"
+                                                disabled={!playable}
+                                                onClick={() => onEpisodeSelect(episode)}
+                                                title={playable ? label : "Aucun fichier vidéo pour cet épisode"}
+                                                className={"group flex w-full items-center gap-3.5 border-l-2 px-3 py-3.5 text-left transition-[border-color,padding] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] " + (
+                                                    isActive
+                                                        ? "border-[#E8D2A6] pl-5"
+                                                        : playable
+                                                            ? "border-transparent hover:border-[#E8D2A6] hover:pl-5"
+                                                            : "cursor-not-allowed border-transparent opacity-45"
+                                                )}
+                                            >
+                                                <span className={"flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-colors " + (
+                                                    isActive
+                                                        ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
+                                                        : "border-[#262626] text-neutral-400 group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black"
                                                 )}>
-                                                    {episode.ep_number}
+                                                    {isActive ? <Play size={13} fill="currentColor" /> : episode.ep_number}
                                                 </span>
+
                                                 <span className="min-w-0 flex-1">
-                                                    <span className="block text-[9px] uppercase tracking-[0.15em] text-neutral-500">
-                                                        Épisode {episode.ep_number}
+                                                    <span className={"block truncate text-sm transition-colors " + (isActive ? "text-[#E8D2A6]" : "text-white group-hover:text-[#E8D2A6]")}>
+                                                        <span className="mr-2.5 text-neutral-500">E{episode.ep_number}</span>
+                                                        {label}
                                                     </span>
-                                                    <span className="mt-0.5 block truncate text-xs font-medium sm:text-sm">
-                                                        {episode.title || "Épisode " + episode.ep_number}
+                                                    <span className="mt-1 flex items-center gap-2.5 text-[11px] text-neutral-500">
+                                                        {duration && <span className="flex items-center gap-1"><Clock3 size={11} />{duration}</span>}
+                                                        {progress > 0 && progress < 95 && <span className="text-[#E8D2A6]">À reprendre</span>}
+                                                        {progress >= 95 && <span className="text-neutral-400">Terminé</span>}
+                                                        {!playable && <span>Bientôt</span>}
                                                     </span>
-                                                </span>
-                                                {isActive && <Play size={14} className="shrink-0 text-[#E8D2A6]" fill="currentColor" />}
-                                            </span>
-
-                                            {(duration || progress > 0) && (
-                                                <span className="mt-2.5 flex items-center justify-between gap-3 text-[10px] text-neutral-500">
-                                                    {duration ? (
-                                                        <span className="flex items-center gap-1">
-                                                            <Clock3 size={11} />
-                                                            {duration}
+                                                    {progress > 0 && (
+                                                        <span className="mt-2 block h-0.5 w-full overflow-hidden rounded-full bg-white/10">
+                                                            <span className="block h-full bg-[#E8D2A6]" style={{ width: progress + "%" }} />
                                                         </span>
-                                                    ) : <span />}
-                                                    {progress > 0 && progress < 95 && <span className="text-[#E8D2A6]">À reprendre</span>}
-                                                    {progress >= 95 && <span className="text-[#E8D2A6]">Terminé</span>}
+                                                    )}
                                                 </span>
-                                            )}
-
-                                            {progress > 0 && (
-                                                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/10">
-                                                    <span className="block h-full bg-[#E8D2A6]" style={{ width: progress + "%" }} />
-                                                </span>
-                                            )}
-                                        </button>
+                                            </button>
+                                        </li>
                                     );
                                 })}
-                            </div>
+                            </ul>
                         </motion.section>
                     </motion.div>
                 )}
