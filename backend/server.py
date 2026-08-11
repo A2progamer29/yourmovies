@@ -4564,6 +4564,19 @@ async def party_ws(websocket: WebSocket, code: str):
                         "text": text,
                         "at": datetime.now(timezone.utc).timestamp(),
                     })
+            elif t == "request_pause":
+                # Un participant ne contrôle pas la lecture : il la demande à l'hôte.
+                if conn["account_id"] != party.host_id:
+                    for other in list(party.connections):
+                        if other.get("account_id") == party.host_id:
+                            try:
+                                await other["ws"].send_json({
+                                    "type": "pause_request",
+                                    "name": conn["name"],
+                                    "at": datetime.now(timezone.utc).timestamp(),
+                                })
+                            except Exception:
+                                pass
             elif t == "request_state":
                 await websocket.send_json({"type": "sync", "state": party.state})
     except WebSocketDisconnect:
