@@ -103,8 +103,11 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                 setFatal(null);
                 setIsHost(!!data.you?.is_host);
                 onHostChange?.(!!data.you?.is_host);
-                setStarted(!!data.started);
-                onStartedChange?.(!!data.started);
+                // Un serveur qui n'annonce pas ce champ ne connaît pas le
+                // démarrage groupé : bloquer la lecture y serait définitif.
+                const dejaLance = data.started === undefined ? true : !!data.started;
+                setStarted(dejaLance);
+                onStartedChange?.(dejaLance);
                 if (data.state && !data.you?.is_host) applyState(data.state);
             } else if (data.type === "participants") {
                 setParticipants(data.participants);
@@ -228,6 +231,34 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         return () => clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [started, playerReady, isHost]);
+
+    // Un participant qui touche aux commandes est corrigé immédiatement. On ne
+    // se repositionne jamais ici : c'est le seek qui provoquait les saccades.
+    // Seul l'état lecture/pause est rétabli, la position reste pilotée par les
+    // messages de l'hôte.
+    useEffect(() => {
+        if (isHost || !started || !playerReady) return undefined;
+        const c = ctl();
+        if (!c) return undefined;
+        let timer = null;
+        const rappel = () => {
+            if (timer) return;
+            timer = window.setTimeout(() => {
+                timer = null;
+                const voulu = lastStateRef.current;
+                if (!voulu) return;
+                if (voulu.playing) { try { c.play(); } catch { } }
+                else { try { c.pause(); } catch { } }
+            }, 250);
+        };
+        c.on("pause", rappel);
+        c.on("play", rappel);
+        return () => {
+            if (timer) window.clearTimeout(timer);
+            c.off("pause", rappel); c.off("play", rappel);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isHost, started, playerReady]);
 
     // Statut publicitaire : l'hôte doit savoir qui a fini avant de lancer.
     useEffect(() => {

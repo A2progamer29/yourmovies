@@ -313,8 +313,18 @@ export default function WatchPage() {
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
-    const [adDone, setAdDone] = useState(false);
-    const [gateDone, setGateDone] = useState(false);
+    // En salon, la fin des publicités change la mise en page et reconstruit
+    // l'iframe Bunny : on recharge la page pour repartir sur un lecteur propre.
+    // L'état est donc mémorisé le temps de la session, sinon le rechargement
+    // rejouerait les publicités et bouclerait indéfiniment.
+    const adsMemoryKey = searchParams.get("party") ? `ym_party_ads:${searchParams.get("party")}:${id}` : null;
+    const readAdsMemory = () => {
+        if (!adsMemoryKey) return false;
+        try { return sessionStorage.getItem(adsMemoryKey) === "1"; } catch { return false; }
+    };
+    const adsAlreadyCleared = useRef(readAdsMemory());
+    const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
+    const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
     const [playbackActive, setPlaybackActive] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
@@ -647,6 +657,14 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
     ]);
 
+    useEffect(() => {
+        if (!adsMemoryKey || adsAlreadyCleared.current) return;
+        if (!user || user.premium) return;
+        if (!gateDone || !adDone) return;
+        try { sessionStorage.setItem(adsMemoryKey, "1"); } catch { }
+        window.location.reload();
+    }, [adsMemoryKey, gateDone, adDone, user]);
+
     // Entrer dans un salon recharge la page : le lecteur Bunny est reconstruit
     // par le changement de mise en page, et l'ancienne instance restait
     // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
@@ -810,6 +828,21 @@ export default function WatchPage() {
                                 ) : (
                                     <div className="absolute inset-0 bg-black" aria-hidden="true" />
                                 )}
+                                {partyOpen && partyStarted && !isPartyHost && (
+                                    <div className="pointer-events-none absolute inset-0 z-30" data-testid="party-guest-shield">
+                                        {/* Le lecteur Bunny est sur un autre domaine : impossible de
+                                            désactiver certains de ses boutons. On masque donc la zone
+                                            de lecture et la barre de progression, en laissant libre le
+                                            coin des réglages et du plein écran. */}
+                                        <div className="pointer-events-auto absolute inset-x-0 top-0 bottom-[52px]" />
+                                        <div className="pointer-events-auto absolute bottom-0 left-0 right-[150px] h-[52px]" />
+                                        <div className="absolute inset-x-0 top-0 flex justify-center">
+                                            <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
+                                                Lecture contrôlée par l&apos;hôte
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : qualities.length === 0 ? (
                             <div className="p-12 border border-[#262626] rounded-lg text-center text-neutral-400">
@@ -856,14 +889,6 @@ export default function WatchPage() {
                                         ? "La lecture démarrera pour tout le monde en même temps, une fois les publicités de chacun terminées."
                                         : "La lecture démarrera automatiquement dès que l'hôte lancera la séance."}
                                 </p>
-                            </div>
-                        )}
-
-                        {partyOpen && partyStarted && !isPartyHost && (
-                            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center" data-testid="party-guest-hint">
-                                <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
-                                    Lecture contrôlée par l&apos;hôte
-                                </span>
                             </div>
                         )}
 
