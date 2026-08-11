@@ -44,21 +44,32 @@ export default function HomePage() {
     const [recommendations, setRecommendations] = useState([]);
     const [removingProgressId, setRemovingProgressId] = useState(null);
     const [progressRemovalError, setProgressRemovalError] = useState("");
+    const [progressLoaded, setProgressLoaded] = useState(false);
     const rotateTimer = useRef(null);
     const [heroArrowSide, setHeroArrowSide] = useState(null);
 
     useEffect(() => {
         (async () => {
-            // 1re vague — haut de page : le hero s'affiche sans attendre les carrousels.
+            // 1re vague — haut de page : hero ET progression partent ensemble, car les
+            // deux s'affichent avant les carrousels. Sinon « Continuer à regarder »
+            // s'insère dans une page déjà en place et décale tout le contenu.
             let heroLoaded = false;
-            try {
-                const feat = await api.get("/media?featured=true&limit=10");
-                if (feat.data?.length > 0) {
-                    const feats = [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
-                    setFeatured(feats);
-                    heroLoaded = true;
-                }
-            } catch (e) { }
+            const heroCall = api.get("/media?featured=true&limit=10").catch(() => null);
+            const progressCall = user
+                ? api.get("/watch-progress", { silent: true }).catch(() => null)
+                : Promise.resolve(null);
+            const [feat, watchResult] = await Promise.all([heroCall, progressCall]);
+
+            if (feat?.data?.length > 0) {
+                const feats = [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
+                setFeatured(feats);
+                heroLoaded = true;
+            }
+
+            const watchedItems = (Array.isArray(watchResult?.data) ? watchResult.data : [])
+                .filter((item) => progressPercent(item) < CONTINUE_WATCHING_LIMIT);
+            setContinueWatching(watchedItems);
+            setProgressLoaded(true);
 
             // 2e vague — bas de page : carrousels, tendances et genres.
             try {
@@ -76,33 +87,14 @@ export default function HomePage() {
             } catch (e) { }
             try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
-            if (user) {
+            if (user && watchedItems.length > 0) {
                 try {
-                    const watchResult = await api.get("/watch-progress", { silent: true });
-                    const watchedItems = (Array.isArray(watchResult.data) ? watchResult.data : [])
-                        .filter((item) => progressPercent(item) < CONTINUE_WATCHING_LIMIT);
-                    setContinueWatching(watchedItems);
-
-                    if (watchedItems.length > 0) {
-                        try {
-                            const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
-                            setRecommendations(
-                                Array.isArray(recommendationResult.data)
-                                    ? recommendationResult.data
-                                    : []
-                            );
-                        } catch (e) {
-                            setRecommendations([]);
-                        }
-                    } else {
-                        setRecommendations([]);
-                    }
+                    const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
+                    setRecommendations(Array.isArray(recommendationResult.data) ? recommendationResult.data : []);
                 } catch (e) {
-                    setContinueWatching([]);
                     setRecommendations([]);
                 }
             } else {
-                setContinueWatching([]);
                 setRecommendations([]);
             }
         })();
@@ -321,7 +313,7 @@ export default function HomePage() {
             </section>
             )}
 
-            {user && (
+            {user && progressLoaded && (
                 <section className="max-w-7xl mx-auto px-6 mt-10" data-testid="continue-watching-section">
                     <div className="mb-6">
                         <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Votre historique</div>
