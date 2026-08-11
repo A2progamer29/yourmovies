@@ -197,17 +197,27 @@ export default function HomePage() {
                                 data-testid="hero-trailer-video"
                                 src={current.trailer_video_url}
                                 autoPlay muted loop playsInline
+                                controls={false}
+                                preload="auto"
+                                disablePictureInPicture
+                                controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
+                                tabIndex={-1}
                                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 min-w-full min-h-full w-auto h-auto object-cover pointer-events-none"
                             />
                         ) : showTrailerAutoplay ? (
-                            <iframe
-                                data-testid="hero-trailer-autoplay"
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-125 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"
-                                src={`https://www.youtube.com/embed/${current.trailer_youtube_id}?autoplay=1&mute=1&loop=1&controls=0&modestbranding=1&showinfo=0&rel=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&playlist=${current.trailer_youtube_id}`}
-                                title="Trailer"
-                                frameBorder="0"
-                                allow="autoplay; encrypted-media"
-                            />
+                            // Agrandi puis recadré : toute la surcouche YouTube (titre, barre de
+                            // lecture, boutons) sort du cadre visible au lieu d'être affichée.
+                            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                                <iframe
+                                    data-testid="hero-trailer-autoplay"
+                                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-150 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"
+                                    src={`https://www.youtube.com/embed/${current.trailer_youtube_id}?autoplay=1&mute=1&loop=1&controls=0&modestbranding=1&showinfo=0&rel=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&cc_load_policy=0&color=white&vq=hd1080&hd=1&playlist=${current.trailer_youtube_id}`}
+                                    title="Trailer"
+                                    frameBorder="0"
+                                    tabIndex={-1}
+                                    allow="autoplay; encrypted-media"
+                                />
+                            </div>
                         ) : (
                             <img
                                 src={current?.banner_url || current?.poster_url || HERO_FALLBACK}
