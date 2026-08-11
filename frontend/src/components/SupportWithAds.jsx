@@ -116,10 +116,8 @@ export default function SupportWithAds() {
                 Cumule tes Freemium pour t&apos;offrir du Premium — et naviguer ensuite sans aucune publicité.
             </p>
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <span className="text-[#E8D2A6] font-medium">+{status.coins} Freemium par publicité</span>
-                <span className="text-neutral-600">·</span>
-                <span className="text-neutral-400 tabular-nums">{status.used_today ?? 0} / {status.daily_max} aujourd&apos;hui</span>
+            <div className="mt-3 text-sm text-neutral-400 tabular-nums">
+                {status.used_today ?? 0} / {status.daily_max} aujourd&apos;hui
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
