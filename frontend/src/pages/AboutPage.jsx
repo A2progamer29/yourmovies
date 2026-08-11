@@ -58,6 +58,11 @@ export default function AboutPage() {
                         les Watch Parties, le Wishboard communautaire et le système Freemium. Ces fonctionnalités sont pensées pour rendre
                         l&apos;expérience plus personnelle, interactive et communautaire.
                     </p>
+                    <p className="rounded-xl border border-[#E8D2A6]/25 bg-[#0a0a0a] p-5">
+                        <span className="text-white font-medium">Séries et animes en cours de diffusion :</span> les épisodes manquants sont
+                        ajoutés <span className="text-[#E8D2A6]">chaque semaine</span>, généralement en milieu ou en fin de semaine.
+                        Un titre incomplet n&apos;est donc pas abandonné — la suite arrive.
+                    </p>
                     <p>
                         Le projet continue d&apos;évoluer grâce aux retours des utilisateurs. Les suggestions, le support et les nouveautés
                         sont également accessibles depuis le serveur <a href="https://discord.gg/6mGTfvcNeD" target="_blank" rel="noopener noreferrer" className="text-[#E8D2A6] hover:underline">Discord de YourMovie&apos;s</a>.
