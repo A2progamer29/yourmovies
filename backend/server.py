@@ -4533,6 +4533,16 @@ def _party_participants(party: "Party") -> list:
 def _party_all_ready(party: "Party") -> bool:
     return all((not c.get("needs_ads")) or c.get("ads_done") for c in party.connections)
 
+async def _close_party_if_host_gone(party: "Party", delay: int = 15) -> None:
+    """Délai de grâce : une micro-coupure réseau chez l'hôte ne doit pas
+    détruire le salon, seul un départ réel le ferme."""
+    await asyncio.sleep(delay)
+    if PARTIES.get(party.code) is not party:
+        return
+    if any(c.get("account_id") == party.host_id for c in party.connections):
+        return
+    await _close_party(party, "L'hôte a quitté le salon.")
+
 async def _close_party(party: "Party", reason: str) -> None:
     """L'hôte parti, le salon n'a plus lieu d'être : tout le monde sort."""
     for c in list(party.connections):
@@ -4695,6 +4705,10 @@ async def party_ws(websocket: WebSocket, code: str):
                 if conn["account_id"] == party.host_id and _party_all_ready(party):
                     party.started = True
                     await party.broadcast({"type": "started"})
+            elif t == "close":
+                if conn["account_id"] == party.host_id:
+                    await _close_party(party, "L'hôte a fermé le salon.")
+                    break
             elif t == "kick":
                 if conn["account_id"] == party.host_id:
                     target_id = str(data.get("user_id") or "")
@@ -4720,15 +4734,14 @@ async def party_ws(websocket: WebSocket, code: str):
     finally:
         if conn in party.connections:
             party.connections.remove(conn)
+        await party.broadcast({
+            "type": "participants",
+            "participants": _party_participants(party),
+        })
         if conn["account_id"] == party.host_id:
-            await _close_party(party, "L'hôte a quitté le salon.")
-        else:
-            await party.broadcast({
-                "type": "participants",
-                "participants": _party_participants(party),
-            })
-            if not party.connections:
-                PARTIES.pop(party.code, None)
+            asyncio.create_task(_close_party_if_host_gone(party))
+        elif not party.connections:
+            PARTIES.pop(party.code, None)
 
 # ---------- Root ----------
 @api_router.get("/")

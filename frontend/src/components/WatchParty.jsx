@@ -263,6 +263,15 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         setPauseRequest(null);
     };
 
+    // L'hôte ferme explicitement : sans ce message, le salon ne se refermerait
+    // qu'au bout du délai de grâce prévu pour les coupures réseau.
+    const leave = () => {
+        if (isHost && wsRef.current?.readyState === 1) {
+            try { wsRef.current.send(JSON.stringify({ type: "close" })); } catch { }
+        }
+        onClose?.();
+    };
+
     const kick = (userId) => {
         if (wsRef.current?.readyState !== 1) return;
         wsRef.current.send(JSON.stringify({ type: "kick", user_id: userId }));
@@ -297,7 +306,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                             </span>}
                     </div>
                 </div>
-                <button onClick={onClose} data-testid="close-party" className="text-neutral-400 hover:text-red-400"><X size={16} /></button>
+                <button onClick={leave} data-testid="close-party" className="text-neutral-400 hover:text-red-400"><X size={16} /></button>
             </div>
 
             <div className="border-b border-[#262626] p-4">
