@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Send, X, Users, Copy, Crown, MessageCircle, Hand } from "lucide-react";
+import { Send, X, Users, Copy, Crown, MessageCircle, Hand, Play, UserMinus, Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -14,7 +14,7 @@ import { toast } from "sonner";
  *   onClose: () => void
  *   token?: string (JWT to authenticate)
  */
-export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, bunnyPlayerRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token }) {
+export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, bunnyPlayerRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token, adsDone, onStartedChange }) {
     // Contrôleur unifié : la lecture se fait soit dans un <video>, soit dans
     // l'iframe Bunny piloté par playerjs. Sans cette abstraction, rien n'était
     // synchronisé en lecture Bunny (videoRef restait vide).
@@ -52,6 +52,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
     const [pauseAsked, setPauseAsked] = useState(false);
     const [fatal, setFatal] = useState(null);
     const [playerReady, setPlayerReady] = useState(false);
+    const [started, setStarted] = useState(false);
     const wsRef = useRef(null);
     const pausedRef = useRef(true);
     const lastStateRef = useRef(null);
@@ -102,6 +103,8 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                 setFatal(null);
                 setIsHost(!!data.you?.is_host);
                 onHostChange?.(!!data.you?.is_host);
+                setStarted(!!data.started);
+                onStartedChange?.(!!data.started);
                 if (data.state && !data.you?.is_host) applyState(data.state);
             } else if (data.type === "participants") {
                 setParticipants(data.participants);
@@ -112,6 +115,17 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             } else if (data.type === "pause_request") {
                 setPauseRequest({ name: data.name, at: Date.now() });
                 window.setTimeout(() => setPauseRequest(null), 12000);
+            } else if (data.type === "started") {
+                setStarted(true);
+                onStartedChange?.(true);
+            } else if (data.type === "kicked") {
+                stopped = true;
+                toast.error("L'hôte vous a retiré du salon.");
+                onClose?.();
+            } else if (data.type === "party_closed") {
+                stopped = true;
+                toast.info(data.reason || "Le salon a été fermé.");
+                onClose?.();
             } else if (data.type === "chat") {
                 setMessages((m) => [...m, data].slice(-100));
             }
@@ -197,6 +211,30 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         wsRef.current.send(JSON.stringify({ type: "request_state" }));
     }, [isHost, playerReady, connected]);
 
+    // Tant que l'hôte n'a pas lancé, personne ne lit : sans ce verrou la vidéo
+    // tournerait derrière l'écran d'attente et les participants la
+    // découvriraient déjà entamée.
+    useEffect(() => {
+        if (!playerReady) return undefined;
+        const c = ctl();
+        if (!c) return undefined;
+        if (started) {
+            if (isHost) { try { c.play(); } catch { } }
+            return undefined;
+        }
+        const hold = () => { try { c.pause(); } catch { } };
+        hold();
+        const timer = setInterval(hold, 1000);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [started, playerReady, isHost]);
+
+    // Statut publicitaire : l'hôte doit savoir qui a fini avant de lancer.
+    useEffect(() => {
+        if (!connected || wsRef.current?.readyState !== 1) return;
+        wsRef.current.send(JSON.stringify({ type: "ad_status", done: !!adsDone }));
+    }, [adsDone, connected]);
+
     // L'hôte annonce le changement d'épisode : tout le salon suit.
     useEffect(() => {
         if (!isHost || !currentEpisode || wsRef.current?.readyState !== 1) return;
@@ -215,6 +253,26 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         if (!text.trim() || wsRef.current?.readyState !== 1) return;
         wsRef.current.send(JSON.stringify({ type: "chat", text: text.trim() }));
         setText("");
+    };
+
+    // Le bouton de pause de l'hôte passait par videoRef, vide en lecture Bunny :
+    // il ne mettait donc jamais rien en pause.
+    const hostPause = () => {
+        const c = ctl();
+        try { c?.pause(); } catch { }
+        setPauseRequest(null);
+    };
+
+    const kick = (userId) => {
+        if (wsRef.current?.readyState !== 1) return;
+        wsRef.current.send(JSON.stringify({ type: "kick", user_id: userId }));
+    };
+
+    const allReady = participants.length > 0 && participants.every((p) => !p.needs_ads || p.ads_done);
+
+    const startSession = () => {
+        if (wsRef.current?.readyState !== 1 || !allReady) return;
+        wsRef.current.send(JSON.stringify({ type: "start" }));
     };
 
     const copyCode = () => {
@@ -252,7 +310,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                             </span>
                             <button
                                 type="button"
-                                onClick={() => { try { videoRef?.current?.pause(); } catch { } setPauseRequest(null); }}
+                                onClick={hostPause}
                                 className="shrink-0 rounded-full bg-[#E8D2A6] px-3 py-1 text-[11px] font-semibold text-black"
                             >
                                 Mettre en pause
@@ -282,12 +340,57 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                         </button>
                     </div>
                 )}
+                {!started && (
+                    <div className="mb-3 rounded-lg border border-[#262626] bg-[#111] p-3">
+                        {isHost ? (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={startSession}
+                                    disabled={!allReady}
+                                    data-testid="party-start"
+                                    className="flex w-full items-center justify-center gap-2 rounded-full bg-[#E8D2A6] px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-[#D4BB8B] disabled:cursor-not-allowed disabled:bg-[#262626] disabled:text-neutral-500"
+                                >
+                                    <Play size={13} /> Démarrer la séance
+                                </button>
+                                <p className="mt-2 text-center text-[10px] leading-relaxed text-neutral-500">
+                                    {allReady
+                                        ? "Tout le monde est prêt."
+                                        : "En attente : certains participants regardent encore leurs publicités."}
+                                </p>
+                            </>
+                        ) : (
+                            <p className="flex items-center justify-center gap-2 text-[11px] text-neutral-400">
+                                <Loader2 size={12} className="animate-spin text-[#E8D2A6]" />
+                                En attente du démarrage par l&apos;hôte.
+                            </p>
+                        )}
+                    </div>
+                )}
                 <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2">Participants ({participants.length})</div>
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-1.5">
                     {participants.map((p) => (
-                        <div key={p.user_id} className={`text-xs px-2.5 py-1 rounded-full border ${p.is_host ? "border-[#E8D2A6]/50 text-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] text-neutral-300"}`}>
-                            {p.is_host && <Crown size={10} className="inline mr-1" />}
-                            {p.name}
+                        <div key={p.user_id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${p.is_host ? "border-[#E8D2A6]/40 bg-[#E8D2A6]/5 text-[#E8D2A6]" : "border-[#262626] text-neutral-300"}`}>
+                            {p.is_host && <Crown size={11} className="shrink-0" />}
+                            <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                            {!p.needs_ads ? (
+                                <span className="shrink-0 text-[10px] text-neutral-500">Premium</span>
+                            ) : p.ads_done ? (
+                                <span className="flex shrink-0 items-center gap-1 text-[10px] text-emerald-400"><Check size={10} /> Prêt</span>
+                            ) : (
+                                <span className="flex shrink-0 items-center gap-1 text-[10px] text-[#E8D2A6]"><Loader2 size={10} className="animate-spin" /> Publicité</span>
+                            )}
+                            {isHost && !p.is_host && (
+                                <button
+                                    type="button"
+                                    onClick={() => kick(p.user_id)}
+                                    title={`Retirer ${p.name} du salon`}
+                                    data-testid="party-kick"
+                                    className="shrink-0 text-neutral-600 transition-colors hover:text-red-400"
+                                >
+                                    <UserMinus size={13} />
+                                </button>
+                            )}
                         </div>
                     ))}
                 </div>

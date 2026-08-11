@@ -302,6 +302,7 @@ export default function WatchPage() {
     const [watchProgress, setWatchProgress] = useState(null);
     const [episodePanelOpen, setEpisodePanelOpen] = useState(false);
     const [isPartyHost, setIsPartyHost] = useState(false);
+    const [partyStarted, setPartyStarted] = useState(false);
     const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
@@ -645,37 +646,45 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
     ]);
 
+    // Entrer dans un salon recharge la page : le lecteur Bunny est reconstruit
+    // par le changement de mise en page, et l'ancienne instance restait
+    // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
+    const gotoParty = (code) => {
+        const next = new URLSearchParams(searchParams);
+        if (code) next.set("party", code); else next.delete("party");
+        const query = next.toString();
+        window.location.href = window.location.pathname + (query ? `?${query}` : "");
+    };
+
     const createParty = async () => {
         if (!user) { navigate("/login"); return; }
         try {
             const r = await api.post("/party/create", { media_id: id });
-            setPartyCode(r.data.code);
-            setPartyOpen(true);
-            const next = new URLSearchParams(searchParams);
-            next.set("party", r.data.code);
-            setSearchParams(next, { replace: true });
+            gotoParty(r.data.code);
         } catch (e) { showError(toast, e, "Impossible de créer le salon"); }
     };
 
-    const joinParty = (rawCode) => {
+    const joinParty = async (rawCode) => {
         if (!user) { navigate("/login"); return; }
         const source = typeof rawCode === "string" ? rawCode : joinInput;
         if (!source.trim()) return;
         const code = source.trim().toUpperCase();
-        setPartyCode(code);
-        setPartyOpen(true);
-        const next = new URLSearchParams(searchParams);
-        next.set("party", code);
-        setSearchParams(next, { replace: true });
+        // Sans cette vérification, un code inexistant ouvrait un salon vide.
+        try {
+            await api.get(`/party/${code}`);
+        } catch (e) {
+            if (e?.response?.status === 404) {
+                toast.error(`Aucun salon ne porte le code ${code}.`);
+                setJoinInput("");
+                return;
+            }
+            showError(toast, e, "Impossible de rejoindre le salon");
+            return;
+        }
+        gotoParty(code);
     };
 
-    const closeParty = () => {
-        setPartyOpen(false);
-        setPartyCode("");
-        const next = new URLSearchParams(searchParams);
-        next.delete("party");
-        setSearchParams(next, { replace: true });
-    };
+    const closeParty = () => { gotoParty(null); };
 
     if (media?.in_theaters && searchParams.get("cinema-warning") !== "accepted") {
         return (
@@ -709,8 +718,9 @@ export default function WatchPage() {
     const userMaxQuality = "4k";
     const runAds = !user?.premium;
     const hasVideo = !!(bunnySource || qualities.length > 0);
-    const showGate = runAds && !partyOpen && !gateDone && hasVideo;
-    const showAd = runAds && !partyOpen && gateDone && !adDone && hasVideo;
+    const showGate = runAds && !gateDone && hasVideo;
+    const showAd = runAds && gateDone && !adDone && hasVideo;
+    const adsDone = !runAds || adDone;
     const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
 
     return (
@@ -833,7 +843,21 @@ export default function WatchPage() {
                                 />
                             )}
 
-                        {partyOpen && !isPartyHost && (
+                        {partyOpen && !partyStarted && !showGate && !showAd && (
+                            <div className="absolute inset-x-0 top-0 bottom-[60px] z-40 flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center backdrop-blur-sm" data-testid="party-waiting">
+                                <Users size={22} className="text-[#E8D2A6]" />
+                                <div className="font-display text-lg text-white">
+                                    {isPartyHost ? "Prêt à lancer la séance" : "En attente de l'hôte"}
+                                </div>
+                                <p className="max-w-sm text-xs leading-relaxed text-neutral-400">
+                                    {isPartyHost
+                                        ? "La lecture démarrera pour tout le monde en même temps, une fois les publicités de chacun terminées."
+                                        : "La lecture démarrera automatiquement dès que l'hôte lancera la séance."}
+                                </p>
+                            </div>
+                        )}
+
+                        {partyOpen && partyStarted && !isPartyHost && (
                             <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center" data-testid="party-guest-hint">
                                 <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
                                     Lecture contrôlée par l&apos;hôte
@@ -918,6 +942,8 @@ export default function WatchPage() {
                             }}
                             onClose={closeParty}
                             token={token}
+                            adsDone={adsDone}
+                            onStartedChange={setPartyStarted}
                         />
                     )}
                 </div>

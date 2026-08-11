@@ -4430,7 +4430,10 @@ class Party:
         self.media_id = media_id
         self.host_id = host_id
         self.state = {"position_seconds": 0.0, "playing": False, "updated_at": datetime.now(timezone.utc).timestamp()}
-        self.connections: List[dict] = []  # [{ws, user_id, name}]
+        # La séance ne démarre que lorsque l'hôte l'autorise, et il ne peut le
+        # faire qu'une fois toutes les publicités des participants terminées.
+        self.started = False
+        self.connections: List[dict] = []
 
     async def broadcast(self, payload: dict, exclude_ws: Optional[WebSocket] = None):
         dead = []
@@ -4519,7 +4522,34 @@ async def get_party(code: str, user: dict = Depends(get_current_user)):
     }
 
 def _party_participants(party: "Party") -> list:
-    return [{"user_id": c["user_id"], "name": c["name"], "is_host": c.get("account_id") == party.host_id} for c in party.connections]
+    return [{
+        "user_id": c["user_id"],
+        "name": c["name"],
+        "is_host": c.get("account_id") == party.host_id,
+        "needs_ads": bool(c.get("needs_ads")),
+        "ads_done": bool(c.get("ads_done")),
+    } for c in party.connections]
+
+def _party_all_ready(party: "Party") -> bool:
+    return all((not c.get("needs_ads")) or c.get("ads_done") for c in party.connections)
+
+async def _close_party(party: "Party", reason: str) -> None:
+    """L'hôte parti, le salon n'a plus lieu d'être : tout le monde sort."""
+    for c in list(party.connections):
+        try:
+            await c["ws"].send_json({"type": "party_closed", "reason": reason})
+        except Exception:
+            pass
+        try:
+            await c["ws"].close(code=4410)
+        except Exception:
+            pass
+    party.connections.clear()
+    PARTIES.pop(party.code, None)
+    try:
+        await db.parties.delete_one({"code": party.code})
+    except Exception:
+        pass
 
 @app.websocket("/api/party/{code}/ws")
 async def party_ws(websocket: WebSocket, code: str):
@@ -4564,7 +4594,11 @@ async def party_ws(websocket: WebSocket, code: str):
             return
         display_name = owned_profile.get("name") or display_name
     conn_id = f"{account_id}:{profile}" if profile else account_id
-    conn = {"ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name}
+    needs_ads = not _is_premium(user)
+    conn = {
+        "ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name,
+        "needs_ads": needs_ads, "ads_done": not needs_ads,
+    }
     party.connections.append(conn)
 
     # Send initial state + participant list
@@ -4574,7 +4608,11 @@ async def party_ws(websocket: WebSocket, code: str):
         "media_id": party.media_id,
         "host_id": party.host_id,
         "state": party.state,
-        "you": {"user_id": conn["user_id"], "name": conn["name"], "is_host": account_id == party.host_id},
+        "started": party.started,
+        "you": {
+            "user_id": conn["user_id"], "name": conn["name"],
+            "is_host": account_id == party.host_id, "needs_ads": needs_ads,
+        },
     })
     await party.broadcast({
         "type": "participants",
@@ -4644,17 +4682,53 @@ async def party_ws(websocket: WebSocket, code: str):
                                 pass
             elif t == "request_state":
                 await websocket.send_json({"type": "sync", "state": party.state})
+            elif t == "ad_status":
+                # Chaque participant annonce où il en est de ses publicités :
+                # l'hôte les voit tous et ne peut lancer qu'une fois tous prêts.
+                if conn.get("needs_ads"):
+                    conn["ads_done"] = bool(data.get("done"))
+                    await party.broadcast({
+                        "type": "participants",
+                        "participants": _party_participants(party),
+                    })
+            elif t == "start":
+                if conn["account_id"] == party.host_id and _party_all_ready(party):
+                    party.started = True
+                    await party.broadcast({"type": "started"})
+            elif t == "kick":
+                if conn["account_id"] == party.host_id:
+                    target_id = str(data.get("user_id") or "")
+                    for other in list(party.connections):
+                        if other["user_id"] != target_id or other is conn:
+                            continue
+                        try:
+                            await other["ws"].send_json({"type": "kicked"})
+                        except Exception:
+                            pass
+                        try:
+                            await other["ws"].close(code=4410)
+                        except Exception:
+                            pass
+                        if other in party.connections:
+                            party.connections.remove(other)
+                    await party.broadcast({
+                        "type": "participants",
+                        "participants": _party_participants(party),
+                    })
     except WebSocketDisconnect:
         pass
     finally:
         if conn in party.connections:
             party.connections.remove(conn)
-        await party.broadcast({
-            "type": "participants",
-            "participants": _party_participants(party),
-        })
-        if not party.connections:
-            PARTIES.pop(party.code, None)
+        if conn["account_id"] == party.host_id:
+            await _close_party(party, "L'hôte a quitté le salon.")
+        else:
+            await party.broadcast({
+                "type": "participants",
+                "participants": _party_participants(party),
+            })
+            if not party.connections:
+                PARTIES.pop(party.code, None)
 
 # ---------- Root ----------
 @api_router.get("/")
