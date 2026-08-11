@@ -250,6 +250,9 @@ export default function AdminMediaForm() {
             key = "bunny",
             title = form.title || file.name,
             onReference = (reference) => setForm((f) => ({ ...f, ...reference })),
+            // Signalé dès la fin du transfert, avant l'encodage Bunny : permet à une
+            // file d'attente d'enchaîner sans attendre les minutes d'encodage.
+            onTransferred = null,
         } = options;
         const uploadId = beginUpload(file, scopedUploadKey(key), "Préparation Bunny");
         let cancelled = false;
@@ -315,6 +318,7 @@ export default function AdminMediaForm() {
             if (isEdit && key === "bunny") {
                 await api.put(`/media/${id}`, reference);
             }
+            try { onTransferred?.(); } catch { }
             updateUpload(uploadId, { status: "checking", stage: "Encodage Bunny", progress: 0 });
             for (let i = 0; i < 200 && !cancelled; i++) {
                 try {
@@ -1219,6 +1223,8 @@ export default function AdminMediaForm() {
                                         title={form.title}
                                         uploadToBunny={uploadToBunny}
                                         updateEpisode={updateEpisode}
+                                        activeUpload={activeUpload}
+                                        scopedUploadKey={scopedUploadKey}
                                     />
                                 </div>
                             )}

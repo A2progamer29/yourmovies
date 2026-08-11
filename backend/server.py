@@ -2384,7 +2384,9 @@ async def support_reward_claim(user: dict = Depends(get_current_user)):
         "Tu as soutenu YourMovie's en regardant une publicité.",
     )
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    return {"awarded": cfg["coins"], "coins": balance, **_reward_state(fresh or user, cfg)}
+    # « balance » et non « coins » : côté client, « coins » désigne le gain par
+    # publicité (config) — les confondre affichait le solde comme un gain.
+    return {"awarded": cfg["coins"], "balance": balance, **_reward_state(fresh or user, cfg)}
 
 # ---------- Freemium : gains & achat ----------
 @api_router.post("/rewards/daily")
@@ -3161,6 +3163,48 @@ class AdsInput(BaseModel):
     reward: Optional[dict] = None
     campaigns: Optional[list] = None
 
+# ---------- Audience du site (compteurs anonymes) ----------
+class VisitPing(BaseModel):
+    new_visitor: bool = False
+
+@api_router.post("/site/ping")
+async def site_ping(inp: VisitPing):
+    """Incrémente les compteurs du jour. Aucune donnée personnelle : ni IP, ni
+    identifiant — seulement deux nombres par journée."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    inc = {"views": 1}
+    if inp.new_visitor:
+        inc["visitors"] = 1
+    await db.site_stats.update_one({"id": today}, {"$inc": inc, "$set": {"date": today}}, upsert=True)
+    return {"ok": True}
+
+@api_router.get("/admin/site-stats")
+async def admin_site_stats(admin: dict = Depends(require_admin)):
+    today = datetime.now(timezone.utc).date()
+    docs = await db.site_stats.find({}, {"_id": 0}).to_list(1000)
+    by_date = {d.get("date") or d.get("id"): d for d in docs}
+
+    def bucket(day):
+        d = by_date.get(day.isoformat()) or {}
+        return {"date": day.isoformat(), "views": int(d.get("views", 0) or 0), "visitors": int(d.get("visitors", 0) or 0)}
+
+    series = [bucket(today - timedelta(days=i)) for i in range(13, -1, -1)]
+    def total_over(days):
+        return sum(bucket(today - timedelta(days=i))["views"] for i in range(days))
+    def visitors_over(days):
+        return sum(bucket(today - timedelta(days=i))["visitors"] for i in range(days))
+
+    return {
+        "today": bucket(today),
+        "last7": {"views": total_over(7), "visitors": visitors_over(7)},
+        "last30": {"views": total_over(30), "visitors": visitors_over(30)},
+        "total": {
+            "views": sum(int(d.get("views", 0) or 0) for d in docs),
+            "visitors": sum(int(d.get("visitors", 0) or 0) for d in docs),
+        },
+        "series": series,
+    }
+
 @api_router.get("/promo/config")
 async def public_promo_config():
     """Config publicitaire — publique : les visiteurs non connectés doivent la lire.
@@ -3717,6 +3761,29 @@ async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_curren
     })
     return {"ok": True}
 
+def _flatten_episodes(media: dict) -> list:
+    """Épisodes d'une série à plat, dans l'ordre saison puis numéro."""
+    out = []
+    for si, season in enumerate(media.get("seasons") or []):
+        season_no = int(season.get("season_number") or si + 1)
+        for ei, episode in enumerate(season.get("episodes") or []):
+            out.append({
+                "season_number": season_no,
+                "episode_number": int(episode.get("ep_number") or ei + 1),
+                "duration_minutes": episode.get("duration_minutes") or episode.get("duration"),
+            })
+    out.sort(key=lambda e: (e["season_number"], e["episode_number"]))
+    return out
+
+def _next_episode_of(media: dict, season_no, episode_no):
+    episodes = _flatten_episodes(media)
+    if not episodes or season_no is None or episode_no is None:
+        return None
+    for i, ep in enumerate(episodes):
+        if ep["season_number"] == int(season_no) and ep["episode_number"] == int(episode_no):
+            return episodes[i + 1] if i + 1 < len(episodes) else None
+    return None
+
 @api_router.get("/watch-progress")
 async def list_progress(user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
     docs = await db.watch_progress.find({"user_id": user["user_id"], "profile_id": profile_id}, {"_id": 0}).sort("updated_at", -1).to_list(50)
@@ -3729,10 +3796,25 @@ async def list_progress(user: dict = Depends(get_current_user), profile_id: Opti
         if not m:
             continue
         item = serialize_media(m)
-        item["position_seconds"] = d["position_seconds"]
-        item["duration_seconds"] = d.get("duration_seconds")
-        item["season_number"] = d.get("season_number")
-        item["episode_number"] = d.get("episode_number")
+        position = d.get("position_seconds") or 0
+        duration = d.get("duration_seconds")
+        season_no = d.get("season_number")
+        episode_no = d.get("episode_number")
+
+        # Épisode terminé : on enchaîne sur le suivant plutôt que de faire
+        # disparaître la série de « Continuer à regarder ».
+        if m.get("type") != "movie" and duration and position / duration >= 0.95:
+            nxt = _next_episode_of(m, season_no, episode_no)
+            if nxt:
+                season_no = nxt["season_number"]
+                episode_no = nxt["episode_number"]
+                position = 0
+                duration = (int(nxt["duration_minutes"]) * 60) if nxt.get("duration_minutes") else None
+
+        item["position_seconds"] = position
+        item["duration_seconds"] = duration
+        item["season_number"] = season_no
+        item["episode_number"] = episode_no
         item["updated_at"] = d.get("updated_at")
         result.append(item)
     return result
@@ -4348,7 +4430,10 @@ class Party:
         self.media_id = media_id
         self.host_id = host_id
         self.state = {"position_seconds": 0.0, "playing": False, "updated_at": datetime.now(timezone.utc).timestamp()}
-        self.connections: List[dict] = []  # [{ws, user_id, name}]
+        # La séance ne démarre que lorsque l'hôte l'autorise, et il ne peut le
+        # faire qu'une fois toutes les publicités des participants terminées.
+        self.started = False
+        self.connections: List[dict] = []
 
     async def broadcast(self, payload: dict, exclude_ws: Optional[WebSocket] = None):
         dead = []
@@ -4364,6 +4449,45 @@ class Party:
                 self.connections.remove(d)
 
 PARTIES: dict = {}
+PARTY_TTL_HOURS = 12
+_party_state_saved: dict = {}
+
+async def _load_party(code: str) -> Optional["Party"]:
+    """Un salon vit en mémoire, mais il est aussi persisté : sans cela, tout
+    redéploiement ou mise en veille du serveur le ferait disparaître et
+    personne ne pourrait plus rejoindre."""
+    party = PARTIES.get(code)
+    if party:
+        return party
+    doc = await db.parties.find_one({"code": code}, {"_id": 0})
+    if not doc:
+        return None
+    created = doc.get("created_at")
+    try:
+        dt = datetime.fromisoformat(created) if isinstance(created, str) else created
+        if dt and dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if dt and (datetime.now(timezone.utc) - dt) > timedelta(hours=PARTY_TTL_HOURS):
+            await db.parties.delete_one({"code": code})
+            return None
+    except Exception:
+        pass
+    party = Party(code=code, media_id=doc.get("media_id", ""), host_id=doc.get("host_id", ""))
+    if isinstance(doc.get("state"), dict):
+        party.state = doc["state"]
+    PARTIES[code] = party
+    return party
+
+async def _persist_party_state(party: "Party") -> None:
+    """Sauvegarde throttlée : la position bouge toutes les 2 s côté hôte."""
+    now = time.time()
+    if now - _party_state_saved.get(party.code, 0) < 5:
+        return
+    _party_state_saved[party.code] = now
+    try:
+        await db.parties.update_one({"code": party.code}, {"$set": {"state": party.state}})
+    except Exception:
+        pass
 
 class PartyCreateInput(BaseModel):
     media_id: str
@@ -4371,14 +4495,22 @@ class PartyCreateInput(BaseModel):
 @api_router.post("/party/create")
 async def create_party(inp: PartyCreateInput, user: dict = Depends(get_current_user)):
     code = uuid.uuid4().hex[:6].upper()
-    while code in PARTIES:
+    while code in PARTIES or await db.parties.find_one({"code": code}, {"_id": 0, "code": 1}):
         code = uuid.uuid4().hex[:6].upper()
-    PARTIES[code] = Party(code=code, media_id=inp.media_id, host_id=user["user_id"])
+    party = Party(code=code, media_id=inp.media_id, host_id=user["user_id"])
+    PARTIES[code] = party
+    await db.parties.insert_one({
+        "code": code,
+        "media_id": inp.media_id,
+        "host_id": user["user_id"],
+        "state": party.state,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
     return {"code": code, "media_id": inp.media_id}
 
 @api_router.get("/party/{code}")
 async def get_party(code: str, user: dict = Depends(get_current_user)):
-    party = PARTIES.get(code.upper())
+    party = await _load_party(code.upper())
     if not party:
         raise HTTPException(status_code=404, detail="Salon introuvable")
     return {
@@ -4390,12 +4522,49 @@ async def get_party(code: str, user: dict = Depends(get_current_user)):
     }
 
 def _party_participants(party: "Party") -> list:
-    return [{"user_id": c["user_id"], "name": c["name"], "is_host": c.get("account_id") == party.host_id} for c in party.connections]
+    return [{
+        "user_id": c["user_id"],
+        "name": c["name"],
+        "is_host": c.get("account_id") == party.host_id,
+        "needs_ads": bool(c.get("needs_ads")),
+        "ads_done": bool(c.get("ads_done")),
+    } for c in party.connections]
+
+def _party_all_ready(party: "Party") -> bool:
+    return all((not c.get("needs_ads")) or c.get("ads_done") for c in party.connections)
+
+async def _close_party_if_host_gone(party: "Party", delay: int = 15) -> None:
+    """Délai de grâce : une micro-coupure réseau chez l'hôte ne doit pas
+    détruire le salon, seul un départ réel le ferme."""
+    await asyncio.sleep(delay)
+    if PARTIES.get(party.code) is not party:
+        return
+    if any(c.get("account_id") == party.host_id for c in party.connections):
+        return
+    await _close_party(party, "L'hôte a quitté le salon.")
+
+async def _close_party(party: "Party", reason: str) -> None:
+    """L'hôte parti, le salon n'a plus lieu d'être : tout le monde sort."""
+    for c in list(party.connections):
+        try:
+            await c["ws"].send_json({"type": "party_closed", "reason": reason})
+        except Exception:
+            pass
+        try:
+            await c["ws"].close(code=4410)
+        except Exception:
+            pass
+    party.connections.clear()
+    PARTIES.pop(party.code, None)
+    try:
+        await db.parties.delete_one({"code": party.code})
+    except Exception:
+        pass
 
 @app.websocket("/api/party/{code}/ws")
 async def party_ws(websocket: WebSocket, code: str):
     code = code.upper()
-    party = PARTIES.get(code)
+    party = await _load_party(code)
     if not party:
         await websocket.close(code=4404)
         return
@@ -4435,7 +4604,11 @@ async def party_ws(websocket: WebSocket, code: str):
             return
         display_name = owned_profile.get("name") or display_name
     conn_id = f"{account_id}:{profile}" if profile else account_id
-    conn = {"ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name}
+    needs_ads = not _is_premium(user)
+    conn = {
+        "ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name,
+        "needs_ads": needs_ads, "ads_done": not needs_ads,
+    }
     party.connections.append(conn)
 
     # Send initial state + participant list
@@ -4445,7 +4618,11 @@ async def party_ws(websocket: WebSocket, code: str):
         "media_id": party.media_id,
         "host_id": party.host_id,
         "state": party.state,
-        "you": {"user_id": conn["user_id"], "name": conn["name"], "is_host": account_id == party.host_id},
+        "started": party.started,
+        "you": {
+            "user_id": conn["user_id"], "name": conn["name"],
+            "is_host": account_id == party.host_id, "needs_ads": needs_ads,
+        },
     })
     await party.broadcast({
         "type": "participants",
@@ -4472,6 +4649,7 @@ async def party_ws(websocket: WebSocket, code: str):
                         "updated_at": datetime.now(timezone.utc).timestamp(),
                     }
                     await party.broadcast({"type": "sync", "state": party.state}, exclude_ws=websocket)
+                    await _persist_party_state(party)
             elif t == "chat":
                 text = str(data.get("text", ""))[:500]
                 if text.strip():
@@ -4482,8 +4660,75 @@ async def party_ws(websocket: WebSocket, code: str):
                         "text": text,
                         "at": datetime.now(timezone.utc).timestamp(),
                     })
+            elif t == "episode":
+                # Changement d'épisode : réservé à l'hôte, répercuté sur tout le salon.
+                if conn["account_id"] == party.host_id:
+                    payload = {
+                        "type": "episode",
+                        "season_number": data.get("season_number"),
+                        "episode_number": data.get("episode_number"),
+                    }
+                    party.state = {
+                        "position_seconds": 0.0,
+                        "playing": True,
+                        "updated_at": datetime.now(timezone.utc).timestamp(),
+                        "season_number": payload["season_number"],
+                        "episode_number": payload["episode_number"],
+                    }
+                    await party.broadcast(payload, exclude_ws=websocket)
+                    await _persist_party_state(party)
+            elif t == "request_pause":
+                # Un participant ne contrôle pas la lecture : il la demande à l'hôte.
+                if conn["account_id"] != party.host_id:
+                    for other in list(party.connections):
+                        if other.get("account_id") == party.host_id:
+                            try:
+                                await other["ws"].send_json({
+                                    "type": "pause_request",
+                                    "name": conn["name"],
+                                    "at": datetime.now(timezone.utc).timestamp(),
+                                })
+                            except Exception:
+                                pass
             elif t == "request_state":
                 await websocket.send_json({"type": "sync", "state": party.state})
+            elif t == "ad_status":
+                # Chaque participant annonce où il en est de ses publicités :
+                # l'hôte les voit tous et ne peut lancer qu'une fois tous prêts.
+                if conn.get("needs_ads"):
+                    conn["ads_done"] = bool(data.get("done"))
+                    await party.broadcast({
+                        "type": "participants",
+                        "participants": _party_participants(party),
+                    })
+            elif t == "start":
+                if conn["account_id"] == party.host_id and _party_all_ready(party):
+                    party.started = True
+                    await party.broadcast({"type": "started"})
+            elif t == "close":
+                if conn["account_id"] == party.host_id:
+                    await _close_party(party, "L'hôte a fermé le salon.")
+                    break
+            elif t == "kick":
+                if conn["account_id"] == party.host_id:
+                    target_id = str(data.get("user_id") or "")
+                    for other in list(party.connections):
+                        if other["user_id"] != target_id or other is conn:
+                            continue
+                        try:
+                            await other["ws"].send_json({"type": "kicked"})
+                        except Exception:
+                            pass
+                        try:
+                            await other["ws"].close(code=4410)
+                        except Exception:
+                            pass
+                        if other in party.connections:
+                            party.connections.remove(other)
+                    await party.broadcast({
+                        "type": "participants",
+                        "participants": _party_participants(party),
+                    })
     except WebSocketDisconnect:
         pass
     finally:
@@ -4493,13 +4738,20 @@ async def party_ws(websocket: WebSocket, code: str):
             "type": "participants",
             "participants": _party_participants(party),
         })
-        if not party.connections:
+        if conn["account_id"] == party.host_id:
+            asyncio.create_task(_close_party_if_host_gone(party))
+        elif not party.connections:
             PARTIES.pop(party.code, None)
 
 # ---------- Root ----------
 @api_router.get("/")
 async def root():
-    return {"message": "YourMovie's API"}
+    # Repère de version : sans lui, impossible de savoir depuis l'extérieur
+    # quelle révision tourne réellement sur l'hébergeur.
+    return {
+        "message": "YourMovie's API",
+        "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7],
+    }
 
 # ---------- Discord integration ----------
 try:

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
@@ -133,27 +133,10 @@ function EpisodeSelectorOverlay({
     watchProgress,
     onSeasonChange,
     onEpisodeSelect,
+    locked,
 }) {
-    const currentLabel = selectedEpisode
-        ? "S" + selectedEpisode.season_number + " E" + selectedEpisode.ep_number
-        : "Épisodes";
-
     return (
         <>
-            <button
-                type="button"
-                onClick={() => onOpenChange(true)}
-                aria-label="Choisir une saison ou un épisode"
-                aria-expanded={open}
-                aria-controls="episode-selector-panel"
-                data-testid="episode-selector-open"
-                className="absolute right-3 top-3 z-[35] flex h-10 items-center gap-2 rounded-full border border-white/15 bg-black/80 px-3 text-xs font-medium text-white shadow-xl backdrop-blur-md transition-colors hover:border-[#E8D2A6]/70 hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:right-4 sm:top-4 sm:px-4"
-            >
-                <ListVideo size={16} className="text-[#E8D2A6]" />
-                <span className="hidden sm:inline">Épisodes</span>
-                <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[#E8D2A6]">{currentLabel}</span>
-            </button>
-
             <AnimatePresence>
                 {open && (
                     <motion.div
@@ -179,7 +162,7 @@ function EpisodeSelectorOverlay({
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: 24, opacity: 0 }}
                             transition={{ duration: 0.22, ease: "easeOut" }}
-                            className="relative z-10 w-full max-h-[94%] overflow-y-auto border-t border-[#E8D2A6]/25 bg-gradient-to-b from-[#15130f]/98 to-[#080808]/[0.99] px-3 pb-3 pt-3 shadow-[0_-18px_55px_rgba(0,0,0,0.65)] [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin] sm:px-5 sm:pb-5 sm:pt-4"
+                            className="relative z-10 max-h-[94%] w-full overflow-y-auto no-scrollbar border-t border-[#262626] bg-[#0a0a0a]/[0.98] px-4 pb-4 pt-4 shadow-[0_-18px_55px_rgba(0,0,0,0.65)] sm:px-6 sm:pb-6 sm:pt-5"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="min-w-0 flex-1">
@@ -197,7 +180,7 @@ function EpisodeSelectorOverlay({
                                 <div className="flex shrink-0 items-center gap-1">
                                     <button
                                         type="button"
-                                        disabled={!previousEpisode}
+                                        disabled={!previousEpisode || locked}
                                         onClick={() => previousEpisode && onEpisodeSelect(previousEpisode)}
                                         aria-label="Épisode précédent"
                                         title="Épisode précédent"
@@ -207,7 +190,7 @@ function EpisodeSelectorOverlay({
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={!nextEpisode}
+                                        disabled={!nextEpisode || locked}
                                         onClick={() => nextEpisode && onEpisodeSelect(nextEpisode)}
                                         aria-label="Épisode suivant"
                                         title="Épisode suivant"
@@ -226,7 +209,7 @@ function EpisodeSelectorOverlay({
                                 </div>
                             </div>
 
-                            <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar pb-1">
                                 {(seasons || []).map((season) => {
                                     const seasonNumber = String(season.season_number);
                                     const isActive = selectedSeasonNumber === seasonNumber;
@@ -235,10 +218,10 @@ function EpisodeSelectorOverlay({
                                             key={seasonNumber}
                                             type="button"
                                             onClick={() => onSeasonChange(seasonNumber)}
-                                            className={"shrink-0 snap-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/60 sm:px-4 sm:py-2 sm:text-xs " + (
+                                            className={"shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] " + (
                                                 isActive
                                                     ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
-                                                    : "border-[#343434] bg-[#0d0d0d] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white"
+                                                    : "border-[#262626] bg-[#0a0a0a] text-neutral-300 hover:border-[#E8D2A6]/60 hover:text-white"
                                             )}
                                         >
                                             Saison {season.season_number}
@@ -247,66 +230,59 @@ function EpisodeSelectorOverlay({
                                 })}
                             </div>
 
-                            <div className="mt-3 flex snap-x gap-2.5 overflow-x-auto pb-1 [scrollbar-color:#E8D2A6_#171717] [scrollbar-width:thin] sm:gap-3 sm:pb-2">
+                            <ul className="mt-4 max-h-[38vh] divide-y divide-[#1a1a1a] overflow-y-auto border-t border-[#1a1a1a] pr-1 [scrollbar-color:#3a3a3a_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#3a3a3a] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:bg-transparent">
                                 {seasonEpisodes.map((episode) => {
                                     const playable = Boolean(episode.bunny_video_id || episode.video_url || episode.video_file_path);
                                     const isActive = selectedEpisode?._key === episode._key;
                                     const duration = formatEpisodeDuration(episode);
                                     const progress = getEpisodeProgress(episode, watchProgress);
+                                    const label = episode.title || "Épisode " + episode.ep_number;
+
                                     return (
-                                        <button
-                                            key={episode._key}
-                                            type="button"
-                                            disabled={!playable}
-                                            onClick={() => onEpisodeSelect(episode)}
-                                            title={playable ? (episode.title || "Épisode " + episode.ep_number) : "Aucun fichier vidéo pour cet épisode"}
-                                            className={"relative min-w-[12rem] snap-start overflow-hidden rounded-xl border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8D2A6]/70 sm:min-w-[16rem] " + (
-                                                isActive
-                                                    ? "border-[#E8D2A6] bg-[#E8D2A6]/12 text-white"
-                                                    : playable
-                                                        ? "border-[#2a2a2a] bg-[#0d0d0d]/95 text-neutral-300 hover:border-[#E8D2A6]/50 hover:bg-[#141414]"
-                                                        : "cursor-not-allowed border-[#202020] bg-[#090909] text-neutral-600 opacity-60"
-                                            )}
-                                        >
-                                            <span className="flex items-center gap-3">
-                                                <span className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold " + (
-                                                    isActive ? "bg-[#E8D2A6] text-black" : "bg-[#1d1d1d] text-neutral-400"
+                                        <li key={episode._key}>
+                                            <button
+                                                type="button"
+                                                disabled={!playable}
+                                                onClick={() => onEpisodeSelect(episode)}
+                                                title={playable ? label : "Aucun fichier vidéo pour cet épisode"}
+                                                className={"group flex w-full items-center gap-3.5 border-l-2 px-3 py-3.5 text-left transition-[border-color,padding] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] " + (
+                                                    isActive
+                                                        ? "border-[#E8D2A6] pl-5"
+                                                        : playable
+                                                            ? "border-transparent hover:border-[#E8D2A6] hover:pl-5"
+                                                            : "cursor-not-allowed border-transparent opacity-45"
+                                                )}
+                                            >
+                                                <span className={"flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-colors " + (
+                                                    isActive
+                                                        ? "border-[#E8D2A6] bg-[#E8D2A6] text-black"
+                                                        : "border-[#262626] text-neutral-400 group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black"
                                                 )}>
-                                                    {episode.ep_number}
+                                                    {isActive ? <Play size={13} fill="currentColor" /> : episode.ep_number}
                                                 </span>
+
                                                 <span className="min-w-0 flex-1">
-                                                    <span className="block text-[9px] uppercase tracking-[0.15em] text-neutral-500">
-                                                        Épisode {episode.ep_number}
+                                                    <span className={"block truncate text-sm transition-colors " + (isActive ? "text-[#E8D2A6]" : "text-white group-hover:text-[#E8D2A6]")}>
+                                                        <span className="mr-2.5 text-neutral-500">E{episode.ep_number}</span>
+                                                        {label}
                                                     </span>
-                                                    <span className="mt-0.5 block truncate text-xs font-medium sm:text-sm">
-                                                        {episode.title || "Épisode " + episode.ep_number}
+                                                    <span className="mt-1 flex items-center gap-2.5 text-[11px] text-neutral-500">
+                                                        {duration && <span className="flex items-center gap-1"><Clock3 size={11} />{duration}</span>}
+                                                        {progress > 0 && progress < 95 && <span className="text-[#E8D2A6]">À reprendre</span>}
+                                                        {progress >= 95 && <span className="text-neutral-400">Terminé</span>}
+                                                        {!playable && <span>Bientôt</span>}
                                                     </span>
-                                                </span>
-                                                {isActive && <Play size={14} className="shrink-0 text-[#E8D2A6]" fill="currentColor" />}
-                                            </span>
-
-                                            {(duration || progress > 0) && (
-                                                <span className="mt-2.5 flex items-center justify-between gap-3 text-[10px] text-neutral-500">
-                                                    {duration ? (
-                                                        <span className="flex items-center gap-1">
-                                                            <Clock3 size={11} />
-                                                            {duration}
+                                                    {isActive && progress > 0 && (
+                                                        <span className="mt-2 block h-0.5 w-full overflow-hidden rounded-full bg-white/10">
+                                                            <span className="block h-full bg-[#E8D2A6]" style={{ width: progress + "%" }} />
                                                         </span>
-                                                    ) : <span />}
-                                                    {progress > 0 && progress < 95 && <span className="text-[#E8D2A6]">À reprendre</span>}
-                                                    {progress >= 95 && <span className="text-[#E8D2A6]">Terminé</span>}
+                                                    )}
                                                 </span>
-                                            )}
-
-                                            {progress > 0 && (
-                                                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/10">
-                                                    <span className="block h-full bg-[#E8D2A6]" style={{ width: progress + "%" }} />
-                                                </span>
-                                            )}
-                                        </button>
+                                            </button>
+                                        </li>
                                     );
                                 })}
-                            </div>
+                            </ul>
                         </motion.section>
                     </motion.div>
                 )}
@@ -326,16 +302,29 @@ export default function WatchPage() {
     const [resumeAt, setResumeAt] = useState(0);
     const [watchProgress, setWatchProgress] = useState(null);
     const [episodePanelOpen, setEpisodePanelOpen] = useState(false);
+    const [isPartyHost, setIsPartyHost] = useState(false);
+    const [partyStarted, setPartyStarted] = useState(false);
     const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
     const bunnyIframeRef = useRef(null);
+    const bunnyPlayerRef = useRef(null);
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
-    const [adDone, setAdDone] = useState(false);
-    const [gateDone, setGateDone] = useState(false);
+    // En salon, la fin des publicités change la mise en page et reconstruit
+    // l'iframe Bunny : on recharge la page pour repartir sur un lecteur propre.
+    // L'état est donc mémorisé le temps de la session, sinon le rechargement
+    // rejouerait les publicités et bouclerait indéfiniment.
+    const adsMemoryKey = searchParams.get("party") ? `ym_party_ads:${searchParams.get("party")}:${id}` : null;
+    const readAdsMemory = () => {
+        if (!adsMemoryKey) return false;
+        try { return sessionStorage.getItem(adsMemoryKey) === "1"; } catch { return false; }
+    };
+    const adsAlreadyCleared = useRef(readAdsMemory());
+    const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
+    const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
     const [playbackActive, setPlaybackActive] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
@@ -482,6 +471,7 @@ export default function WatchPage() {
                 } catch (e) { }
             }
         })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, user]);
 
     const saveProgress = useCallback(async (pos, dur) => {
@@ -535,10 +525,32 @@ export default function WatchPage() {
             saveProgress(position, knownDuration || null);
         };
 
+        // Repli : si l'API Bunny est indisponible (script tiers bloqué par une
+        // extension, réseau filtré…), on estime la progression au temps écoulé
+        // pendant que l'onglet est visible. Moins précis, mais évite de perdre
+        // totalement la reprise de lecture.
+        let fallbackTimer = null;
+        const startFallbackTracking = () => {
+            if (disposed || fallbackTimer) return;
+            const startedAt = Date.now();
+            const base = Number(resumeAt) || 0;
+            const mediaMinutes = media?.type === "movie"
+                ? media?.duration_minutes
+                : (selectedEpisode?.duration_minutes ?? selectedEpisode?.duration);
+            const estimatedDuration = Number(mediaMinutes) > 0 ? Number(mediaMinutes) * 60 : 0;
+            fallbackTimer = window.setInterval(() => {
+                if (disposed || document.visibilityState !== "visible") return;
+                const position = base + (Date.now() - startedAt) / 1000;
+                if (estimatedDuration > 0 && position > estimatedDuration) return;
+                saveProgress(position, estimatedDuration || null);
+            }, PROGRESS_SAVE_INTERVAL_MS);
+        };
+
         loadBunnyPlayerApi()
             .then((playerjs) => {
                 if (disposed || !bunnyIframeRef.current) return;
                 player = new playerjs.Player(bunnyIframeRef.current);
+                bunnyPlayerRef.current = player;
                 on("ready", () => {
                     player.getDuration((duration) => {
                         const parsed = Number(duration);
@@ -553,13 +565,21 @@ export default function WatchPage() {
                 on("ended", () => {
                     if (knownDuration > 0) persistProgress(knownDuration, knownDuration, true);
                 });
+                // L'API répond mais n'émet aucun « timeupdate » : on bascule aussi.
+                window.setTimeout(() => {
+                    if (!disposed && bunnyLastProgressSave.current === 0) startFallbackTracking();
+                }, 45_000);
             })
             .catch(() => {
-                // La lecture reste disponible même si l'API de suivi Bunny est indisponible.
+                // La lecture reste disponible même si l'API de suivi Bunny est
+                // indisponible : on bascule sur l'estimation par temps écoulé.
+                startFallbackTracking();
             });
 
         return () => {
             disposed = true;
+            bunnyPlayerRef.current = null;
+            if (fallbackTimer) window.clearInterval(fallbackTimer);
             // L'iframe peut déjà avoir quitté le DOM (porte pub, changement d'épisode) :
             // player.off() ferait alors un postMessage sur un contentWindow null.
             if (player?.off) {
@@ -568,7 +588,8 @@ export default function WatchPage() {
                 });
             }
         };
-    }, [user, bunnyPlaybackUrl, saveProgress]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, bunnyPlaybackUrl, saveProgress, resumeAt]);
 
     const markEmbeddedPlaybackStarted = useCallback(async () => {
         if (!user || !media) return;
@@ -636,36 +657,53 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
     ]);
 
+    useEffect(() => {
+        if (!adsMemoryKey || adsAlreadyCleared.current) return;
+        if (!user || user.premium) return;
+        if (!gateDone || !adDone) return;
+        try { sessionStorage.setItem(adsMemoryKey, "1"); } catch { }
+        window.location.reload();
+    }, [adsMemoryKey, gateDone, adDone, user]);
+
+    // Entrer dans un salon recharge la page : le lecteur Bunny est reconstruit
+    // par le changement de mise en page, et l'ancienne instance restait
+    // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
+    const gotoParty = (code) => {
+        const next = new URLSearchParams(searchParams);
+        if (code) next.set("party", code); else next.delete("party");
+        const query = next.toString();
+        window.location.href = window.location.pathname + (query ? `?${query}` : "");
+    };
+
     const createParty = async () => {
         if (!user) { navigate("/login"); return; }
         try {
             const r = await api.post("/party/create", { media_id: id });
-            setPartyCode(r.data.code);
-            setPartyOpen(true);
-            const next = new URLSearchParams(searchParams);
-            next.set("party", r.data.code);
-            setSearchParams(next, { replace: true });
+            gotoParty(r.data.code);
         } catch (e) { showError(toast, e, "Impossible de créer le salon"); }
     };
 
-    const joinParty = () => {
+    const joinParty = async (rawCode) => {
         if (!user) { navigate("/login"); return; }
-        if (!joinInput.trim()) return;
-        const code = joinInput.trim().toUpperCase();
-        setPartyCode(code);
-        setPartyOpen(true);
-        const next = new URLSearchParams(searchParams);
-        next.set("party", code);
-        setSearchParams(next, { replace: true });
+        const source = typeof rawCode === "string" ? rawCode : joinInput;
+        if (!source.trim()) return;
+        const code = source.trim().toUpperCase();
+        // Sans cette vérification, un code inexistant ouvrait un salon vide.
+        try {
+            await api.get(`/party/${code}`);
+        } catch (e) {
+            if (e?.response?.status === 404) {
+                toast.error(`Aucun salon ne porte le code ${code}.`);
+                setJoinInput("");
+                return;
+            }
+            showError(toast, e, "Impossible de rejoindre le salon");
+            return;
+        }
+        gotoParty(code);
     };
 
-    const closeParty = () => {
-        setPartyOpen(false);
-        setPartyCode("");
-        const next = new URLSearchParams(searchParams);
-        next.delete("party");
-        setSearchParams(next, { replace: true });
-    };
+    const closeParty = () => { gotoParty(null); };
 
     if (media?.in_theaters && searchParams.get("cinema-warning") !== "accepted") {
         return (
@@ -699,8 +737,9 @@ export default function WatchPage() {
     const userMaxQuality = "4k";
     const runAds = !user?.premium;
     const hasVideo = !!(bunnySource || qualities.length > 0);
-    const showGate = runAds && !partyOpen && !gateDone && hasVideo;
-    const showAd = runAds && !partyOpen && gateDone && !adDone && hasVideo;
+    const showGate = runAds && !gateDone && hasVideo;
+    const showAd = runAds && gateDone && !adDone && hasVideo;
+    const adsDone = !runAds || adDone;
     const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
 
     return (
@@ -726,18 +765,27 @@ export default function WatchPage() {
                                 >
                                     <Users size={14} className="mr-2" /> {user ? "Watch Party" : "Se connecter pour une Watch Party"}
                                 </Button>
-                                <div className="flex items-center gap-2">
+                                {/* Code à 6 caractères : dès qu'il est complet, on entre dans
+                                    le salon. Évite un bouton « Rejoindre » hors écran sur mobile. */}
+                                <div className="relative w-full sm:w-48">
                                     <Input
                                         data-testid="party-join-input"
                                         value={joinInput}
-                                        onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
-                                        placeholder="Code"
+                                        onChange={(e) => {
+                                            const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+                                            setJoinInput(value);
+                                            if (value.length === 6) joinParty(value);
+                                        }}
+                                        onKeyDown={(e) => { if (e.key === "Enter") joinParty(); }}
+                                        placeholder="Code du salon"
+                                        inputMode="text"
+                                        autoComplete="off"
                                         maxLength={6}
-                                        className="bg-[#111] border-[#262626] text-white w-40 tracking-widest uppercase"
+                                        className="h-10 w-full bg-[#111] border-[#262626] pr-16 text-white tracking-[0.3em] uppercase placeholder:tracking-normal"
                                     />
-                                    <Button variant="outline" onClick={joinParty} data-testid="party-join-btn" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full h-10 px-4">
-                                        Rejoindre
-                                    </Button>
+                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] tabular-nums text-neutral-500">
+                                        {joinInput.length}/6
+                                    </span>
                                 </div>
                             </>
                         ) : null}
@@ -746,17 +794,17 @@ export default function WatchPage() {
 
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
-                        <div className="relative">
+                        <div className="relative overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             {showGate ? (
-                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <AdGate onUnlock={() => setGateDone(true)} />
                             </div>
                         ) : showAd ? (
-                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
                             </div>
                         ) : bunnySource ? (
-                            <div className="relative w-full rounded-lg overflow-hidden border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 {bunnyPlaybackError ? (
                                     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505] p-6">
                                         <div className="max-w-xl text-center">
@@ -779,6 +827,21 @@ export default function WatchPage() {
                                     />
                                 ) : (
                                     <div className="absolute inset-0 bg-black" aria-hidden="true" />
+                                )}
+                                {partyOpen && partyStarted && !isPartyHost && (
+                                    <div className="pointer-events-none absolute inset-0 z-30" data-testid="party-guest-shield">
+                                        {/* Le lecteur Bunny est sur un autre domaine : impossible de
+                                            désactiver certains de ses boutons. On masque donc la zone
+                                            de lecture et la barre de progression, en laissant libre le
+                                            coin des réglages et du plein écran. */}
+                                        <div className="pointer-events-auto absolute inset-x-0 top-0 bottom-[52px]" />
+                                        <div className="pointer-events-auto absolute bottom-0 left-0 right-[150px] h-[52px]" />
+                                        <div className="absolute inset-x-0 top-0 flex justify-center">
+                                            <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
+                                                Lecture contrôlée par l&apos;hôte
+                                            </span>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         ) : qualities.length === 0 ? (
@@ -811,8 +874,72 @@ export default function WatchPage() {
                                     watchProgress={watchProgress}
                                     onSeasonChange={setSelectedSeason}
                                     onEpisodeSelect={selectEpisode}
+                                    locked={partyOpen && !isPartyHost}
                                 />
                             )}
+
+                        {partyOpen && !partyStarted && !showGate && !showAd && (
+                            <div className="absolute inset-x-0 top-0 bottom-[60px] z-40 flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center backdrop-blur-sm" data-testid="party-waiting">
+                                <Users size={22} className="text-[#E8D2A6]" />
+                                <div className="font-display text-lg text-white">
+                                    {isPartyHost ? "Prêt à lancer la séance" : "En attente de l'hôte"}
+                                </div>
+                                <p className="max-w-sm text-xs leading-relaxed text-neutral-400">
+                                    {isPartyHost
+                                        ? "La lecture démarrera pour tout le monde en même temps, une fois les publicités de chacun terminées."
+                                        : "La lecture démarrera automatiquement dès que l'hôte lancera la séance."}
+                                </p>
+                            </div>
+                        )}
+
+                        {media.type !== "movie" && episodes.length > 0 && (
+                            <div className="flex items-center gap-2 border-t border-[#262626] bg-[#0a0a0a] px-2.5 py-2.5 sm:gap-3 sm:px-3" data-testid="episode-nav">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => previousEpisode && selectEpisode(previousEpisode)}
+                                    disabled={!previousEpisode}
+                                    data-testid="episode-prev"
+                                    title={previousEpisode ? `S${previousEpisode.season_number}E${previousEpisode.ep_number} — ${previousEpisode.title || "Sans titre"}` : "Aucun épisode précédent"}
+                                    className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
+                                >
+                                    <ChevronLeft size={16} className="sm:mr-1.5" />
+                                    <span className="hidden sm:inline">Précédent</span>
+                                </Button>
+
+                                <button
+                                    type="button"
+                                    disabled={partyOpen && !isPartyHost}
+                                    onClick={() => setEpisodePanelOpen((v) => !v)}
+                                    aria-expanded={episodePanelOpen}
+                                    aria-controls="episode-selector-panel"
+                                    data-testid="episode-picker"
+                                    className={`group flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border px-4 text-left transition-colors ${episodePanelOpen ? "border-[#E8D2A6]/60 bg-[#E8D2A6]/[0.07]" : "border-[#262626] bg-[#111] hover:border-[#E8D2A6]/60 hover:bg-white/[0.03]"}`}
+                                >
+                                    <ListVideo size={16} className="shrink-0 text-[#E8D2A6]" />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block text-[10px] uppercase tracking-[0.16em] text-neutral-500 leading-none">
+                                            {selectedEpisode ? `Saison ${selectedEpisode.season_number} · Épisode ${selectedEpisode.ep_number}` : "Épisodes"}
+                                        </span>
+                                        <span className="mt-0.5 block truncate text-sm text-white group-hover:text-[#E8D2A6] transition-colors">
+                                            {selectedEpisode?.title || "Choisir un épisode"}
+                                        </span>
+                                    </span>
+                                    <ChevronDown size={16} className={`shrink-0 text-neutral-400 transition-transform ${episodePanelOpen ? "rotate-180 text-[#E8D2A6]" : ""}`} />
+                                </button>
+
+                                <Button
+                                    variant="outline"
+                                    onClick={() => nextEpisode && selectEpisode(nextEpisode)}
+                                    disabled={!nextEpisode}
+                                    data-testid="episode-next"
+                                    title={nextEpisode ? `S${nextEpisode.season_number}E${nextEpisode.ep_number} — ${nextEpisode.title || "Sans titre"}` : "Aucun épisode suivant"}
+                                    className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
+                                >
+                                    <span className="hidden sm:inline">Suivant</span>
+                                    <ChevronRight size={16} className="sm:ml-1.5" />
+                                </Button>
+                            </div>
+                        )}
                         </div>
 
                         {resumeAt > 0 && !bunnySource && (
@@ -833,8 +960,17 @@ export default function WatchPage() {
                             profileId={activeProfile?.id}
                             profileName={activeProfile?.name}
                             videoRef={videoElRef}
+                            bunnyPlayerRef={bunnyPlayerRef}
+                            onHostChange={setIsPartyHost}
+                            currentEpisode={selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
+                            onEpisodeSync={(sn, en) => {
+                                const target = episodes.find((e) => String(e.season_number) === String(sn) && String(e.ep_number) === String(en));
+                                if (target) selectEpisode(target);
+                            }}
                             onClose={closeParty}
                             token={token}
+                            adsDone={adsDone}
+                            onStartedChange={setPartyStarted}
                         />
                     )}
                 </div>

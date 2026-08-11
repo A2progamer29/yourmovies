@@ -31,12 +31,14 @@ import AboutPage from "@/pages/AboutPage";
 import TermsPage from "@/pages/TermsPage";
 import PrivacyPage from "@/pages/PrivacyPage";
 import DmcaPage from "@/pages/DmcaPage";
+import DocsPage from "@/pages/DocsPage";
 import Footer from "@/components/Footer";
 import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
 import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 import PopUnder from "@/components/PopUnder";
+import VisitTracker from "@/components/VisitTracker";
 
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -57,7 +59,7 @@ function AppRouter() {
     }
     const p = location.pathname;
     const noFooter = p.startsWith("/watch/") || p.startsWith("/messages") || p.startsWith("/login")
-        || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca";
+        || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca" || p === "/documentation";
     return (
         <>
         <ScrollToTop />
@@ -81,6 +83,7 @@ function AppRouter() {
             <Route path="/cgu" element={<TermsPage />} />
             <Route path="/politique" element={<PrivacyPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
+            <Route path="/documentation" element={<DocsPage />} />
             <Route path="/account/subscription" element={<SubscriptionPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/media/new" element={<AdminMediaForm />} />
@@ -105,6 +108,7 @@ function App() {
                             <FavoritesProvider>
                                 <AppRouter />
                                 <PopUnder />
+                                <VisitTracker />
                                 <GlobalUploadManager />
                                 <VersionChecker />
                                 <BetaNoticeDialog />

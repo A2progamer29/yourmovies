@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Rocket, ArrowRight, MessageSquarePlus } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const DISCORD_URL = "https://discord.gg/6mGTfvcNeD";
 const STORAGE_KEY = "ym_beta_notice_v1";
@@ -36,6 +36,7 @@ export default function BetaNoticeDialog() {
                     <DialogTitle className="font-display text-2xl flex items-center gap-2.5">
                         <Rocket size={20} className="text-[#E8D2A6]" /> YourMovie&apos;s est en bêta
                     </DialogTitle>
+                    <DialogDescription className="sr-only">Informations sur la phase de bêta du site.</DialogDescription>
                 </DialogHeader>
 
                 <p className="text-sm text-neutral-300 leading-relaxed">

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const PLANS = [
     { id: "basic", name: "Basic" },
@@ -52,6 +52,7 @@ export default function GivePremiumDialog({ user, open, onOpenChange, onDone }) 
                     <DialogTitle className="font-display text-2xl flex items-center gap-2">
                         <Crown size={18} className="text-[#E8D2A6]" /> Attribuer un Premium
                     </DialogTitle>
+                    <DialogDescription className="sr-only">Attribuez un accès Premium à cet utilisateur.</DialogDescription>
                 </DialogHeader>
                 {user && (
                     <p className="text-sm text-neutral-400 -mt-1">

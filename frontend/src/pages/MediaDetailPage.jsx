@@ -26,6 +26,7 @@ export default function MediaDetailPage() {
     const [reviews, setReviews] = useState([]);
     const [similar, setSimilar] = useState([]);
     const [timeline, setTimeline] = useState({ title: "", items: [] });
+    const [tab, setTab] = useState(null);
     const [status, setStatus] = useState({ favorite: false, watchlist: false });
     const [ratingInput, setRatingInput] = useState(7);
     const [commentInput, setCommentInput] = useState("");
@@ -121,6 +122,16 @@ export default function MediaDetailPage() {
 
     const banner = media.banner_url || media.poster_url || BANNER_FALLBACK;
     const totalEpisodes = (media.seasons || []).reduce((acc, s) => acc + (s.episodes?.length || 0), 0);
+
+    // Rubriques : seules celles qui ont réellement du contenu sont proposées.
+    const sections = [
+        media.type !== "movie" && media.seasons?.length > 0 && { id: "episodes", label: "Épisodes" },
+        media.trailer_youtube_id && { id: "trailer", label: "Bande-annonce" },
+        (media.director || media.cast?.length > 0) && { id: "cast", label: "Distribution" },
+        { id: "reviews", label: `Avis${reviews.filter((r) => !r.parent_id).length ? ` (${reviews.filter((r) => !r.parent_id).length})` : ""}` },
+        (similar.length > 0 || timeline.items?.length > 1) && { id: "similar", label: "Similaires" },
+    ].filter(Boolean);
+    const activeTab = sections.some((s) => s.id === tab) ? tab : (sections[0]?.id || "reviews");
 
     const topReviews = reviews.filter((r) => !r.parent_id);
     const repliesByParent = reviews.reduce((acc, r) => {
@@ -258,10 +269,30 @@ export default function MediaDetailPage() {
                 </motion.div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 space-y-14">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
+                <div className="flex gap-1 overflow-x-auto no-scrollbar border-b border-white/10" role="tablist">
+                    {sections.map((s) => (
+                        <button
+                            key={s.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={activeTab === s.id}
+                            onClick={() => setTab(s.id)}
+                            data-testid={`media-tab-${s.id}`}
+                            className={`shrink-0 border-b-2 -mb-px px-4 py-3 text-sm transition-colors ${activeTab === s.id
+                                ? "border-[#E8D2A6] text-[#E8D2A6]"
+                                : "border-transparent text-neutral-400 hover:text-white"}`}
+                        >
+                            {s.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 lg:py-12 space-y-14">
                 <main className="space-y-14 min-w-0">
                     {/* Trailer */}
-                    {media.trailer_youtube_id && (
+                    {activeTab === "trailer" && media.trailer_youtube_id && (
                         <section>
                             <div className="flex items-end justify-between mb-5">
                                 <div>
@@ -283,7 +314,7 @@ export default function MediaDetailPage() {
                     )}
 
                     {/* Seasons */}
-                    {media.type !== "movie" && media.seasons?.length > 0 && (
+                    {activeTab === "episodes" && media.type !== "movie" && media.seasons?.length > 0 && (
                         <section>
                             <div className="mb-5">
                                 <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Épisodes</div>
@@ -301,17 +332,51 @@ export default function MediaDetailPage() {
                                         </AccordionTrigger>
                                         <AccordionContent>
                                             <ul className="divide-y divide-[#1a1a1a] mt-2">
-                                                {(s.episodes || []).map((ep, j) => (
-                                                    <li key={j} className="py-3 flex items-center justify-between gap-4">
-                                                        <div>
-                                                            <div className="text-white">
-                                                                <span className="text-neutral-500 mr-3">E{ep.ep_number || j + 1}</span>
-                                                                {ep.title || "Épisode"}
-                                                            </div>
-                                                            {ep.duration && <div className="text-xs text-neutral-500 mt-0.5">{ep.duration} min</div>}
-                                                        </div>
-                                                    </li>
-                                                ))}
+                                                {(s.episodes || []).map((ep, j) => {
+                                                    const seasonNo = s.season_number || i + 1;
+                                                    const epNo = ep.ep_number || j + 1;
+                                                    const playable = Boolean(ep.bunny_video_id || ep.video_url || ep.video_file_path);
+                                                    const label = ep.title || "Épisode";
+
+                                                    if (!playable) {
+                                                        return (
+                                                            <li key={j} className="py-5 px-1 flex items-center justify-between gap-4 opacity-60">
+                                                                <div>
+                                                                    <div className="text-neutral-300">
+                                                                        <span className="text-neutral-500 mr-3">E{epNo}</span>
+                                                                        {label}
+                                                                    </div>
+                                                                    {ep.duration && <div className="text-xs text-neutral-500 mt-0.5">{ep.duration} min</div>}
+                                                                </div>
+                                                                <span className="shrink-0 text-[11px] text-neutral-500">Bientôt</span>
+                                                            </li>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <li key={j}>
+                                                            <Link
+                                                                to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}`}
+                                                                data-testid={`episode-play-${seasonNo}-${epNo}`}
+                                                                className="group -mx-3 flex items-center justify-between gap-4 border-l-2 border-transparent px-4 py-5 transition-[border-color,padding] duration-200 hover:border-[#E8D2A6] hover:pl-6"
+                                                            >
+                                                                <span className="flex min-w-0 items-center gap-3">
+                                                                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#262626] text-neutral-400 transition-colors group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black">
+                                                                        <Play size={15} fill="currentColor" />
+                                                                    </span>
+                                                                    <span className="min-w-0">
+                                                                        <span className="block text-white transition-colors group-hover:text-[#E8D2A6]">
+                                                                            <span className="text-neutral-500 mr-3">E{epNo}</span>
+                                                                            {label}
+                                                                        </span>
+                                                                        {ep.duration && <span className="block text-xs text-neutral-500 mt-0.5">{ep.duration} min</span>}
+                                                                    </span>
+                                                                </span>
+                                                                <span className="shrink-0 text-[11px] text-neutral-600 transition-colors group-hover:text-[#E8D2A6]">Regarder</span>
+                                                            </Link>
+                                                        </li>
+                                                    );
+                                                })}
                                             </ul>
                                         </AccordionContent>
                                     </AccordionItem>
@@ -323,7 +388,7 @@ export default function MediaDetailPage() {
                 </main>
 
                 <aside className="w-full">
-                    {(media.director || media.cast?.length > 0) && (
+                    {activeTab === "cast" && (media.director || media.cast?.length > 0) && (
                         <div className="p-6 rounded-2xl border border-white/10 bg-[#0a0a0a]">
                             <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-5">Distribution</div>
                             {media.director && (
@@ -345,7 +410,7 @@ export default function MediaDetailPage() {
                 </aside>
             </div>
 
-            {timeline.items?.length > 1 && (
+            {activeTab === "similar" && timeline.items?.length > 1 && (
                 <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="media-timeline-section">
                     <div className="mb-7 flex items-end justify-between gap-4">
                         <div>
@@ -406,7 +471,7 @@ export default function MediaDetailPage() {
                 </section>
             )}
 
-            {similar.length > 0 && (
+            {activeTab === "similar" && similar.length > 0 && (
                 <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="similar-section">
                     <div className="mb-6">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">Vous aimerez aussi</div>
@@ -423,6 +488,7 @@ export default function MediaDetailPage() {
                 </section>
             )}
 
+            {activeTab === "reviews" && (
             <section className="max-w-4xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="reviews-section">
                 <div className="mb-6">
                     <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-1">La communauté</div>
@@ -562,6 +628,7 @@ export default function MediaDetailPage() {
                     </div>
                 )}
             </section>
+            )}
         </div>
     );
 }

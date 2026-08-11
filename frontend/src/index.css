@@ -23,6 +23,10 @@ html,
 body {
     margin: 0;
     padding: 0;
+    /* Aucun débordement horizontal : il décalait les fenêtres modales
+       (positionnées par rapport à la fenêtre) sur mobile. */
+    overflow-x: hidden;
+    max-width: 100%;
     background: var(--background);
     color: var(--text-main);
     font-family: 'Manrope', system-ui, -apple-system, sans-serif;
@@ -199,18 +203,16 @@ html[style*="--accent"] .border-\[\#E8D2A6\] {
 @keyframes ymPageEnter {
     from {
         opacity: 0;
-        transform: translateY(10px);
-        filter: blur(2px);
+        transform: translateY(6px);
     }
     to {
         opacity: 1;
         transform: translateY(0);
-        filter: blur(0);
     }
 }
 
 .ym-page-enter {
-    animation: ymPageEnter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: ymPageEnter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 button,

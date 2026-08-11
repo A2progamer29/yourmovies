@@ -18,6 +18,7 @@ export default function SupportWithAds() {
     const [busy, setBusy] = useState(false);
     const timerRef = useRef(null);
     const cooldownRef = useRef(null);
+    const claimRef = useRef(null);
 
     const formatDelay = (total) => {
         const m = Math.floor(total / 60);
@@ -79,7 +80,8 @@ export default function SupportWithAds() {
             setCountdown((c) => {
                 if (c <= 1) {
                     clearInterval(timerRef.current);
-                    setClaimable(true);
+                    // Crédit automatique : plus besoin d'un second clic.
+                    claimRef.current?.();
                     return 0;
                 }
                 return c - 1;
@@ -88,16 +90,28 @@ export default function SupportWithAds() {
     };
 
     const claim = async () => {
+        if (busy) return;
         setBusy(true);
         try {
             const r = await api.post("/rewards/support");
             toast.success(`+${r.data.awarded} Freemium — merci pour ton soutien 💛`);
             setClaimable(false);
-            setStatus((s) => ({ ...s, ...r.data }));
+            // On ne conserve que l'état (quota, délai) : la config du gain vient du statut.
+            setStatus((s) => ({
+                ...s,
+                used_today: r.data.used_today,
+                remaining_today: r.data.remaining_today,
+                cooldown_seconds: r.data.cooldown_seconds,
+            }));
             refresh?.();
-        } catch (e) { showError(toast, e, "Récompense impossible"); }
+        } catch (e) {
+            // Échec (réseau, quota) : on propose une reprise manuelle.
+            setClaimable(true);
+            showError(toast, e, "Récompense impossible");
+        }
         finally { setBusy(false); }
     };
+    claimRef.current = claim;
 
     return (
         <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
@@ -106,9 +120,8 @@ export default function SupportWithAds() {
                 <h3 className="font-display text-xl text-white">Soutenir gratuitement</h3>
             </div>
             <p className="text-sm text-neutral-400 leading-relaxed">
-                Regarde une publicité : tu gagnes <span className="text-[#E8D2A6]">{status.coins} Freemium</span> et
-                tu finances l&apos;hébergement, sans dépenser un centime. Cumule-les pour t&apos;offrir du Premium — et
-                naviguer ensuite sans aucune publicité.
+                Regarde une publicité et finance l&apos;hébergement, sans dépenser un centime.
+                Cumule tes Freemium pour t&apos;offrir du Premium.
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -120,7 +133,7 @@ export default function SupportWithAds() {
                         className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold disabled:opacity-50"
                     >
                         {countdown > 0
-                            ? <><Loader2 size={15} className="mr-2 animate-spin" /> Encore {countdown}s…</>
+                            ? <><Loader2 size={15} className="mr-2 animate-spin" /> Crédit dans {countdown}s…</>
                             : cooldown > 0
                                 ? <>Disponible dans {formatDelay(cooldown)}</>
                                 : <><Coins size={15} className="mr-2" /> Regarder une pub</>}
@@ -132,7 +145,7 @@ export default function SupportWithAds() {
                         data-testid="support-claim-btn"
                         className="bg-emerald-500 text-black hover:bg-emerald-400 rounded-full h-11 px-6 font-semibold"
                     >
-                        <Check size={15} className="mr-2" /> Récupérer mes {status.coins} Freemium
+                        <Check size={15} className="mr-2" /> Récupérer +{status.coins} Freemium
                     </Button>
                 )}
 
@@ -143,7 +156,7 @@ export default function SupportWithAds() {
 
             <div className="mt-3 text-xs text-neutral-500">
                 {status.remaining_today > 0
-                    ? `Il te reste ${status.remaining_today} pub${status.remaining_today > 1 ? "s" : ""} aujourd'hui.`
+                    ? <>Encore <span className="text-neutral-300">{status.remaining_today}</span> publicité{status.remaining_today > 1 ? "s" : ""} possible{status.remaining_today > 1 ? "s" : ""} aujourd&apos;hui.</>
                     : "Quota du jour atteint — reviens demain."}
                 {cooldown > 0
                     ? <> Prochaine dans <span className="text-[#E8D2A6] tabular-nums">{formatDelay(cooldown)}</span>.</>

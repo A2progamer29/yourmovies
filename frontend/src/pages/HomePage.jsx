@@ -44,21 +44,32 @@ export default function HomePage() {
     const [recommendations, setRecommendations] = useState([]);
     const [removingProgressId, setRemovingProgressId] = useState(null);
     const [progressRemovalError, setProgressRemovalError] = useState("");
+    const [progressLoaded, setProgressLoaded] = useState(false);
     const rotateTimer = useRef(null);
     const [heroArrowSide, setHeroArrowSide] = useState(null);
 
     useEffect(() => {
         (async () => {
-            // 1re vague — haut de page : le hero s'affiche sans attendre les carrousels.
+            // 1re vague — haut de page : hero ET progression partent ensemble, car les
+            // deux s'affichent avant les carrousels. Sinon « Continuer à regarder »
+            // s'insère dans une page déjà en place et décale tout le contenu.
             let heroLoaded = false;
-            try {
-                const feat = await api.get("/media?featured=true&limit=10");
-                if (feat.data?.length > 0) {
-                    const feats = [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
-                    setFeatured(feats);
-                    heroLoaded = true;
-                }
-            } catch (e) { }
+            const heroCall = api.get("/media?featured=true&limit=10").catch(() => null);
+            const progressCall = user
+                ? api.get("/watch-progress", { silent: true }).catch(() => null)
+                : Promise.resolve(null);
+            const [feat, watchResult] = await Promise.all([heroCall, progressCall]);
+
+            if (feat?.data?.length > 0) {
+                const feats = [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
+                setFeatured(feats);
+                heroLoaded = true;
+            }
+
+            const watchedItems = (Array.isArray(watchResult?.data) ? watchResult.data : [])
+                .filter((item) => progressPercent(item) < CONTINUE_WATCHING_LIMIT);
+            setContinueWatching(watchedItems);
+            setProgressLoaded(true);
 
             // 2e vague — bas de page : carrousels, tendances et genres.
             try {
@@ -76,33 +87,14 @@ export default function HomePage() {
             } catch (e) { }
             try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
             try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
-            if (user) {
+            if (user && watchedItems.length > 0) {
                 try {
-                    const watchResult = await api.get("/watch-progress", { silent: true });
-                    const watchedItems = (Array.isArray(watchResult.data) ? watchResult.data : [])
-                        .filter((item) => progressPercent(item) < CONTINUE_WATCHING_LIMIT);
-                    setContinueWatching(watchedItems);
-
-                    if (watchedItems.length > 0) {
-                        try {
-                            const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
-                            setRecommendations(
-                                Array.isArray(recommendationResult.data)
-                                    ? recommendationResult.data
-                                    : []
-                            );
-                        } catch (e) {
-                            setRecommendations([]);
-                        }
-                    } else {
-                        setRecommendations([]);
-                    }
+                    const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
+                    setRecommendations(Array.isArray(recommendationResult.data) ? recommendationResult.data : []);
                 } catch (e) {
-                    setContinueWatching([]);
                     setRecommendations([]);
                 }
             } else {
-                setContinueWatching([]);
                 setRecommendations([]);
             }
         })();
@@ -205,17 +197,27 @@ export default function HomePage() {
                                 data-testid="hero-trailer-video"
                                 src={current.trailer_video_url}
                                 autoPlay muted loop playsInline
+                                controls={false}
+                                preload="auto"
+                                disablePictureInPicture
+                                controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
+                                tabIndex={-1}
                                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 min-w-full min-h-full w-auto h-auto object-cover pointer-events-none"
                             />
                         ) : showTrailerAutoplay ? (
-                            <iframe
-                                data-testid="hero-trailer-autoplay"
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-125 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"
-                                src={`https://www.youtube.com/embed/${current.trailer_youtube_id}?autoplay=1&mute=1&loop=1&controls=0&modestbranding=1&showinfo=0&rel=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&playlist=${current.trailer_youtube_id}`}
-                                title="Trailer"
-                                frameBorder="0"
-                                allow="autoplay; encrypted-media"
-                            />
+                            // Agrandi puis recadré : toute la surcouche YouTube (titre, barre de
+                            // lecture, boutons) sort du cadre visible au lieu d'être affichée.
+                            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                                <iframe
+                                    data-testid="hero-trailer-autoplay"
+                                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-150 w-[177.77vh] min-w-full h-[56.25vw] min-h-full pointer-events-none"
+                                    src={`https://www.youtube.com/embed/${current.trailer_youtube_id}?autoplay=1&mute=1&loop=1&controls=0&modestbranding=1&showinfo=0&rel=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&cc_load_policy=0&color=white&vq=hd1080&hd=1&playlist=${current.trailer_youtube_id}`}
+                                    title="Trailer"
+                                    frameBorder="0"
+                                    tabIndex={-1}
+                                    allow="autoplay; encrypted-media"
+                                />
+                            </div>
                         ) : (
                             <img
                                 src={current?.banner_url || current?.poster_url || HERO_FALLBACK}
@@ -244,11 +246,6 @@ export default function HomePage() {
                             <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6] mb-4">
                                 <Sparkles size={14} />
                                 <span>À l&apos;affiche</span>
-                                {showTrailerAutoplay && (
-                                    <span className="flex items-center gap-1 ml-2 text-[10px] bg-[#E8D2A6]/10 border border-[#E8D2A6]/30 px-2 py-0.5 rounded-full">
-                                        <Crown size={10} /> Cinéma Premium
-                                    </span>
-                                )}
                             </div>
                             {current?.title_logo_url ? (
                                 <img
@@ -326,7 +323,7 @@ export default function HomePage() {
             </section>
             )}
 
-            {user && (
+            {user && progressLoaded && (
                 <section className="max-w-7xl mx-auto px-6 mt-10" data-testid="continue-watching-section">
                     <div className="mb-6">
                         <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Votre historique</div>

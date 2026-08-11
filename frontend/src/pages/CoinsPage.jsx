@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Coins, Flame, MessageSquare, Sparkles, Crown, Check, Gift } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -8,6 +8,14 @@ import { useAuth } from "@/context/AuthContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+
+function DiscordIcon({ size = 18 }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M20.317 4.37a19.8 19.8 0 0 0-4.885-1.515.08.08 0 0 0-.079.037c-.21.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.618-1.25.08.08 0 0 0-.078-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.028C.533 9.046-.319 13.58.1 18.058a.08.08 0 0 0 .031.056c2.053 1.508 4.041 2.423 5.993 3.03a.08.08 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.08.08 0 0 0-.042-.106 12.3 12.3 0 0 1-1.872-.892.08.08 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.07.07 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.061 0a.07.07 0 0 1 .079.009c.12.1.246.198.373.292a.08.08 0 0 1-.007.128c-.598.343-1.22.645-1.873.891a.08.08 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.08.08 0 0 0 .084.029c1.961-.607 3.95-1.522 6.002-3.03a.08.08 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.06.06 0 0 0-.031-.029ZM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419s.956-2.419 2.157-2.419c1.21 0 2.176 1.095 2.157 2.419 0 1.333-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419s.955-2.419 2.157-2.419c1.21 0 2.176 1.095 2.157 2.419 0 1.333-.946 2.419-2.157 2.419Z" />
+        </svg>
+    );
+}
 
 function PlanCard({ plan, balance, busy, onRedeem }) {
     const options = plan.options || [];
@@ -179,15 +187,21 @@ export default function CoinsPage() {
                             </div>
                         ))}
                     </div>
-                    <Link
-                        to="https://discord.gg/6mGTfvcNeD"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-4 inline-flex h-11 items-center justify-center rounded-full border border-[#E8D2A6]/40 bg-[#E8D2A6]/10 px-5 text-sm font-semibold text-[#E8D2A6] transition-colors hover:border-[#E8D2A6] hover:bg-[#E8D2A6] hover:text-black"
-                        data-testid="earn-more-discord"
-                    >
-                        Vous voulez en gagner plus ? Rejoignez le Discord
-                    </Link>
+                    <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-[#262626] bg-[#0a0a0a] px-6 py-7 text-center">
+                        <div className="font-display text-xl text-white">Vous voulez en gagner plus ?</div>
+                        <p className="max-w-md text-sm text-neutral-400">
+                            Événements, giveaways et bonus Freemium sont annoncés sur le Discord.
+                        </p>
+                        <a
+                            href="https://discord.gg/6mGTfvcNeD"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid="earn-more-discord"
+                            className="mt-1 inline-flex h-12 items-center justify-center gap-2.5 rounded-full bg-[#5865F2] px-7 text-sm font-semibold text-white shadow-lg shadow-[#5865F2]/20 transition-colors hover:bg-[#4752C4]"
+                        >
+                            <DiscordIcon size={18} /> Rejoindre le Discord
+                        </a>
+                    </div>
                 </div>
 
                 {user && (

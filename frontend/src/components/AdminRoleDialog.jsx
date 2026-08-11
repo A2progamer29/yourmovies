@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PERM_GROUPS, ROLE_PRESETS, PRESET_LABELS } from "@/lib/perms";
 
 export default function AdminRoleDialog({ user, open, onOpenChange, onDone }) {
@@ -39,6 +39,7 @@ export default function AdminRoleDialog({ user, open, onOpenChange, onDone }) {
                     <DialogTitle className="font-display text-2xl flex items-center gap-2">
                         <Shield size={18} className="text-[#E8D2A6]" /> Permissions
                     </DialogTitle>
+                    <DialogDescription className="sr-only">Choisissez les permissions accordées à cet administrateur.</DialogDescription>
                 </DialogHeader>
                 <p className="text-sm text-neutral-400 -mt-1">
                     Pour <span className="text-white">{user.name}</span>
