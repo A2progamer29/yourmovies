@@ -229,7 +229,7 @@ function EpisodeSelectorOverlay({
                                 })}
                             </div>
 
-                            <ul className="mt-4 divide-y divide-[#1a1a1a] border-t border-[#1a1a1a]">
+                            <ul className="mt-4 max-h-[38vh] divide-y divide-[#1a1a1a] overflow-y-auto border-t border-[#1a1a1a] pr-1 [scrollbar-color:#3a3a3a_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#3a3a3a] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:bg-transparent">
                                 {seasonEpisodes.map((episode) => {
                                     const playable = Boolean(episode.bunny_video_id || episode.video_url || episode.video_file_path);
                                     const isActive = selectedEpisode?._key === episode._key;
@@ -271,7 +271,7 @@ function EpisodeSelectorOverlay({
                                                         {progress >= 95 && <span className="text-neutral-400">Terminé</span>}
                                                         {!playable && <span>Bientôt</span>}
                                                     </span>
-                                                    {progress > 0 && (
+                                                    {isActive && progress > 0 && (
                                                         <span className="mt-2 block h-0.5 w-full overflow-hidden rounded-full bg-white/10">
                                                             <span className="block h-full bg-[#E8D2A6]" style={{ width: progress + "%" }} />
                                                         </span>
