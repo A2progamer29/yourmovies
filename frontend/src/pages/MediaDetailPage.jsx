@@ -358,7 +358,7 @@ export default function MediaDetailPage() {
                                                             <Link
                                                                 to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}`}
                                                                 data-testid={`episode-play-${seasonNo}-${epNo}`}
-                                                                className="group -mx-3 flex items-center justify-between gap-4 rounded-xl px-4 py-5 transition-colors hover:bg-white/[0.05]"
+                                                                className="group -mx-3 flex items-center justify-between gap-4 border-l-2 border-transparent px-4 py-5 transition-[border-color,padding] duration-200 hover:border-[#E8D2A6] hover:pl-6"
                                                             >
                                                                 <span className="flex min-w-0 items-center gap-3">
                                                                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#262626] text-neutral-400 transition-colors group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black">

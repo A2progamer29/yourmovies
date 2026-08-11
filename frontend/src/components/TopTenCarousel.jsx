@@ -17,11 +17,11 @@ function TopTenItem({ media, rank }) {
       className="group shrink-0 snap-start select-none rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8D2A6] focus-visible:ring-offset-4 focus-visible:ring-offset-[#050505]"
     >
       <div className="flex items-end">
-        {/* Le rang reste hors de l'affiche : elle garde son format et sa lisibilité. */}
+        {/* Chiffre plein et entièrement visible : un contour fin produisait des
+            bords crénelés, et le chevauchement masquait une partie du rang. */}
         <span
           aria-hidden="true"
-          className="pointer-events-none -mr-5 font-display leading-[0.75] text-[7rem] tracking-tighter text-[#131313] transition-colors duration-300 group-hover:text-[#1c1710] sm:-mr-7 sm:text-[9rem]"
-          style={{ WebkitTextStroke: "1px rgba(232,210,166,0.35)" }}
+          className="pointer-events-none mr-2 shrink-0 font-display leading-[0.72] text-[4.5rem] tabular-nums tracking-tighter text-[#E8D2A6]/35 transition-colors duration-300 group-hover:text-[#E8D2A6]/70 sm:mr-3 sm:text-[6rem]"
         >
           {rank}
         </span>
