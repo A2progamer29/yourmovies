@@ -106,10 +106,28 @@ export default function SupportWithAds() {
                 <h3 className="font-display text-xl text-white">Soutenir gratuitement</h3>
             </div>
             <p className="text-sm text-neutral-400 leading-relaxed">
-                Regarde une publicité : tu gagnes <span className="text-[#E8D2A6]">{status.coins} Freemium</span> et
-                tu finances l&apos;hébergement, sans dépenser un centime. Cumule-les pour t&apos;offrir du Premium — et
-                naviguer ensuite sans aucune publicité.
+                Regarde une publicité et finance l&apos;hébergement, sans dépenser un centime.
+                Cumule tes Freemium pour t&apos;offrir du Premium — et naviguer ensuite sans aucune publicité.
             </p>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-[#E8D2A6]/30 bg-[#171208] px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Gain par publicité</div>
+                    <div className="mt-0.5 font-display text-xl text-[#E8D2A6]">+{status.coins} Freemium</div>
+                </div>
+                <div className="rounded-xl border border-[#262626] bg-[#111] px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Aujourd&apos;hui</div>
+                    <div className="mt-0.5 font-display text-xl text-white tabular-nums">
+                        {status.used_today ?? 0} <span className="text-sm text-neutral-500">/ {status.daily_max} pubs</span>
+                    </div>
+                </div>
+                <div className="rounded-xl border border-[#262626] bg-[#111] px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Maximum par jour</div>
+                    <div className="mt-0.5 font-display text-xl text-white tabular-nums">
+                        {Math.round(status.coins * status.daily_max * 10) / 10} <span className="text-sm text-neutral-500">Freemium</span>
+                    </div>
+                </div>
+            </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
                 {!claimable ? (
@@ -132,7 +150,7 @@ export default function SupportWithAds() {
                         data-testid="support-claim-btn"
                         className="bg-emerald-500 text-black hover:bg-emerald-400 rounded-full h-11 px-6 font-semibold"
                     >
-                        <Check size={15} className="mr-2" /> Récupérer mes {status.coins} Freemium
+                        <Check size={15} className="mr-2" /> Récupérer +{status.coins} Freemium
                     </Button>
                 )}
 
@@ -143,7 +161,7 @@ export default function SupportWithAds() {
 
             <div className="mt-3 text-xs text-neutral-500">
                 {status.remaining_today > 0
-                    ? `Il te reste ${status.remaining_today} pub${status.remaining_today > 1 ? "s" : ""} aujourd'hui.`
+                    ? <>Encore <span className="text-neutral-300">{status.remaining_today}</span> publicité{status.remaining_today > 1 ? "s" : ""} possible{status.remaining_today > 1 ? "s" : ""} aujourd&apos;hui.</>
                     : "Quota du jour atteint — reviens demain."}
                 {cooldown > 0
                     ? <> Prochaine dans <span className="text-[#E8D2A6] tabular-nums">{formatDelay(cooldown)}</span>.</>
