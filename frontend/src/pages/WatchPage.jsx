@@ -833,13 +833,8 @@ export default function WatchPage() {
                                 />
                             )}
 
-                        {/* Participant d'une Watch Party : la lecture appartient à l'hôte,
-                            on neutralise les commandes du lecteur. */}
                         {partyOpen && !isPartyHost && (
-                            <div
-                                className="absolute inset-x-0 top-0 bottom-[60px] z-30 flex items-start justify-center"
-                                data-testid="party-guest-shield"
-                            >
+                            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center" data-testid="party-guest-hint">
                                 <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
                                     Lecture contrôlée par l&apos;hôte
                                 </span>

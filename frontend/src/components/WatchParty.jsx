@@ -51,6 +51,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
     const [pauseRequest, setPauseRequest] = useState(null);
     const [pauseAsked, setPauseAsked] = useState(false);
     const [fatal, setFatal] = useState(null);
+    const [playerReady, setPlayerReady] = useState(false);
     const wsRef = useRef(null);
     const pausedRef = useRef(true);
     const lastStateRef = useRef(null);
@@ -139,34 +140,31 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             : 0;
         const target = Number(state.position_seconds || 0) + elapsed;
         const current = await c.time();
-        if (Math.abs(current - target) > 0.8) c.seek(target);
+        // Seuil volontairement large : corriger de petits ecarts en continu
+        // rendrait la lecture saccadee.
+        if (Math.abs(current - target) > 1.5) c.seek(target);
         if (state.playing) c.play(); else c.pause();
     };
 
-    // L'hôte publie son état ; un participant est au contraire réaligné sur l'hôte.
+    // Le lecteur (surtout l'iframe Bunny) n'est pas prêt au montage : sans cette
+    // détection, l'hôte ne publiait jamais rien et il fallait recharger la page.
+    useEffect(() => {
+        const probe = setInterval(() => setPlayerReady(Boolean(ctl())), 500);
+        return () => clearInterval(probe);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Seul l'hôte publie. Les participants ne s'écoutent pas eux-mêmes : ils sont
+    // réalignés à la réception d'un « sync », ce qui évite toute boucle de
+    // repositionnement (c'était la cause des saccades).
     useEffect(() => {
         const c = ctl();
-        if (!c) return undefined;
+        if (!c || !isHost) return undefined;
 
         const markPaused = () => { pausedRef.current = true; };
         const markPlaying = () => { pausedRef.current = false; };
         c.on("pause", markPaused);
         c.on("play", markPlaying);
-
-        if (!isHost) {
-            // Toute action locale d'un participant est annulée : la lecture
-            // appartient à l'hôte. On réapplique le dernier état connu.
-            const realign = () => { if (lastStateRef.current) applyState(lastStateRef.current); };
-            c.on("pause", realign);
-            c.on("play", realign);
-            c.on("seeked", realign);
-            const guard = setInterval(realign, 2000);
-            return () => {
-                c.off("pause", markPaused); c.off("play", markPlaying);
-                c.off("pause", realign); c.off("play", realign); c.off("seeked", realign);
-                clearInterval(guard);
-            };
-        }
 
         const push = async () => {
             if (wsRef.current?.readyState !== 1) return;
@@ -181,13 +179,23 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         c.on("pause", push);
         c.on("seeked", push);
         const interval = setInterval(push, 2000);
+        push();
         return () => {
             c.off("pause", markPaused); c.off("play", markPlaying);
             c.off("play", push); c.off("pause", push); c.off("seeked", push);
             clearInterval(interval);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isHost, connected]);
+    }, [isHost, connected, playerReady]);
+
+    // Un participant dont le lecteur vient d'être prêt réclame l'état courant :
+    // l'état reçu à l'arrivée dans le salon était perdu si l'iframe n'existait
+    // pas encore, et il fallait recharger la page pour se resynchroniser.
+    useEffect(() => {
+        if (isHost || !playerReady || !connected) return;
+        if (wsRef.current?.readyState !== 1) return;
+        wsRef.current.send(JSON.stringify({ type: "request_state" }));
+    }, [isHost, playerReady, connected]);
 
     // L'hôte annonce le changement d'épisode : tout le salon suit.
     useEffect(() => {
