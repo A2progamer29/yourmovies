@@ -113,12 +113,8 @@ export default function SupportWithAds() {
             </div>
             <p className="text-sm text-neutral-400 leading-relaxed">
                 Regarde une publicité et finance l&apos;hébergement, sans dépenser un centime.
-                Cumule tes Freemium pour t&apos;offrir du Premium — et naviguer ensuite sans aucune publicité.
+                Cumule tes Freemium pour t&apos;offrir du Premium.
             </p>
-
-            <div className="mt-3 text-sm text-neutral-400 tabular-nums">
-                {status.used_today ?? 0} / {status.daily_max} aujourd&apos;hui
-            </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
                 {!claimable ? (
