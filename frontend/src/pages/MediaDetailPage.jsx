@@ -332,17 +332,51 @@ export default function MediaDetailPage() {
                                         </AccordionTrigger>
                                         <AccordionContent>
                                             <ul className="divide-y divide-[#1a1a1a] mt-2">
-                                                {(s.episodes || []).map((ep, j) => (
-                                                    <li key={j} className="py-3 flex items-center justify-between gap-4">
-                                                        <div>
-                                                            <div className="text-white">
-                                                                <span className="text-neutral-500 mr-3">E{ep.ep_number || j + 1}</span>
-                                                                {ep.title || "Épisode"}
-                                                            </div>
-                                                            {ep.duration && <div className="text-xs text-neutral-500 mt-0.5">{ep.duration} min</div>}
-                                                        </div>
-                                                    </li>
-                                                ))}
+                                                {(s.episodes || []).map((ep, j) => {
+                                                    const seasonNo = s.season_number || i + 1;
+                                                    const epNo = ep.ep_number || j + 1;
+                                                    const playable = Boolean(ep.bunny_video_id || ep.video_url || ep.video_file_path);
+                                                    const label = ep.title || "Épisode";
+
+                                                    if (!playable) {
+                                                        return (
+                                                            <li key={j} className="py-3 flex items-center justify-between gap-4 opacity-60">
+                                                                <div>
+                                                                    <div className="text-neutral-300">
+                                                                        <span className="text-neutral-500 mr-3">E{epNo}</span>
+                                                                        {label}
+                                                                    </div>
+                                                                    {ep.duration && <div className="text-xs text-neutral-500 mt-0.5">{ep.duration} min</div>}
+                                                                </div>
+                                                                <span className="shrink-0 text-[11px] text-neutral-500">Bientôt</span>
+                                                            </li>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <li key={j}>
+                                                            <Link
+                                                                to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}`}
+                                                                data-testid={`episode-play-${seasonNo}-${epNo}`}
+                                                                className="group -mx-2 flex items-center justify-between gap-4 rounded-lg px-2 py-3 transition-colors hover:bg-white/[0.04]"
+                                                            >
+                                                                <span className="flex min-w-0 items-center gap-3">
+                                                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#262626] text-neutral-400 transition-colors group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black">
+                                                                        <Play size={13} fill="currentColor" />
+                                                                    </span>
+                                                                    <span className="min-w-0">
+                                                                        <span className="block text-white transition-colors group-hover:text-[#E8D2A6]">
+                                                                            <span className="text-neutral-500 mr-3">E{epNo}</span>
+                                                                            {label}
+                                                                        </span>
+                                                                        {ep.duration && <span className="block text-xs text-neutral-500 mt-0.5">{ep.duration} min</span>}
+                                                                    </span>
+                                                                </span>
+                                                                <span className="shrink-0 text-[11px] text-neutral-600 transition-colors group-hover:text-[#E8D2A6]">Regarder</span>
+                                                            </Link>
+                                                        </li>
+                                                    );
+                                                })}
                                             </ul>
                                         </AccordionContent>
                                     </AccordionItem>
