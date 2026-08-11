@@ -18,6 +18,7 @@ export default function SupportWithAds() {
     const [busy, setBusy] = useState(false);
     const timerRef = useRef(null);
     const cooldownRef = useRef(null);
+    const claimRef = useRef(null);
 
     const formatDelay = (total) => {
         const m = Math.floor(total / 60);
@@ -79,7 +80,8 @@ export default function SupportWithAds() {
             setCountdown((c) => {
                 if (c <= 1) {
                     clearInterval(timerRef.current);
-                    setClaimable(true);
+                    // Crédit automatique : plus besoin d'un second clic.
+                    claimRef.current?.();
                     return 0;
                 }
                 return c - 1;
@@ -88,6 +90,7 @@ export default function SupportWithAds() {
     };
 
     const claim = async () => {
+        if (busy) return;
         setBusy(true);
         try {
             const r = await api.post("/rewards/support");
@@ -101,9 +104,14 @@ export default function SupportWithAds() {
                 cooldown_seconds: r.data.cooldown_seconds,
             }));
             refresh?.();
-        } catch (e) { showError(toast, e, "Récompense impossible"); }
+        } catch (e) {
+            // Échec (réseau, quota) : on propose une reprise manuelle.
+            setClaimable(true);
+            showError(toast, e, "Récompense impossible");
+        }
         finally { setBusy(false); }
     };
+    claimRef.current = claim;
 
     return (
         <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
@@ -125,7 +133,7 @@ export default function SupportWithAds() {
                         className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold disabled:opacity-50"
                     >
                         {countdown > 0
-                            ? <><Loader2 size={15} className="mr-2 animate-spin" /> Encore {countdown}s…</>
+                            ? <><Loader2 size={15} className="mr-2 animate-spin" /> Crédit dans {countdown}s…</>
                             : cooldown > 0
                                 ? <>Disponible dans {formatDelay(cooldown)}</>
                                 : <><Coins size={15} className="mr-2" /> Regarder une pub</>}
