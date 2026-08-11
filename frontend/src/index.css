@@ -23,6 +23,10 @@ html,
 body {
     margin: 0;
     padding: 0;
+    /* Aucun débordement horizontal : il décalait les fenêtres modales
+       (positionnées par rapport à la fenêtre) sur mobile. */
+    overflow-x: hidden;
+    max-width: 100%;
     background: var(--background);
     color: var(--text-main);
     font-family: 'Manrope', system-ui, -apple-system, sans-serif;

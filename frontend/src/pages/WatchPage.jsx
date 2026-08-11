@@ -653,10 +653,11 @@ export default function WatchPage() {
         } catch (e) { showError(toast, e, "Impossible de créer le salon"); }
     };
 
-    const joinParty = () => {
+    const joinParty = (rawCode) => {
         if (!user) { navigate("/login"); return; }
-        if (!joinInput.trim()) return;
-        const code = joinInput.trim().toUpperCase();
+        const source = typeof rawCode === "string" ? rawCode : joinInput;
+        if (!source.trim()) return;
+        const code = source.trim().toUpperCase();
         setPartyCode(code);
         setPartyOpen(true);
         const next = new URLSearchParams(searchParams);
@@ -731,18 +732,27 @@ export default function WatchPage() {
                                 >
                                     <Users size={14} className="mr-2" /> {user ? "Watch Party" : "Se connecter pour une Watch Party"}
                                 </Button>
-                                <div className="flex items-center gap-2">
+                                {/* Code à 6 caractères : dès qu'il est complet, on entre dans
+                                    le salon. Évite un bouton « Rejoindre » hors écran sur mobile. */}
+                                <div className="relative w-full sm:w-48">
                                     <Input
                                         data-testid="party-join-input"
                                         value={joinInput}
-                                        onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
-                                        placeholder="Code"
+                                        onChange={(e) => {
+                                            const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+                                            setJoinInput(value);
+                                            if (value.length === 6) joinParty(value);
+                                        }}
+                                        onKeyDown={(e) => { if (e.key === "Enter") joinParty(); }}
+                                        placeholder="Code du salon"
+                                        inputMode="text"
+                                        autoComplete="off"
                                         maxLength={6}
-                                        className="bg-[#111] border-[#262626] text-white w-40 tracking-widest uppercase"
+                                        className="h-10 w-full bg-[#111] border-[#262626] pr-16 text-white tracking-[0.3em] uppercase placeholder:tracking-normal"
                                     />
-                                    <Button variant="outline" onClick={joinParty} data-testid="party-join-btn" className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full h-10 px-4">
-                                        Rejoindre
-                                    </Button>
+                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] tabular-nums text-neutral-500">
+                                        {joinInput.length}/6
+                                    </span>
                                 </div>
                             </>
                         ) : null}

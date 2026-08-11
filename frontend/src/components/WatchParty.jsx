@@ -22,6 +22,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
     const [connected, setConnected] = useState(false);
     const [pauseRequest, setPauseRequest] = useState(null);
     const [pauseAsked, setPauseAsked] = useState(false);
+    const [fatal, setFatal] = useState(null);
     const wsRef = useRef(null);
     const listRef = useRef(null);
 
@@ -30,7 +31,13 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         const wsProto = backend.startsWith("https") ? "wss" : "ws";
         const wsBase = backend.replace(/^https?:\/\//, "");
         const url = `${wsProto}://${wsBase}/api/party/${code}/ws`;
-        const ws = new WebSocket(url);
+        let stopped = false;
+        let attempt = 0;
+        let retryTimer = null;
+        let ws;
+
+        const connect = () => {
+        ws = new WebSocket(url);
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -38,16 +45,30 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                 ws.close(4401, "Authentification requise");
                 return;
             }
+            attempt = 0;
             ws.send(JSON.stringify({ type: "auth", token, profile: profileId || null }));
             setConnected(true);
         };
-        ws.onclose = () => setConnected(false);
+        // Reconnexion automatique : sans elle, un simple redemarrage du serveur
+        // coupait le salon definitivement jusqu'au rechargement de la page.
+        ws.onclose = (event) => {
+            setConnected(false);
+            if (stopped) return;
+            if ([4401, 4403, 4404].includes(event?.code)) {
+                setFatal(event.code === 4404 ? "Ce salon n'existe plus." : "Accès au salon refusé.");
+                return;
+            }
+            attempt += 1;
+            if (attempt > 8) return;
+            retryTimer = window.setTimeout(connect, Math.min(8000, 800 * attempt));
+        };
         ws.onerror = () => setConnected(false);
 
         ws.onmessage = (ev) => {
             let data;
             try { data = JSON.parse(ev.data); } catch { return; }
             if (data.type === "hello") {
+                setFatal(null);
                 setIsHost(!!data.you?.is_host);
                 if (data.state && videoRef?.current && !data.you?.is_host) {
                     applyState(data.state);
@@ -64,7 +85,14 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             }
         };
 
-        return () => { try { ws.close(); } catch { } };
+        };
+
+        connect();
+        return () => {
+            stopped = true;
+            if (retryTimer) window.clearTimeout(retryTimer);
+            try { ws?.close(); } catch { }
+        };
         // eslint-disable-next-line
     }, [code]);
 
@@ -141,8 +169,12 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
                         <span data-testid="party-code" className="font-display text-2xl tracking-widest text-white">{code}</span>
                         <button onClick={copyCode} data-testid="copy-party-code" className="text-neutral-500 hover:text-[#E8D2A6]"><Copy size={12} /></button>
                     </div>
-                    <div className="text-[10px] text-neutral-500 mt-1">
-                        {connected ? "Connecté" : "Reconnexion..."} · {isHost ? "Vous êtes l'hôte" : "Participant"}
+                    <div className="text-[10px] mt-1">
+                        {fatal
+                            ? <span className="text-red-400">{fatal}</span>
+                            : <span className="text-neutral-500">
+                                {connected ? "Connecté" : "Reconnexion…"} · {isHost ? "Vous êtes l'hôte" : "Participant"}
+                            </span>}
                     </div>
                 </div>
                 <button onClick={onClose} data-testid="close-party" className="text-neutral-400 hover:text-red-400"><X size={16} /></button>

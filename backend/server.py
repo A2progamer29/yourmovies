@@ -4446,6 +4446,45 @@ class Party:
                 self.connections.remove(d)
 
 PARTIES: dict = {}
+PARTY_TTL_HOURS = 12
+_party_state_saved: dict = {}
+
+async def _load_party(code: str) -> Optional["Party"]:
+    """Un salon vit en mémoire, mais il est aussi persisté : sans cela, tout
+    redéploiement ou mise en veille du serveur le ferait disparaître et
+    personne ne pourrait plus rejoindre."""
+    party = PARTIES.get(code)
+    if party:
+        return party
+    doc = await db.parties.find_one({"code": code}, {"_id": 0})
+    if not doc:
+        return None
+    created = doc.get("created_at")
+    try:
+        dt = datetime.fromisoformat(created) if isinstance(created, str) else created
+        if dt and dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if dt and (datetime.now(timezone.utc) - dt) > timedelta(hours=PARTY_TTL_HOURS):
+            await db.parties.delete_one({"code": code})
+            return None
+    except Exception:
+        pass
+    party = Party(code=code, media_id=doc.get("media_id", ""), host_id=doc.get("host_id", ""))
+    if isinstance(doc.get("state"), dict):
+        party.state = doc["state"]
+    PARTIES[code] = party
+    return party
+
+async def _persist_party_state(party: "Party") -> None:
+    """Sauvegarde throttlée : la position bouge toutes les 2 s côté hôte."""
+    now = time.time()
+    if now - _party_state_saved.get(party.code, 0) < 5:
+        return
+    _party_state_saved[party.code] = now
+    try:
+        await db.parties.update_one({"code": party.code}, {"$set": {"state": party.state}})
+    except Exception:
+        pass
 
 class PartyCreateInput(BaseModel):
     media_id: str
@@ -4453,14 +4492,22 @@ class PartyCreateInput(BaseModel):
 @api_router.post("/party/create")
 async def create_party(inp: PartyCreateInput, user: dict = Depends(get_current_user)):
     code = uuid.uuid4().hex[:6].upper()
-    while code in PARTIES:
+    while code in PARTIES or await db.parties.find_one({"code": code}, {"_id": 0, "code": 1}):
         code = uuid.uuid4().hex[:6].upper()
-    PARTIES[code] = Party(code=code, media_id=inp.media_id, host_id=user["user_id"])
+    party = Party(code=code, media_id=inp.media_id, host_id=user["user_id"])
+    PARTIES[code] = party
+    await db.parties.insert_one({
+        "code": code,
+        "media_id": inp.media_id,
+        "host_id": user["user_id"],
+        "state": party.state,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
     return {"code": code, "media_id": inp.media_id}
 
 @api_router.get("/party/{code}")
 async def get_party(code: str, user: dict = Depends(get_current_user)):
-    party = PARTIES.get(code.upper())
+    party = await _load_party(code.upper())
     if not party:
         raise HTTPException(status_code=404, detail="Salon introuvable")
     return {
@@ -4477,7 +4524,7 @@ def _party_participants(party: "Party") -> list:
 @app.websocket("/api/party/{code}/ws")
 async def party_ws(websocket: WebSocket, code: str):
     code = code.upper()
-    party = PARTIES.get(code)
+    party = await _load_party(code)
     if not party:
         await websocket.close(code=4404)
         return
@@ -4554,6 +4601,7 @@ async def party_ws(websocket: WebSocket, code: str):
                         "updated_at": datetime.now(timezone.utc).timestamp(),
                     }
                     await party.broadcast({"type": "sync", "state": party.state}, exclude_ws=websocket)
+                    await _persist_party_state(party)
             elif t == "chat":
                 text = str(data.get("text", ""))[:500]
                 if text.strip():
