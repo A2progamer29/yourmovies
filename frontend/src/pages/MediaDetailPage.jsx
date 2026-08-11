@@ -340,7 +340,7 @@ export default function MediaDetailPage() {
 
                                                     if (!playable) {
                                                         return (
-                                                            <li key={j} className="py-3 flex items-center justify-between gap-4 opacity-60">
+                                                            <li key={j} className="py-5 px-1 flex items-center justify-between gap-4 opacity-60">
                                                                 <div>
                                                                     <div className="text-neutral-300">
                                                                         <span className="text-neutral-500 mr-3">E{epNo}</span>
@@ -358,11 +358,11 @@ export default function MediaDetailPage() {
                                                             <Link
                                                                 to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}`}
                                                                 data-testid={`episode-play-${seasonNo}-${epNo}`}
-                                                                className="group -mx-2 flex items-center justify-between gap-4 rounded-lg px-2 py-3 transition-colors hover:bg-white/[0.04]"
+                                                                className="group -mx-3 flex items-center justify-between gap-4 rounded-xl px-4 py-5 transition-colors hover:bg-white/[0.05]"
                                                             >
                                                                 <span className="flex min-w-0 items-center gap-3">
-                                                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#262626] text-neutral-400 transition-colors group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black">
-                                                                        <Play size={13} fill="currentColor" />
+                                                                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#262626] text-neutral-400 transition-colors group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black">
+                                                                        <Play size={15} fill="currentColor" />
                                                                     </span>
                                                                     <span className="min-w-0">
                                                                         <span className="block text-white transition-colors group-hover:text-[#E8D2A6]">
