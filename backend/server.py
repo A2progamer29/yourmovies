@@ -2384,7 +2384,9 @@ async def support_reward_claim(user: dict = Depends(get_current_user)):
         "Tu as soutenu YourMovie's en regardant une publicité.",
     )
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    return {"awarded": cfg["coins"], "coins": balance, **_reward_state(fresh or user, cfg)}
+    # « balance » et non « coins » : côté client, « coins » désigne le gain par
+    # publicité (config) — les confondre affichait le solde comme un gain.
+    return {"awarded": cfg["coins"], "balance": balance, **_reward_state(fresh or user, cfg)}
 
 # ---------- Freemium : gains & achat ----------
 @api_router.post("/rewards/daily")

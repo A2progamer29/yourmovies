@@ -93,7 +93,13 @@ export default function SupportWithAds() {
             const r = await api.post("/rewards/support");
             toast.success(`+${r.data.awarded} Freemium — merci pour ton soutien 💛`);
             setClaimable(false);
-            setStatus((s) => ({ ...s, ...r.data }));
+            // On ne conserve que l'état (quota, délai) : la config du gain vient du statut.
+            setStatus((s) => ({
+                ...s,
+                used_today: r.data.used_today,
+                remaining_today: r.data.remaining_today,
+                cooldown_seconds: r.data.cooldown_seconds,
+            }));
             refresh?.();
         } catch (e) { showError(toast, e, "Récompense impossible"); }
         finally { setBusy(false); }
@@ -110,23 +116,10 @@ export default function SupportWithAds() {
                 Cumule tes Freemium pour t&apos;offrir du Premium — et naviguer ensuite sans aucune publicité.
             </p>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-[#E8D2A6]/30 bg-[#171208] px-4 py-3">
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Gain par publicité</div>
-                    <div className="mt-0.5 font-display text-xl text-[#E8D2A6]">+{status.coins} Freemium</div>
-                </div>
-                <div className="rounded-xl border border-[#262626] bg-[#111] px-4 py-3">
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Aujourd&apos;hui</div>
-                    <div className="mt-0.5 font-display text-xl text-white tabular-nums">
-                        {status.used_today ?? 0} <span className="text-sm text-neutral-500">/ {status.daily_max} pubs</span>
-                    </div>
-                </div>
-                <div className="rounded-xl border border-[#262626] bg-[#111] px-4 py-3">
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Maximum par jour</div>
-                    <div className="mt-0.5 font-display text-xl text-white tabular-nums">
-                        {Math.round(status.coins * status.daily_max * 10) / 10} <span className="text-sm text-neutral-500">Freemium</span>
-                    </div>
-                </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="text-[#E8D2A6] font-medium">+{status.coins} Freemium par publicité</span>
+                <span className="text-neutral-600">·</span>
+                <span className="text-neutral-400 tabular-nums">{status.used_today ?? 0} / {status.daily_max} aujourd&apos;hui</span>
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
