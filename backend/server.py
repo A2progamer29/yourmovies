@@ -4746,7 +4746,12 @@ async def party_ws(websocket: WebSocket, code: str):
 # ---------- Root ----------
 @api_router.get("/")
 async def root():
-    return {"message": "YourMovie's API"}
+    # Repère de version : sans lui, impossible de savoir depuis l'extérieur
+    # quelle révision tourne réellement sur l'hébergeur.
+    return {
+        "message": "YourMovie's API",
+        "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7],
+    }
 
 # ---------- Discord integration ----------
 try:
