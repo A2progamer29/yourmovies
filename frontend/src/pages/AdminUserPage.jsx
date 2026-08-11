@@ -220,8 +220,11 @@ export default function AdminUserPage() {
                                     <div className="mb-1.5 flex items-center justify-between gap-3 text-[11px] text-neutral-500">
                                         <span className="flex items-center gap-1"><Clock3 size={11} /> Progression</span>
                                         <span>
-                                            {formatPlaybackTime(watchActivity.position_seconds)}
+                                            {watchActivity.position_seconds > 0
+                                                ? formatPlaybackTime(watchActivity.position_seconds)
+                                                : "démarrage…"}
                                             {watchActivity.duration_seconds > 0 ? ` / ${formatPlaybackTime(watchActivity.duration_seconds)}` : ""}
+                                            {watchActivity.progress_percent != null ? ` · ${watchActivity.progress_percent}%` : ""}
                                         </span>
                                     </div>
                                     <div className="h-1.5 overflow-hidden rounded-full bg-[#1d1d1d]">

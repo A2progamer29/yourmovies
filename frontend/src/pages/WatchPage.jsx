@@ -518,6 +518,27 @@ export default function WatchPage() {
             saveProgress(position, knownDuration || null);
         };
 
+        // Repli : si l'API Bunny est indisponible (script tiers bloqué par une
+        // extension, réseau filtré…), on estime la progression au temps écoulé
+        // pendant que l'onglet est visible. Moins précis, mais évite de perdre
+        // totalement la reprise de lecture.
+        let fallbackTimer = null;
+        const startFallbackTracking = () => {
+            if (disposed || fallbackTimer) return;
+            const startedAt = Date.now();
+            const base = Number(resumeAt) || 0;
+            const mediaMinutes = media?.type === "movie"
+                ? media?.duration_minutes
+                : (selectedEpisode?.duration_minutes ?? selectedEpisode?.duration);
+            const estimatedDuration = Number(mediaMinutes) > 0 ? Number(mediaMinutes) * 60 : 0;
+            fallbackTimer = window.setInterval(() => {
+                if (disposed || document.visibilityState !== "visible") return;
+                const position = base + (Date.now() - startedAt) / 1000;
+                if (estimatedDuration > 0 && position > estimatedDuration) return;
+                saveProgress(position, estimatedDuration || null);
+            }, PROGRESS_SAVE_INTERVAL_MS);
+        };
+
         loadBunnyPlayerApi()
             .then((playerjs) => {
                 if (disposed || !bunnyIframeRef.current) return;
@@ -536,13 +557,20 @@ export default function WatchPage() {
                 on("ended", () => {
                     if (knownDuration > 0) persistProgress(knownDuration, knownDuration, true);
                 });
+                // L'API répond mais n'émet aucun « timeupdate » : on bascule aussi.
+                window.setTimeout(() => {
+                    if (!disposed && bunnyLastProgressSave.current === 0) startFallbackTracking();
+                }, 45_000);
             })
             .catch(() => {
-                // La lecture reste disponible même si l'API de suivi Bunny est indisponible.
+                // La lecture reste disponible même si l'API de suivi Bunny est
+                // indisponible : on bascule sur l'estimation par temps écoulé.
+                startFallbackTracking();
             });
 
         return () => {
             disposed = true;
+            if (fallbackTimer) window.clearInterval(fallbackTimer);
             // L'iframe peut déjà avoir quitté le DOM (porte pub, changement d'épisode) :
             // player.off() ferait alors un postMessage sur un contentWindow null.
             if (player?.off) {
@@ -551,7 +579,8 @@ export default function WatchPage() {
                 });
             }
         };
-    }, [user, bunnyPlaybackUrl, saveProgress]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, bunnyPlaybackUrl, saveProgress, resumeAt]);
 
     const markEmbeddedPlaybackStarted = useCallback(async () => {
         if (!user || !media) return;
