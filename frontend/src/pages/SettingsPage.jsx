@@ -111,6 +111,7 @@ export default function SettingsPage() {
             formReady.current = true;
             setForm(nextForm);
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user?.user_id]);
 
     useEffect(() => {
@@ -173,6 +174,7 @@ export default function SettingsPage() {
         }, changedFields.some((field) => field === "name" || field === "bio") ? 650 : 80);
 
         return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [form, user?.user_id, user?.premium]);
 
     useEffect(() => {
@@ -214,6 +216,7 @@ export default function SettingsPage() {
             active = false;
             window.clearInterval(timer);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, user?.user_id, user?.discord_linked]);
 
     useEffect(() => {
@@ -244,6 +247,7 @@ export default function SettingsPage() {
             window.clearInterval(timer);
             document.removeEventListener("visibilitychange", onVisibilityChange);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, user?.user_id, user?.discord_linked, refresh]);
 
     if (loading) return null;

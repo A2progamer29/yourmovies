@@ -464,6 +464,7 @@ export default function WatchPage() {
                 } catch (e) { }
             }
         })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, user]);
 
     const saveProgress = useCallback(async (pos, dur) => {
