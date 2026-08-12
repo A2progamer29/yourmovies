@@ -31,6 +31,7 @@ export const PERM_GROUPS = [
         perms: [
             { id: "reviews.moderate", label: "Modérer les commentaires" },
             { id: "announcements.manage", label: "Publier des annonces" },
+            { id: "polls.manage", label: "Gérer les sondages" },
         ],
     },
     {

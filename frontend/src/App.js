@@ -22,6 +22,7 @@ import SubscriptionPage from "@/pages/SubscriptionPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import WishboardPage from "@/pages/WishboardPage";
+import PollsPage from "@/pages/PollsPage";
 import CoinsPage from "@/pages/CoinsPage";
 import CagnottePage from "@/pages/CagnottePage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
@@ -74,6 +75,7 @@ function AppRouter() {
             <Route path="/profiles" element={<ProfilesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/wishboard" element={<WishboardPage />} />
+            <Route path="/sondages" element={<PollsPage />} />
             <Route path="/coins" element={<CoinsPage />} />
             <Route path="/cagnotte" element={<CagnottePage />} />
             <Route path="/u/:id" element={<PublicProfilePage />} />

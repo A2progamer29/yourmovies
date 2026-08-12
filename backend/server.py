@@ -467,7 +467,7 @@ ALL_PERMS = [
     "content.add", "content.edit", "content.delete",
     "wishboard.view", "wishboard.approve", "wishboard.moderate",
     "users.view", "users.block", "users.edit", "users.delete", "users.premium", "users.coins",
-    "reviews.moderate", "announcements.manage",
+    "reviews.moderate", "announcements.manage", "polls.manage",
     "pricing.manage", "ads.manage", "cagnotte.manage", "keys.manage",
     "roles.manage",
 ]
@@ -478,7 +478,7 @@ ROLE_PRESETS = {
         "content.add", "content.edit",
         "wishboard.view", "wishboard.approve", "wishboard.moderate",
         "users.view", "users.block", "users.coins",
-        "reviews.moderate", "announcements.manage",
+        "reviews.moderate", "announcements.manage", "polls.manage",
     ],
     "super": list(ALL_PERMS),
 }
@@ -1313,12 +1313,80 @@ async def delete_media(media_id: str, user: dict = Depends(require_perm("content
     await db.media.delete_one({"id": media_id})
     await db.reviews.delete_many({"media_id": media_id})
     await db.favorites.delete_many({"media_id": media_id})
+    # Sans cela, chaque contenu supprimé laissait ses fichiers sur Bunny
+    # indéfiniment, facturés et invisibles depuis le panel.
+    videos_supprimees = await _purge_bunny_of(media)
     try:
         await _record_catalog_history(media, active=False, user_id=user.get("user_id"))
         await _record_media_event("deleted", media, user_id=user.get("user_id"))
     except Exception as exc:
         logger.error("Journalisation de la suppression du média %s impossible : %s", media_id, exc)
-    return {"ok": True}
+    return {"ok": True, "bunny_deleted": videos_supprimees}
+
+@api_router.get("/admin/bunny/orphans")
+async def admin_bunny_orphans(
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.delete")),
+):
+    """Vidéos présentes sur Bunny mais rattachées à aucun contenu du catalogue."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    library = _validated_bunny_library_id(library_id)
+    videos = await _bunny_library_videos(library)
+    utilises = await _referenced_bunny_ids()
+    orphelines = []
+    octets = 0
+    for video in videos:
+        guid = str(video.get("guid") or "")
+        if not guid or guid in utilises:
+            continue
+        taille = int(video.get("storageSize") or 0)
+        octets += taille
+        orphelines.append({
+            "video_id": guid,
+            "title": video.get("title") or "Sans titre",
+            "created_at": video.get("dateUploaded"),
+            "size_bytes": taille,
+            "length_seconds": video.get("length"),
+        })
+    orphelines.sort(key=lambda v: v.get("created_at") or "")
+    return {
+        "library_id": library,
+        "total_videos": len(videos),
+        "orphans": orphelines,
+        "orphan_bytes": octets,
+    }
+
+
+class BunnyPurgeInput(BaseModel):
+    video_ids: List[str] = Field(default_factory=list, max_length=2000)
+    library_id: Optional[str] = None
+
+
+@api_router.post("/admin/bunny/orphans/purge")
+async def admin_bunny_purge(
+    inp: BunnyPurgeInput,
+    user: dict = Depends(require_perm("content.delete")),
+):
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    library = _validated_bunny_library_id(inp.library_id)
+    # On revérifie côté serveur : une vidéo redevenue utilisée entre l'analyse
+    # et la confirmation ne doit jamais être supprimée.
+    utilises = await _referenced_bunny_ids()
+    supprimees, ignorees = 0, 0
+    for video_id in inp.video_ids:
+        propre = str(video_id or "").strip()
+        if not propre or propre in utilises:
+            ignorees += 1
+            continue
+        if await _delete_bunny_video(propre, library):
+            supprimees += 1
+        else:
+            ignorees += 1
+    logger.info("Purge Bunny par %s : %s supprimées, %s ignorées", user.get("user_id"), supprimees, ignorees)
+    return {"deleted": supprimees, "skipped": ignorees}
+
 
 # ---------- Trending / Genres ----------
 @api_router.get("/trending")
@@ -1786,7 +1854,18 @@ async def get_notifications(user: dict = Depends(get_current_user)):
         "created_at": a.get("created_at", ""),
         "read": bool(seen_at and a.get("created_at", "") <= seen_at),
     } for a in anns]
-    items = personal + ann_items
+    polls = await db.polls.find({"closed": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(10)
+    poll_items = [{
+        "id": p["id"],
+        "type": "poll",
+        "title": "Nouveau sondage",
+        "body": p.get("question", ""),
+        "media_title": None,
+        "link": "/sondages",
+        "created_at": p.get("created_at", ""),
+        "read": bool(seen_at and p.get("created_at", "") <= seen_at),
+    } for p in polls]
+    items = personal + ann_items + poll_items
     items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     unread = sum(1 for it in items if not it.get("read"))
     return {"items": items[:50], "unread": unread}
@@ -1797,6 +1876,152 @@ async def mark_notifications_read(user: dict = Depends(get_current_user)):
     await db.notifications.update_many({"user_id": user["user_id"], "read": False}, {"$set": {"read": True}})
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"notif_seen_at": now}})
     return {"ok": True}
+
+# ---------- Sondages ----------
+class PollCreate(BaseModel):
+    question: str = Field(min_length=3, max_length=200)
+    options: List[str] = Field(min_length=2, max_length=10)
+
+
+class PollVote(BaseModel):
+    option_index: int = Field(ge=0, le=9)
+    voter_key: Optional[str] = Field(default=None, max_length=80)
+
+
+def _voter_key(user: Optional[dict], fourni: Optional[str]) -> Optional[str]:
+    """Un compte est identifie par son user_id ; un visiteur par la cle tiree au
+    sort dans son navigateur. Sans cle, on ne peut pas empecher le double vote."""
+    if user:
+        return "u:" + str(user["user_id"])
+    propre = re.sub(r"[^A-Za-z0-9_-]", "", str(fourni or ""))[:64]
+    return ("a:" + propre) if len(propre) >= 8 else None
+
+
+async def _poll_public(poll: dict, cle: Optional[str]) -> dict:
+    votes = await db.poll_votes.find({"poll_id": poll["id"]}, {"_id": 0, "option_index": 1, "voter_key": 1}).to_list(100000)
+    options = poll.get("options") or []
+    comptes = [0] * len(options)
+    mon_vote = None
+    for vote in votes:
+        index = int(vote.get("option_index", -1))
+        if 0 <= index < len(comptes):
+            comptes[index] += 1
+        if cle and vote.get("voter_key") == cle:
+            mon_vote = index
+    total = sum(comptes)
+    # Les resultats ne sont reveles qu'apres avoir vote : sinon le premier
+    # pourcentage affiche oriente tous les votes suivants.
+    devoile = mon_vote is not None or bool(poll.get("closed"))
+    return {
+        "id": poll["id"],
+        "question": poll.get("question", ""),
+        "options": [{
+            "label": label,
+            "votes": comptes[i] if devoile else None,
+            "percent": (round(comptes[i] * 100 / total) if total else 0) if devoile else None,
+        } for i, label in enumerate(options)],
+        "total_votes": total if devoile else None,
+        "my_vote": mon_vote,
+        "closed": bool(poll.get("closed")),
+        "created_at": poll.get("created_at", ""),
+    }
+
+
+@api_router.get("/polls")
+async def list_polls(voter: Optional[str] = Query(None), user: Optional[dict] = Depends(get_optional_user)):
+    docs = await db.polls.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    cle = _voter_key(user, voter)
+    return [await _poll_public(doc, cle) for doc in docs]
+
+
+@api_router.post("/polls/{poll_id}/vote")
+async def vote_poll(poll_id: str, inp: PollVote, request: Request, user: Optional[dict] = Depends(get_optional_user)):
+    await _enforce_rate_limit(request, "poll-vote", 30, 300)
+    poll = await db.polls.find_one({"id": poll_id}, {"_id": 0})
+    if not poll:
+        raise HTTPException(status_code=404, detail="Sondage introuvable")
+    if poll.get("closed"):
+        raise HTTPException(status_code=403, detail="Ce sondage est clos")
+    if inp.option_index >= len(poll.get("options") or []):
+        raise HTTPException(status_code=400, detail="Choix invalide")
+    cle = _voter_key(user, inp.voter_key)
+    if not cle:
+        raise HTTPException(status_code=400, detail="Impossible d'identifier le votant")
+    deja = await db.poll_votes.find_one({"poll_id": poll_id, "voter_key": cle}, {"_id": 1})
+    if deja:
+        raise HTTPException(status_code=409, detail="Tu as déjà voté pour ce sondage")
+    await db.poll_votes.insert_one({
+        "poll_id": poll_id,
+        "voter_key": cle,
+        "option_index": inp.option_index,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    fresh = await db.polls.find_one({"id": poll_id}, {"_id": 0})
+    return await _poll_public(fresh, cle)
+
+
+@api_router.get("/admin/polls")
+async def admin_list_polls(admin: dict = Depends(require_perm("polls.manage"))):
+    docs = await db.polls.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    sortie = []
+    for doc in docs:
+        votes = await db.poll_votes.find({"poll_id": doc["id"]}, {"_id": 0, "option_index": 1}).to_list(100000)
+        options = doc.get("options") or []
+        comptes = [0] * len(options)
+        for vote in votes:
+            index = int(vote.get("option_index", -1))
+            if 0 <= index < len(comptes):
+                comptes[index] += 1
+        total = sum(comptes)
+        sortie.append({
+            "id": doc["id"],
+            "question": doc.get("question", ""),
+            "closed": bool(doc.get("closed")),
+            "created_at": doc.get("created_at", ""),
+            "total_votes": total,
+            "options": [{
+                "label": label,
+                "votes": comptes[i],
+                "percent": round(comptes[i] * 100 / total) if total else 0,
+            } for i, label in enumerate(options)],
+        })
+    return sortie
+
+
+@api_router.post("/admin/polls")
+async def admin_create_poll(inp: PollCreate, admin: dict = Depends(require_perm("polls.manage"))):
+    options = [o.strip()[:120] for o in inp.options if o and o.strip()]
+    if len(options) < 2:
+        raise HTTPException(status_code=400, detail="Il faut au moins deux choix")
+    doc = {
+        "id": f"poll_{uuid.uuid4().hex[:12]}",
+        "question": inp.question.strip(),
+        "options": options,
+        "closed": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin.get("user_id"),
+    }
+    await db.polls.insert_one(doc)
+    return {"ok": True, "id": doc["id"]}
+
+
+@api_router.patch("/admin/polls/{poll_id}")
+async def admin_close_poll(poll_id: str, admin: dict = Depends(require_perm("polls.manage"))):
+    result = await db.polls.update_one({"id": poll_id}, [{"$set": {"closed": {"$not": ["$closed"]}}}])
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Sondage introuvable")
+    fresh = await db.polls.find_one({"id": poll_id}, {"_id": 0, "closed": 1})
+    return {"ok": True, "closed": bool(fresh.get("closed"))}
+
+
+@api_router.delete("/admin/polls/{poll_id}")
+async def admin_delete_poll(poll_id: str, admin: dict = Depends(require_perm("polls.manage"))):
+    result = await db.polls.delete_one({"id": poll_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Sondage introuvable")
+    await db.poll_votes.delete_many({"poll_id": poll_id})
+    return {"ok": True}
+
 
 @api_router.get("/admin/reviews")
 async def admin_list_reviews(admin: dict = Depends(require_perm("reviews.moderate"))):
@@ -2948,6 +3173,90 @@ async def bunny_delete_video(
         raise HTTPException(status_code=502, detail="Suppression Bunny impossible")
     await _remove_bunny_reference(video_id, resolved_library_id)
     return {"ok": True, "alreadyDeleted": r.status_code == 404}
+
+def _bunny_references_of(media: dict) -> list:
+    """Toutes les vidéos Bunny d'un contenu : le fichier principal et chaque épisode."""
+    trouvees = []
+    vus = set()
+
+    def ajouter(doc):
+        if not isinstance(doc, dict):
+            return
+        video_id = str(doc.get("bunny_video_id") or "").strip()
+        if not video_id or video_id in vus:
+            return
+        vus.add(video_id)
+        library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
+        trouvees.append((video_id, library_id))
+
+    ajouter(media)
+    for season in media.get("seasons") or []:
+        if isinstance(season, dict):
+            for episode in season.get("episodes") or []:
+                ajouter(episode)
+    return trouvees
+
+
+async def _delete_bunny_video(video_id: str, library_id: str) -> bool:
+    """Supprime une vidéo côté Bunny. Best-effort : un échec ne doit jamais
+    empêcher la suppression du contenu dans le catalogue."""
+    if not BUNNY_CONFIGURED or not video_id:
+        return False
+    library = str(library_id or BUNNY_LIBRARY_ID or "").strip()
+    if not re.fullmatch(r"\d+", library):
+        return False
+    try:
+        r = await run_in_threadpool(lambda: requests.delete(
+            f"https://video.bunnycdn.com/library/{library}/videos/{video_id}",
+            headers={"AccessKey": BUNNY_API_KEY}, timeout=30,
+        ))
+        if r.status_code in (200, 204, 404):
+            return True
+        logger.error("Suppression Bunny refusée pour %s : %s %s", video_id, r.status_code, r.text[:200])
+    except Exception as exc:
+        logger.error("Suppression Bunny impossible pour %s : %s", video_id, exc)
+    return False
+
+
+async def _purge_bunny_of(media: dict) -> int:
+    supprimees = 0
+    for video_id, library_id in _bunny_references_of(media):
+        if await _delete_bunny_video(video_id, library_id):
+            supprimees += 1
+    return supprimees
+
+
+async def _bunny_library_videos(library_id: str) -> list:
+    """Liste complète de la bibliothèque, page par page."""
+    videos = []
+    page = 1
+    while page <= 100:
+        r = await run_in_threadpool(lambda: requests.get(
+            f"https://video.bunnycdn.com/library/{library_id}/videos",
+            headers={"AccessKey": BUNNY_API_KEY},
+            params={"page": page, "itemsPerPage": 100},
+            timeout=30,
+        ))
+        if not r.ok:
+            raise HTTPException(status_code=502, detail="Bibliothèque Bunny illisible")
+        payload = r.json()
+        lot = payload.get("items") or []
+        videos.extend(lot)
+        if len(lot) < 100:
+            break
+        page += 1
+    return videos
+
+
+async def _referenced_bunny_ids() -> set:
+    """Identifiants encore utilisés par au moins un contenu du catalogue."""
+    utilises = set()
+    docs = await db.media.find({}, {"_id": 0, "bunny_video_id": 1, "seasons": 1}).to_list(100000)
+    for doc in docs:
+        for video_id, _ in _bunny_references_of(doc):
+            utilises.add(video_id)
+    return utilises
+
 
 def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
     """Normalise un GUID ou une URL d'embed Bunny sans faire confiance au client."""

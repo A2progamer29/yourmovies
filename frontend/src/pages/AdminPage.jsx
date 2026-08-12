@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -16,6 +16,8 @@ import AdminPricing from "@/components/AdminPricing";
 import AdminAds from "@/components/AdminAds";
 import AdminTraffic from "@/components/AdminTraffic";
 import AdminGuide from "@/components/AdminGuide";
+import AdminStorage from "@/components/AdminStorage";
+import AdminPolls from "@/components/AdminPolls";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -411,6 +413,7 @@ export default function AdminPage() {
             label: "Catalogue", items: [
                 { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
                 { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
+                { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
         },
         {
@@ -419,6 +422,7 @@ export default function AdminPage() {
                 { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
+                { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
         },
         {
@@ -1310,6 +1314,26 @@ export default function AdminPage() {
                                     })}
                                 </div>
                             </div>
+                        </TabsContent>
+                    )}
+
+                    {can(user, "polls.manage") && (
+                        <TabsContent value="polls" className="mt-0">
+                            <SectionHeader
+                                titre="Sondages"
+                                description="Publie une question aux visiteurs, connectés ou non. Chacun ne vote qu'une fois et découvre les résultats juste après."
+                            />
+                            <AdminPolls />
+                        </TabsContent>
+                    )}
+
+                    {can(user, "content.delete") && (
+                        <TabsContent value="storage" className="mt-0">
+                            <SectionHeader
+                                titre="Stockage"
+                                description="L'espace occupé sur Bunny Stream et les fichiers restés en ligne sans contenu associé."
+                            />
+                            <AdminStorage />
                         </TabsContent>
                     )}
 

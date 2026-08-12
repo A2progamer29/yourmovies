@@ -296,6 +296,8 @@ export default function AdminMediaForm() {
                 });
                 onReference(emptyReference);
             });
+            let dernierPourcent = -1;
+            let dernierEnvoi = 0;
             await new Promise((resolve, reject) => {
                 tusUpload = new tus.Upload(file, {
                     endpoint: "https://video.bunnycdn.com/tusupload",
@@ -308,8 +310,18 @@ export default function AdminMediaForm() {
                     },
                     metadata: { filetype: file.type, title },
                     onError: reject,
+                    // tus signale la progression en continu ; on ne remonte au
+                    // reste de l'interface qu'un pourcentage entier, et au plus
+                    // deux fois par seconde. Sans ce filtre, chaque épisode
+                    // déclenchait des milliers de rendus du formulaire complet.
                     onProgress: (loaded, total) => {
-                        if (!cancelled) updateUpload(uploadId, { progress: Math.round((loaded / total) * 100) });
+                        if (cancelled) return;
+                        const pourcent = Math.round((loaded / total) * 100);
+                        const maintenant = Date.now();
+                        if (pourcent === dernierPourcent && maintenant - dernierEnvoi < 500) return;
+                        dernierPourcent = pourcent;
+                        dernierEnvoi = maintenant;
+                        updateUpload(uploadId, { progress: pourcent });
                     },
                     onSuccess: resolve,
                 });
