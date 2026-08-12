@@ -22,7 +22,6 @@ const links = [
     { to: "/browse?type=anime", label: "Animes" },
     { to: "/wishboard", label: "Wishboard" },
     { to: "/sondages", label: "Sondages" },
-    { to: "/coins", label: "Freemium" },
     { to: "/cagnotte", label: "Cagnotte" },
     { to: "/pricing", label: "Premium" },
 ];

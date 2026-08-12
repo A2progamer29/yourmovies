@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { toast } from "sonner";
 import { HardDrive, Loader2, Trash2, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -22,12 +23,14 @@ export default function AdminStorage() {
     const [rapport, setRapport] = useState(null);
     const [analyse, setAnalyse] = useState(false);
     const [purge, setPurge] = useState(false);
+    const [selection, setSelection] = useState([]);
 
     const analyser = async () => {
         setAnalyse(true);
         try {
             const r = await api.get("/admin/bunny/orphans");
             setRapport(r.data);
+            setSelection([]);
             const n = (r.data.orphans || []).length;
             toast.success(n === 0 ? "Aucune vidéo orpheline" : `${n} vidéo${n > 1 ? "s" : ""} orpheline${n > 1 ? "s" : ""}`);
         } catch (e) {
@@ -38,14 +41,16 @@ export default function AdminStorage() {
     };
 
     const supprimer = async () => {
-        const orphans = rapport?.orphans || [];
-        if (orphans.length === 0) return;
-        if (!window.confirm(`Supprimer définitivement ${orphans.length} vidéo(s) de Bunny Stream ?\n\nCes vidéos ne sont rattachées à aucun contenu du catalogue. L'opération est irréversible.`)) return;
-        if (!window.confirm(`Dernière confirmation : ${poids(rapport.orphan_bytes)} seront libérés et les fichiers seront perdus.`)) return;
+        if (selection.length === 0) return;
+        const octets = (rapport?.orphans || [])
+            .filter((o) => selection.includes(o.video_id))
+            .reduce((total, o) => total + (Number(o.size_bytes) || 0), 0);
+        if (!window.confirm(`Supprimer définitivement ${selection.length} vidéo(s) de Bunny Stream ?\n\nCes vidéos ne sont rattachées à aucun contenu du catalogue. L'opération est irréversible.`)) return;
+        if (!window.confirm(`Dernière confirmation : ${poids(octets)} seront libérés et les fichiers seront perdus.`)) return;
         setPurge(true);
         try {
             const r = await api.post("/admin/bunny/orphans/purge", {
-                video_ids: orphans.map((o) => o.video_id),
+                video_ids: selection,
                 library_id: rapport.library_id,
             });
             toast.success(`${r.data.deleted} vidéo(s) supprimée(s)${r.data.skipped ? ` · ${r.data.skipped} ignorée(s)` : ""}`);
@@ -58,6 +63,11 @@ export default function AdminStorage() {
     };
 
     const orphans = rapport?.orphans || [];
+    const toutSelectionne = orphans.length > 0 && selection.length === orphans.length;
+    const basculer = (videoId) => setSelection((liste) =>
+        liste.includes(videoId) ? liste.filter((id) => id !== videoId) : [...liste, videoId]
+    );
+    const basculerTout = () => setSelection(toutSelectionne ? [] : orphans.map((o) => o.video_id));
 
     return (
         <div className="space-y-5" data-testid="admin-storage">
@@ -108,26 +118,49 @@ export default function AdminStorage() {
                         </div>
                     ) : (
                         <div className="rounded-xl border border-[#262626] bg-[#0a0a0a]">
-                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#262626] px-5 py-3.5">
-                                <span className="text-xs uppercase tracking-widest text-neutral-500">À supprimer</span>
+                            <div className="flex flex-wrap items-center gap-3 border-b border-[#262626] px-5 py-3.5">
+                                <Checkbox
+                                    checked={toutSelectionne}
+                                    onCheckedChange={basculerTout}
+                                    aria-label="Tout sélectionner"
+                                    data-testid="select-all-orphans"
+                                    className="border-[#3a3a3a] data-[state=checked]:border-[#E8D2A6] data-[state=checked]:bg-[#E8D2A6] data-[state=checked]:text-black"
+                                />
+                                <span className="text-xs uppercase tracking-widest text-neutral-500">
+                                    {selection.length === 0
+                                        ? "Coche les vidéos à supprimer"
+                                        : `${selection.length} sélectionnée${selection.length > 1 ? "s" : ""}`}
+                                </span>
                                 <Button
                                     onClick={supprimer}
-                                    disabled={purge}
+                                    disabled={purge || selection.length === 0}
                                     data-testid="purge-orphans"
-                                    className="h-9 rounded-full bg-red-500/15 px-4 text-xs font-semibold text-red-300 hover:bg-red-500/25"
+                                    className="ml-auto h-9 rounded-full bg-red-500/15 px-4 text-xs font-semibold text-red-300 hover:bg-red-500/25 disabled:bg-[#161616] disabled:text-neutral-600"
                                 >
                                     {purge ? <Loader2 size={13} className="mr-2 animate-spin" /> : <Trash2 size={13} className="mr-2" />}
-                                    Supprimer les {orphans.length} vidéos
+                                    Supprimer la sélection{selection.length > 0 ? ` (${selection.length})` : ""}
                                 </Button>
                             </div>
                             <div className="max-h-[420px] overflow-y-auto">
-                                {orphans.map((o) => (
-                                    <div key={o.video_id} className="flex items-center gap-3 border-b border-[#1a1a1a] px-5 py-3 text-sm last:border-b-0">
-                                        <span className="min-w-0 flex-1 truncate text-neutral-200">{o.title}</span>
-                                        <span className="shrink-0 text-xs tabular-nums text-neutral-500">{date(o.created_at)}</span>
-                                        <span className="w-20 shrink-0 text-right text-xs tabular-nums text-neutral-400">{poids(o.size_bytes)}</span>
-                                    </div>
-                                ))}
+                                {orphans.map((o) => {
+                                    const coche = selection.includes(o.video_id);
+                                    return (
+                                        <label
+                                            key={o.video_id}
+                                            className={`flex cursor-pointer items-center gap-3 border-b border-[#1a1a1a] px-5 py-3 text-sm transition-colors last:border-b-0 ${coche ? "bg-[#E8D2A6]/[0.06]" : "hover:bg-white/[0.02]"}`}
+                                        >
+                                            <Checkbox
+                                                checked={coche}
+                                                onCheckedChange={() => basculer(o.video_id)}
+                                                aria-label={`Sélectionner ${o.title}`}
+                                                className="border-[#3a3a3a] data-[state=checked]:border-[#E8D2A6] data-[state=checked]:bg-[#E8D2A6] data-[state=checked]:text-black"
+                                            />
+                                            <span className="min-w-0 flex-1 truncate text-neutral-200">{o.title}</span>
+                                            <span className="shrink-0 text-xs tabular-nums text-neutral-500">{date(o.created_at)}</span>
+                                            <span className="w-20 shrink-0 text-right text-xs tabular-nums text-neutral-400">{poids(o.size_bytes)}</span>
+                                        </label>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
