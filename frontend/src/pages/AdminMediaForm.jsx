@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import BulkEpisodeUpload from "@/components/BulkEpisodeUpload";
 import { showError } from "@/lib/errors";
@@ -725,594 +726,7 @@ export default function AdminMediaForm() {
                     </Button>
                 </div>
 
-                <div className="space-y-10">
-                    {/* SECTION: Import intelligent TMDB */}
-                    <section className="p-5 rounded-xl border border-[#E8D2A6]/30 bg-[#E8D2A6]/[0.04]">
-                        <div className="flex items-start gap-3 mb-4">
-                            <div className="w-9 h-9 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center shrink-0">
-                                <WandSparkles size={17} />
-                            </div>
-                            <div>
-                                <h2 className="font-display text-xl text-[#E8D2A6]">Import intelligent</h2>
-                                <p className="text-xs text-neutral-400 mt-1">Choisis Film, Série ou Anime, puis recherche le titre pour remplir automatiquement les informations, les visuels, le casting, la bande-annonce et, lorsqu’elle existe, sa saga.</p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 mb-3" data-testid="tmdb-kind-selector">
-                            {[
-                                { value: "movie", label: "Film", icon: Film },
-                                { value: "series", label: "Série", icon: Tv },
-                                { value: "anime", label: "Anime", icon: Sparkles },
-                            ].map(({ value, label, icon: KindIcon }) => (
-                                <button
-                                    key={value}
-                                    type="button"
-                                    onClick={() => {
-                                        setForm((current) => current.type === value ? current : ({
-                                            ...current,
-                                            type: value,
-                                            tmdb_id: null,
-                                            tmdb_kind: null,
-                                            saga_title: "",
-                                            timeline: [],
-                                        }));
-                                        setTmdbResults([]);
-                                    }}
-                                    aria-pressed={form.type === value}
-                                    className={`h-10 rounded-lg border flex items-center justify-center gap-2 text-sm font-medium transition-colors ${form.type === value ? "border-[#E8D2A6] bg-[#E8D2A6] text-black" : "border-[#262626] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/60"}`}
-                                >
-                                    <KindIcon size={15} />
-                                    {label}
-                                </button>
-                            ))}
-                        </div>
-                        <p className="text-xs text-neutral-500 mb-2">Recherche actuelle : <span className="text-[#E8D2A6]">{form.type === "movie" ? "Films" : form.type === "series" ? "Séries" : "Animes"}</span></p>
-                        <div className="flex flex-col sm:flex-row gap-2">
-                            <Input
-                                value={tmdbQuery}
-                                onChange={(e) => setTmdbQuery(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchTmdb(); } }}
-                                placeholder={form.type === "movie" ? "Ex. Spider-Man: No Way Home" : "Ex. Stranger Things"}
-                                data-testid="tmdb-search-input"
-                                className="bg-[#111] border-[#262626] text-white flex-1"
-                            />
-                            <Button type="button" onClick={searchTmdb} disabled={tmdbSearching} data-testid="tmdb-search-button" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]">
-                                {tmdbSearching ? <Loader2 size={15} className="mr-2 animate-spin" /> : <Search size={15} className="mr-2" />}
-                                {tmdbSearching ? "Recherche..." : "Rechercher"}
-                            </Button>
-                        </div>
-                        {tmdbResults.length > 0 && (
-                            <div className="mt-4 grid gap-2 max-h-96 overflow-y-auto pr-1">
-                                {tmdbResults.map((result) => (
-                                    <button
-                                        type="button"
-                                        key={result.tmdb_id}
-                                        onClick={() => importTmdb(result)}
-                                        disabled={tmdbImporting != null}
-                                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-[#262626] bg-[#0a0a0a] hover:border-[#E8D2A6]/60 text-left transition-colors disabled:opacity-60"
-                                    >
-                                        {result.poster_url ? (
-                                            <img src={result.poster_url} alt="" className="w-12 h-[72px] rounded object-cover bg-[#111] shrink-0" />
-                                        ) : (
-                                            <div className="w-12 h-[72px] rounded bg-[#111] shrink-0 flex items-center justify-center"><Film size={16} className="text-neutral-600" /></div>
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                            <div className="text-white font-medium truncate">{result.title}</div>
-                                            <div className="text-xs text-neutral-500 mt-1">{result.year || "Année inconnue"}{result.original_title && result.original_title !== result.title ? ` · ${result.original_title}` : ""}</div>
-                                            {result.description && <div className="text-xs text-neutral-400 mt-1 line-clamp-2">{result.description}</div>}
-                                        </div>
-                                        {tmdbImporting === result.tmdb_id ? <Loader2 size={17} className="text-[#E8D2A6] animate-spin shrink-0" /> : <Plus size={17} className="text-[#E8D2A6] shrink-0" />}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                        <p className="text-[11px] text-neutral-600 mt-3">Données et images fournies par TMDB. Vérifie les informations avant d'enregistrer.</p>
-                    </section>
-
-                    {/* SECTION: Timeline / saga */}
-                    <section className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-5" data-testid="timeline-editor">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="flex items-start gap-3">
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#E8D2A6]/35 bg-[#E8D2A6]/10 text-[#E8D2A6]">
-                                    <GitBranch size={17} />
-                                </div>
-                                <div>
-                                    <h2 className="font-display text-xl text-[#E8D2A6]">Timeline, saga ou trilogie</h2>
-                                    <p className="mt-1 max-w-2xl text-xs leading-relaxed text-neutral-400">
-                                        L’assistant propose les œuvres liées dans l’ordre de sortie. Vérifie et réorganise la liste si l’ordre de visionnage est différent.
-                                    </p>
-                                </div>
-                            </div>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={suggestTimeline}
-                                disabled={timelineSuggesting || !form.tmdb_id}
-                                data-testid="suggest-timeline-button"
-                                className="shrink-0 rounded-full border-[#E8D2A6]/40 bg-[#E8D2A6]/5 text-[#E8D2A6] hover:bg-[#E8D2A6]/10 hover:text-[#E8D2A6]"
-                            >
-                                {timelineSuggesting ? <Loader2 size={14} className="mr-2 animate-spin" /> : <WandSparkles size={14} className="mr-2" />}
-                                {timelineSuggesting ? "Analyse…" : "Proposer avec l’IA"}
-                            </Button>
-                        </div>
-
-                        {!form.tmdb_id && (
-                            <div className="mt-4 rounded-lg border border-dashed border-[#333] bg-[#111] px-4 py-3 text-xs text-neutral-500">
-                                Sélectionne d’abord le bon résultat dans « Import intelligent » pour permettre à l’assistant d’identifier la saga.
-                            </div>
-                        )}
-
-                        <div className="mt-5">
-                            <Label className="text-neutral-300">Nom affiché sur la fiche</Label>
-                            <Input
-                                value={form.saga_title}
-                                onChange={(e) => setForm((current) => ({ ...current, saga_title: e.target.value }))}
-                                placeholder="Ex. La trilogie du Seigneur des Anneaux"
-                                className="mt-1.5 border-[#262626] bg-[#111] text-white"
-                                data-testid="timeline-title-input"
-                            />
-                        </div>
-
-                        <div className="mt-5 rounded-xl border border-[#262626] bg-[#080808] p-4">
-                            <div className="flex flex-col gap-1">
-                                <Label className="text-neutral-300">Ajouter depuis le catalogue YourMovie’s</Label>
-                                <p className="text-xs text-neutral-500">Recherche un film, une série ou un animé déjà publié, puis ajoute-le à la chronologie.</p>
-                            </div>
-                            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                                <div className="relative min-w-0 flex-1">
-                                    <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600" />
-                                    <Input
-                                        value={timelineCatalogQuery}
-                                        onChange={(e) => setTimelineCatalogQuery(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                e.preventDefault();
-                                                searchTimelineCatalog();
-                                            }
-                                        }}
-                                        placeholder="Rechercher dans le catalogue…"
-                                        className="border-[#2f2f2f] bg-[#111] pl-9 text-white"
-                                        data-testid="timeline-catalog-search"
-                                    />
-                                </div>
-                                <Button
-                                    type="button"
-                                    onClick={searchTimelineCatalog}
-                                    disabled={timelineCatalogSearching}
-                                    className="bg-[#E8D2A6] text-black hover:bg-[#d8bf8c]"
-                                    data-testid="timeline-catalog-search-button"
-                                >
-                                    {timelineCatalogSearching ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Search size={14} className="mr-2" />}
-                                    Rechercher
-                                </Button>
-                            </div>
-
-                            {timelineCatalogResults.length > 0 && (
-                                <div className="mt-3 grid max-h-80 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-                                    {timelineCatalogResults.map((media) => {
-                                        const alreadyAdded = isTimelineMediaAdded(media);
-                                        return (
-                                            <button
-                                                type="button"
-                                                key={media.id}
-                                                onClick={() => addCatalogMediaToTimeline(media)}
-                                                disabled={alreadyAdded}
-                                                className="group flex min-w-0 items-center gap-3 rounded-lg border border-[#262626] bg-[#111] p-2.5 text-left transition-colors hover:border-[#E8D2A6]/55 disabled:cursor-default disabled:opacity-55"
-                                                data-testid={`timeline-catalog-result-${media.id}`}
-                                            >
-                                                <div className="h-[66px] w-11 shrink-0 overflow-hidden rounded-md border border-white/10 bg-[#161616]">
-                                                    {media.poster_url ? (
-                                                        <img src={media.poster_url} alt="" className="h-full w-full object-cover" />
-                                                    ) : (
-                                                        <div className="flex h-full items-center justify-center text-neutral-700"><Film size={14} /></div>
-                                                    )}
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="truncate text-sm font-medium text-white group-hover:text-[#E8D2A6]">{media.title}</div>
-                                                    <div className="mt-1 text-xs text-neutral-500">
-                                                        {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"} · {media.year || "Année inconnue"}
-                                                    </div>
-                                                </div>
-                                                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${alreadyAdded ? "border-white/10 text-neutral-600" : "border-[#E8D2A6]/35 bg-[#E8D2A6]/10 text-[#E8D2A6]"}`}>
-                                                    {alreadyAdded ? "Ajouté" : "Ajouter"}
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        {(form.timeline || []).length > 0 ? (
-                            <div className="mt-5 space-y-2">
-                                {(form.timeline || []).map((item, index) => (
-                                    <div key={`${item.tmdb_id || "manual"}-${index}`} className="grid grid-cols-[44px_minmax(0,1fr)_88px_auto] items-center gap-2 rounded-lg border border-[#262626] bg-[#111] p-2.5">
-                                        <div className="relative h-16 w-11 overflow-hidden rounded-md border border-white/10 bg-[#161616]">
-                                            {item.poster_url ? (
-                                                <img src={item.poster_url} alt="" className="h-full w-full object-cover" />
-                                            ) : (
-                                                <div className="flex h-full items-center justify-center text-neutral-700"><Film size={14} /></div>
-                                            )}
-                                            <span className="absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#E8D2A6] px-1 text-[10px] font-bold text-black">{index + 1}</span>
-                                        </div>
-                                        <div className="min-w-0 space-y-2">
-                                            <Input
-                                                value={item.title || ""}
-                                                onChange={(e) => updateTimelineItem(index, { title: e.target.value })}
-                                                placeholder="Titre de l’œuvre"
-                                                className="h-9 border-[#2f2f2f] bg-[#0a0a0a] text-white"
-                                                data-testid={`timeline-item-title-${index}`}
-                                            />
-                                            <Select value={item.type || form.type} onValueChange={(value) => updateTimelineItem(index, { type: value })}>
-                                                <SelectTrigger className="h-8 border-[#2f2f2f] bg-[#0a0a0a] text-xs text-neutral-300"><SelectValue /></SelectTrigger>
-                                                <SelectContent className="border-[#262626] bg-[#111] text-white">
-                                                    <SelectItem value="movie">Film</SelectItem>
-                                                    <SelectItem value="series">Série</SelectItem>
-                                                    <SelectItem value="anime">Anime</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Input
-                                            type="number"
-                                            value={item.year ?? ""}
-                                            onChange={(e) => updateTimelineItem(index, { year: e.target.value })}
-                                            placeholder="Année"
-                                            className="h-9 border-[#2f2f2f] bg-[#0a0a0a] text-white"
-                                            aria-label={`Année du titre ${index + 1}`}
-                                        />
-                                        <div className="flex items-center gap-1">
-                                            <Button type="button" variant="ghost" size="icon" onClick={() => moveTimelineItem(index, -1)} disabled={index === 0} className="h-8 w-8 text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]" aria-label="Monter"><ArrowUp size={14} /></Button>
-                                            <Button type="button" variant="ghost" size="icon" onClick={() => moveTimelineItem(index, 1)} disabled={index === form.timeline.length - 1} className="h-8 w-8 text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]" aria-label="Descendre"><ArrowDown size={14} /></Button>
-                                            <Button type="button" variant="ghost" size="icon" onClick={() => removeTimelineItem(index)} className="h-8 w-8 text-neutral-500 hover:bg-red-500/10 hover:text-red-400" aria-label="Retirer"><X size={14} /></Button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="mt-5 rounded-lg border border-dashed border-[#333] px-4 py-6 text-center text-sm text-neutral-500">
-                                Aucune timeline renseignée. La section restera masquée sur la fiche média.
-                            </div>
-                        )}
-
-                        <Button type="button" variant="ghost" size="sm" onClick={addTimelineItem} className="mt-3 text-neutral-500 hover:bg-white/5 hover:text-[#E8D2A6]">
-                            <Plus size={13} className="mr-1.5" /> Ajouter une œuvre absente du catalogue
-                        </Button>
-                    </section>
-
-                    {/* SECTION: Informations générales */}
-                    <section>
-                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Informations générales</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="md:col-span-2">
-                                <Label className="text-neutral-300">Titre *</Label>
-                                <Input data-testid="form-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Type *</Label>
-                                <Select value={form.type} onValueChange={(v) => {
-                                    setForm((current) => current.type === v ? current : ({
-                                        ...current,
-                                        type: v,
-                                        tmdb_id: null,
-                                        tmdb_kind: null,
-                                        saga_title: "",
-                                        timeline: [],
-                                    }));
-                                    setTmdbResults([]);
-                                }}>
-                                    <SelectTrigger data-testid="form-type" className="bg-[#111] border-[#262626] text-white mt-1.5"><SelectValue /></SelectTrigger>
-                                    <SelectContent className="bg-[#111] border-[#262626] text-white">
-                                        <SelectItem value="movie">Film</SelectItem>
-                                        <SelectItem value="series">Série</SelectItem>
-                                        <SelectItem value="anime">Anime</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Année</Label>
-                                <Input type="number" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Durée (min)</Label>
-                                <Input type="number" value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Pays</Label>
-                                <Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div className="md:col-span-2">
-                                <Label className="text-neutral-300">Description</Label>
-                                <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5 min-h-[120px]" />
-                            </div>
-                            <div className="md:col-span-2">
-                                <Label className="text-neutral-300">Genres (séparés par virgules)</Label>
-                                <Input value={form.genres} onChange={(e) => setForm({ ...form, genres: e.target.value })} placeholder="Action, Sci-Fi" className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Réalisateur</Label>
-                                <Input value={form.director} onChange={(e) => setForm({ ...form, director: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Casting (séparés par virgules)</Label>
-                                <Input value={form.cast} onChange={(e) => setForm({ ...form, cast: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* SECTION: Visuels */}
-                    <section>
-                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Visuels & bande-annonce</h2>
-                        <div className="space-y-4">
-                            <div>
-                                <Label className="text-neutral-300">Poster (URL ou upload)</Label>
-                                <div className="text-xs text-neutral-500 mt-1">Ratio 2:3 (vertical) — ex. 600×900 px — JPG ou WebP</div>
-                                <div className="flex gap-2 mt-1.5">
-                                    <Input value={form.poster_url} onChange={(e) => setForm({ ...form, poster_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
-                                    <label className="cursor-pointer">
-                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "poster", (p) => setForm((f) => ({ ...f, poster_url: buildFileUrl(p) })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("poster") ? "..." : "Upload"}</span>
-                                    </label>
-                                </div>
-                                {form.poster_url && <img src={form.poster_url} alt="" className="mt-2 h-20 rounded" />}
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Bannière (URL ou upload)</Label>
-                                <div className="text-xs text-neutral-500 mt-1">Paysage haute résolution — min. 1920×1080, idéal 2560×1440 px — sujet centré (recadrée pour remplir le hero, jamais déformée)</div>
-                                <div className="flex gap-2 mt-1.5">
-                                    <Input value={form.banner_url} onChange={(e) => setForm({ ...form, banner_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
-                                    <label className="cursor-pointer">
-                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "banner", (p) => setForm((f) => ({ ...f, banner_url: buildFileUrl(p) })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("banner") ? "..." : "Upload"}</span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Logo du titre (PNG transparent recommandé)</Label>
-                                <div className="text-xs text-neutral-500 mt-1">PNG à fond transparent — paysage, ~800×320 px. <span className="text-neutral-400">S'il n'y a pas de logo, le <b>titre</b> (saisi en haut du formulaire) s'affiche automatiquement en texte.</span></div>
-                                <div className="flex gap-2 mt-1.5">
-                                    <Input data-testid="form-title-logo" value={form.title_logo_url} onChange={(e) => setForm({ ...form, title_logo_url: e.target.value })} placeholder="https://... (superposé au hero à la place du texte)" className="bg-[#111] border-[#262626] text-white flex-1" />
-                                    <label className="cursor-pointer">
-                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "title_logo", (p) => setForm((f) => ({ ...f, title_logo_url: buildFileUrl(p) })))} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("title_logo") ? "..." : "Upload"}</span>
-                                    </label>
-                                </div>
-                                {form.title_logo_url && (
-                                    <div className="mt-2 p-3 rounded bg-black inline-block">
-                                        <img src={form.title_logo_url} alt="" className="h-16 object-contain" />
-                                    </div>
-                                )}
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Bande-annonce YouTube (ID ou URL)</Label>
-                                <Input value={form.trailer_youtube_id} onChange={(e) => setForm({ ...form, trailer_youtube_id: e.target.value })} placeholder="dQw4w9WgXcQ ou https://youtu.be/..." className="bg-[#111] border-[#262626] text-white mt-1.5" />
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Bande-annonce — fichier vidéo (glisser-déposer)</Label>
-                                <label
-                                    onDragOver={(e) => { e.preventDefault(); setDragTrailer(true); }}
-                                    onDragLeave={() => setDragTrailer(false)}
-                                    onDrop={(e) => { e.preventDefault(); setDragTrailer(false); const f = e.dataTransfer.files?.[0]; if (f) uploadFile(f, "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url }))); }}
-                                    className={`mt-1.5 block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragTrailer ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
-                                >
-                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url })))} />
-                                    {activeUpload("trailer") ? (
-                                        <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadProgress("trailer")}%</div>
-                                    ) : form.trailer_video_url ? (
-                                        <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
-                                    ) : (
-                                        <div className="text-sm text-neutral-400"><Upload size={16} className="inline mr-1.5" />Glisse un fichier vidéo ici, ou clique pour choisir</div>
-                                    )}
-                                </label>
-                                {form.trailer_video_url && (
-                                    <div className="flex items-center gap-3 mt-2">
-                                        <video src={form.trailer_video_url} className="h-20 rounded border border-[#262626]" muted />
-                                        <button type="button" onClick={() => setForm((f) => ({ ...f, trailer_video_url: "" }))} className="text-xs text-neutral-500 hover:text-red-400">Retirer</button>
-                                    </div>
-                                )}
-                                <div className="text-xs text-neutral-500 mt-1">Si un fichier est présent, il est prioritaire sur YouTube pour la bande-annonce de l'accueil.</div>
-                            </div>
-                            <div>
-                                <Label className="text-neutral-300">Classification d&apos;âge</Label>
-                                <Select value={form.age_rating || "none"} onValueChange={(v) => setForm({ ...form, age_rating: v === "none" ? "" : v })}>
-                                    <SelectTrigger data-testid="form-age-rating" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs"><SelectValue placeholder="Aucune" /></SelectTrigger>
-                                    <SelectContent className="bg-[#111] border-[#262626] text-white">
-                                        <SelectItem value="none">Non renseigné</SelectItem>
-                                        <SelectItem value="0">Tous publics</SelectItem>
-                                        <SelectItem value="6">6+</SelectItem>
-                                        <SelectItem value="10">10+</SelectItem>
-                                        <SelectItem value="12">12+</SelectItem>
-                                        <SelectItem value="16">16+</SelectItem>
-                                        <SelectItem value="18">18+</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <div className="text-xs text-neutral-500 mt-1">Utilisé pour le filtrage des profils enfants.</div>
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* SECTION: Vidéo */}
-                    <section>
-                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Vidéo</h2>
-
-                        <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
-                            <div className="flex items-center gap-2 mb-2">
-                                <Film size={14} className="text-[#E8D2A6]" />
-                                <span className="text-sm font-medium text-[#E8D2A6]">Vidéo principale</span>
-                            </div>
-                            <label
-                                onDragOver={(e) => { e.preventDefault(); setDragBunny(true); }}
-                                onDragLeave={() => setDragBunny(false)}
-                                onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f); }}
-                                className={`block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragBunny ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
-                            >
-                                <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
-                                {activeUpload("bunny") ? (
-                                    <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadStage("bunny")} {uploadProgress("bunny")}%</div>
-                                ) : form.bunny_video_id ? (
-                                    <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
-                                ) : (
-                                    <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo ici, ou clique pour choisir</div>
-                                )}
-                            </label>
-                            {form.bunny_video_id && (
-                                <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
-                            )}
-                            <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présente, cette vidéo est utilisée en priorité.</div>
-                        </div>
-
-                        <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
-                            <Label className="text-neutral-300 text-xs">Vidéo externe de secours</Label>
-                            <div className="flex gap-2 mt-1.5">
-                                <Input value={form.video_url} onChange={(e) => setForm({ ...form, video_url: e.target.value })} placeholder="URL MP4/HLS externe" className="bg-[#111] border-[#262626] text-white flex-1" />
-                                    <label className="cursor-pointer">
-                                        <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0], { key: "default_video" })} />
-                                        <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300">{activeUpload("default_video") ? <><Loader2 size={14} className="animate-spin" /> {uploadProgress("default_video")}%</> : <><Upload size={14} /> Upload MP4</>}</span>
-                                    </label>
-                            </div>
-                            {form.video_file_path && <div className="text-xs text-neutral-500 mt-1.5">Fichier: {form.video_file_path}</div>}
-                        </div>
-                    </section>
-
-                    {/* SECTION: À l'affiche */}
-                    <section>
-                        <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Mise en avant</h2>
-                        <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] space-y-4">
-                            <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#262626]">
-                                <div>
-                                    <div className="text-white">Actuellement au cinéma</div>
-                                    <div className="text-xs text-neutral-500">Avertit les spectateurs que la qualité disponible peut être réduite.</div>
-                                </div>
-                                <MediaFlagControl
-                                    checked={!!form.in_theaters}
-                                    disabled={!!mediaFlagSaving.in_theaters}
-                                    onToggle={() => toggleMediaFlag("in_theaters")}
-                                    testId="form-in-theaters"
-                                    label="Activer ou désactiver le statut actuellement au cinéma"
-                                />
-                            </div>
-                            <div className="flex items-center justify-between gap-4">
-                                <div>
-                                    <div className="text-white">À l&apos;affiche sur l&apos;accueil</div>
-                                    <div className="text-xs text-neutral-500">Ce contenu apparaîtra dans le carrousel du hero (défilement auto).</div>
-                                </div>
-                                <MediaFlagControl
-                                    checked={!!form.featured}
-                                    disabled={!!mediaFlagSaving.featured}
-                                    onToggle={() => toggleMediaFlag("featured")}
-                                    testId="form-featured"
-                                    label="Activer ou désactiver la mise à l'affiche"
-                                />
-                            </div>
-                            {form.featured && (
-                                <div>
-                                    <Label className="text-neutral-300">Ordre d&apos;affichage (plus petit = plus tôt)</Label>
-                                    <Input type="number" value={form.featured_order} onChange={(e) => setForm({ ...form, featured_order: e.target.value })} placeholder="0" data-testid="form-featured-order" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs" />
-                                </div>
-                            )}
-                        </div>
-                    </section>
-
-                    {/* SECTION: Saisons */}
-                    {form.type !== "movie" && (
-                        <section>
-                            <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Tv size={16} /> Saisons & épisodes</h2>
-
-                            {(form.seasons || []).length > 0 && (
-                                <div className="mb-4">
-                                    <BulkEpisodeUpload
-                                        seasons={form.seasons}
-                                        title={form.title}
-                                        uploadToBunny={uploadToBunny}
-                                        updateEpisode={updateEpisode}
-                                        activeUpload={activeUpload}
-                                        scopedUploadKey={scopedUploadKey}
-                                    />
-                                </div>
-                            )}
-
-                            <div className="flex justify-end mb-3">
-                                <Button variant="outline" size="sm" onClick={addSeason} className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">
-                                    <Plus size={12} className="mr-1" /> Ajouter saison
-                                </Button>
-                            </div>
-                            <div className="space-y-4">
-                                {(form.seasons || []).map((s, i) => (
-                                    <div key={i} className="border border-[#262626] rounded-md p-4">
-                                        <div className="flex items-center gap-3 mb-3">
-                                            <Input type="number" value={s.season_number} onChange={(e) => updateSeason(i, { season_number: Number(e.target.value) })} className="w-24 bg-[#111] border-[#262626] text-white" placeholder="N°" />
-                                            <Input value={s.title || ""} onChange={(e) => updateSeason(i, { title: e.target.value })} className="bg-[#111] border-[#262626] text-white flex-1" placeholder="Titre saison (optionnel)" />
-                                            <Button variant="ghost" size="icon" onClick={() => removeSeason(i)} className="text-red-400 hover:bg-white/5"><X size={14} /></Button>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {(s.episodes || []).map((ep, j) => {
-                                                const episodeKey = `episode:${s.season_number || i + 1}:${ep.ep_number || j + 1}`;
-                                                const hasEpisodeVideo = Boolean(
-                                                    ep.bunny_video_id || ep.video_url || ep.video_file_path,
-                                                );
-                                                return (
-                                                    <div key={ep.tmdb_id || j} className="rounded-lg border border-[#222] bg-[#080808] p-3 space-y-3">
-                                                        <div className="flex items-center gap-2">
-                                                            {ep.still_url && <img src={ep.still_url} alt="" className="w-24 h-14 rounded object-cover shrink-0" />}
-                                                            <Input type="number" value={ep.ep_number} onChange={(e) => updateEpisode(i, j, { ep_number: Number(e.target.value) })} className="w-20 bg-[#0a0a0a] border-[#262626] text-white" placeholder="Ep" />
-                                                            <Input value={ep.title || ""} onChange={(e) => updateEpisode(i, j, { title: e.target.value })} className="bg-[#0a0a0a] border-[#262626] text-white flex-1" placeholder="Nom de l'épisode" />
-                                                            <Input type="number" value={ep.duration || ""} onChange={(e) => updateEpisode(i, j, { duration: Number(e.target.value) })} className="w-24 bg-[#0a0a0a] border-[#262626] text-white" placeholder="min" />
-                                                            <Button variant="ghost" size="icon" onClick={() => removeEpisode(i, j)} className="text-neutral-400 hover:text-red-400"><X size={12} /></Button>
-                                                        </div>
-                                                        <Textarea
-                                                            value={ep.description || ""}
-                                                            onChange={(e) => updateEpisode(i, j, { description: e.target.value })}
-                                                            className="bg-[#0a0a0a] border-[#262626] text-white min-h-16"
-                                                            placeholder="Synopsis de l'épisode"
-                                                        />
-                                                        <div className="flex flex-col sm:flex-row gap-2">
-                                                            <Input
-                                                                value={ep.video_url || ""}
-                                                                onChange={(e) => updateEpisode(i, j, { video_url: e.target.value })}
-                                                                className="bg-[#0a0a0a] border-[#262626] text-white flex-1"
-                                                                placeholder="URL du fichier MP4 de cet épisode"
-                                                            />
-                                                            <label className="cursor-pointer shrink-0">
-                                                                <input
-                                                                    type="file"
-                                                                    accept="video/mp4,video/webm,video/quicktime"
-                                                                    className="hidden"
-                                                                    onChange={(e) => e.target.files?.[0] && uploadToBunny(
-                                                                        e.target.files[0],
-                                                                        {
-                                                                            key: episodeKey,
-                                                                            title: `${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`,
-                                                                            onReference: (reference) => updateEpisode(i, j, reference),
-                                                                        },
-                                                                    )}
-                                                                />
-                                                                <span
-                                                                    className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${hasEpisodeVideo
-                                                                        ? "border-[#E8D2A6]/45 bg-[#E8D2A6]/[0.06] text-[#E8D2A6] hover:border-[#E8D2A6]/75"
-                                                                        : "border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50"
-                                                                    }`}
-                                                                    title={hasEpisodeVideo ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
-                                                                >
-                                                                    {activeUpload(episodeKey)
-                                                                        ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(episodeKey)}%</>
-                                                                        : hasEpisodeVideo
-                                                                            ? <><Film size={12} /> Fichier déjà ajouté</>
-                                                                            : <><Upload size={12} /> Ajouter le MP4</>}
-                                                                </span>
-                                                            </label>
-                                                        </div>
-                                                        {ep.air_date && <div className="text-[11px] text-neutral-600">Diffusé le {ep.air_date}</div>}
-                                                    </div>
-                                                );
-                                            })}
-                                            <Button variant="ghost" size="sm" onClick={() => addEpisode(i)} className="text-[#E8D2A6] hover:bg-white/5">
-                                                <Plus size={12} className="mr-1" /> Ajouter épisode
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </section>
-                    )}
-
+                <div className="space-y-8">
                     <section data-testid="content-completion-status">
                         <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]">
                             {completionStatus.complete ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
@@ -1358,6 +772,612 @@ export default function AdminMediaForm() {
                             )}
                         </div>
                     </section>
+                    <Tabs defaultValue="fiche" className="w-full">
+                        <TabsList className="h-auto w-full justify-start gap-1 rounded-xl border border-[#262626] bg-[#0a0a0a] p-1.5">
+                            <TabsTrigger value="fiche" data-testid="form-tab-fiche" className="rounded-lg px-4 py-2 text-sm text-neutral-400 data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Sparkles size={14} className="mr-2" /> Fiche
+                            </TabsTrigger>
+                            <TabsTrigger value="video" data-testid="form-tab-video" className="rounded-lg px-4 py-2 text-sm text-neutral-400 data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <Film size={14} className="mr-2" /> Vidéo
+                            </TabsTrigger>
+                            <TabsTrigger value="diffusion" data-testid="form-tab-diffusion" className="rounded-lg px-4 py-2 text-sm text-neutral-400 data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
+                                <GitBranch size={14} className="mr-2" /> Diffusion
+                            </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="fiche" className="mt-8 space-y-10">
+                        {/* SECTION: Import intelligent TMDB */}
+                        <section className="p-5 rounded-xl border border-[#E8D2A6]/30 bg-[#E8D2A6]/[0.04]">
+                            <div className="flex items-start gap-3 mb-4">
+                                <div className="w-9 h-9 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center shrink-0">
+                                    <WandSparkles size={17} />
+                                </div>
+                                <div>
+                                    <h2 className="font-display text-xl text-[#E8D2A6]">Import intelligent</h2>
+                                    <p className="text-xs text-neutral-400 mt-1">Choisis Film, Série ou Anime, puis recherche le titre pour remplir automatiquement les informations, les visuels, le casting, la bande-annonce et, lorsqu’elle existe, sa saga.</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 mb-3" data-testid="tmdb-kind-selector">
+                                {[
+                                    { value: "movie", label: "Film", icon: Film },
+                                    { value: "series", label: "Série", icon: Tv },
+                                    { value: "anime", label: "Anime", icon: Sparkles },
+                                ].map(({ value, label, icon: KindIcon }) => (
+                                    <button
+                                        key={value}
+                                        type="button"
+                                        onClick={() => {
+                                            setForm((current) => current.type === value ? current : ({
+                                                ...current,
+                                                type: value,
+                                                tmdb_id: null,
+                                                tmdb_kind: null,
+                                                saga_title: "",
+                                                timeline: [],
+                                            }));
+                                            setTmdbResults([]);
+                                        }}
+                                        aria-pressed={form.type === value}
+                                        className={`h-10 rounded-lg border flex items-center justify-center gap-2 text-sm font-medium transition-colors ${form.type === value ? "border-[#E8D2A6] bg-[#E8D2A6] text-black" : "border-[#262626] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/60"}`}
+                                    >
+                                        <KindIcon size={15} />
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-xs text-neutral-500 mb-2">Recherche actuelle : <span className="text-[#E8D2A6]">{form.type === "movie" ? "Films" : form.type === "series" ? "Séries" : "Animes"}</span></p>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <Input
+                                    value={tmdbQuery}
+                                    onChange={(e) => setTmdbQuery(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchTmdb(); } }}
+                                    placeholder={form.type === "movie" ? "Ex. Spider-Man: No Way Home" : "Ex. Stranger Things"}
+                                    data-testid="tmdb-search-input"
+                                    className="bg-[#111] border-[#262626] text-white flex-1"
+                                />
+                                <Button type="button" onClick={searchTmdb} disabled={tmdbSearching} data-testid="tmdb-search-button" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]">
+                                    {tmdbSearching ? <Loader2 size={15} className="mr-2 animate-spin" /> : <Search size={15} className="mr-2" />}
+                                    {tmdbSearching ? "Recherche..." : "Rechercher"}
+                                </Button>
+                            </div>
+                            {tmdbResults.length > 0 && (
+                                <div className="mt-4 grid gap-2 max-h-96 overflow-y-auto pr-1">
+                                    {tmdbResults.map((result) => (
+                                        <button
+                                            type="button"
+                                            key={result.tmdb_id}
+                                            onClick={() => importTmdb(result)}
+                                            disabled={tmdbImporting != null}
+                                            className="w-full flex items-center gap-3 p-3 rounded-lg border border-[#262626] bg-[#0a0a0a] hover:border-[#E8D2A6]/60 text-left transition-colors disabled:opacity-60"
+                                        >
+                                            {result.poster_url ? (
+                                                <img src={result.poster_url} alt="" className="w-12 h-[72px] rounded object-cover bg-[#111] shrink-0" />
+                                            ) : (
+                                                <div className="w-12 h-[72px] rounded bg-[#111] shrink-0 flex items-center justify-center"><Film size={16} className="text-neutral-600" /></div>
+                                            )}
+                                            <div className="min-w-0 flex-1">
+                                                <div className="text-white font-medium truncate">{result.title}</div>
+                                                <div className="text-xs text-neutral-500 mt-1">{result.year || "Année inconnue"}{result.original_title && result.original_title !== result.title ? ` · ${result.original_title}` : ""}</div>
+                                                {result.description && <div className="text-xs text-neutral-400 mt-1 line-clamp-2">{result.description}</div>}
+                                            </div>
+                                            {tmdbImporting === result.tmdb_id ? <Loader2 size={17} className="text-[#E8D2A6] animate-spin shrink-0" /> : <Plus size={17} className="text-[#E8D2A6] shrink-0" />}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            <p className="text-[11px] text-neutral-600 mt-3">Données et images fournies par TMDB. Vérifie les informations avant d'enregistrer.</p>
+                        </section>
+
+                        {/* SECTION: Informations générales */}
+                        <section>
+                            <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Informations générales</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2">
+                                    <Label className="text-neutral-300">Titre *</Label>
+                                    <Input data-testid="form-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Type *</Label>
+                                    <Select value={form.type} onValueChange={(v) => {
+                                        setForm((current) => current.type === v ? current : ({
+                                            ...current,
+                                            type: v,
+                                            tmdb_id: null,
+                                            tmdb_kind: null,
+                                            saga_title: "",
+                                            timeline: [],
+                                        }));
+                                        setTmdbResults([]);
+                                    }}>
+                                        <SelectTrigger data-testid="form-type" className="bg-[#111] border-[#262626] text-white mt-1.5"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="bg-[#111] border-[#262626] text-white">
+                                            <SelectItem value="movie">Film</SelectItem>
+                                            <SelectItem value="series">Série</SelectItem>
+                                            <SelectItem value="anime">Anime</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Année</Label>
+                                    <Input type="number" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Durée (min)</Label>
+                                    <Input type="number" value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Pays</Label>
+                                    <Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <Label className="text-neutral-300">Description</Label>
+                                    <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5 min-h-[120px]" />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <Label className="text-neutral-300">Genres (séparés par virgules)</Label>
+                                    <Input value={form.genres} onChange={(e) => setForm({ ...form, genres: e.target.value })} placeholder="Action, Sci-Fi" className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Réalisateur</Label>
+                                    <Input value={form.director} onChange={(e) => setForm({ ...form, director: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Casting (séparés par virgules)</Label>
+                                    <Input value={form.cast} onChange={(e) => setForm({ ...form, cast: e.target.value })} className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* SECTION: Visuels */}
+                        <section>
+                            <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Visuels & bande-annonce</h2>
+                            <div className="space-y-4">
+                                <div>
+                                    <Label className="text-neutral-300">Poster (URL ou upload)</Label>
+                                    <div className="text-xs text-neutral-500 mt-1">Ratio 2:3 (vertical) — ex. 600×900 px — JPG ou WebP</div>
+                                    <div className="flex gap-2 mt-1.5">
+                                        <Input value={form.poster_url} onChange={(e) => setForm({ ...form, poster_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
+                                        <label className="cursor-pointer">
+                                            <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "poster", (p) => setForm((f) => ({ ...f, poster_url: buildFileUrl(p) })))} />
+                                            <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("poster") ? "..." : "Upload"}</span>
+                                        </label>
+                                    </div>
+                                    {form.poster_url && <img src={form.poster_url} alt="" className="mt-2 h-20 rounded" />}
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Bannière (URL ou upload)</Label>
+                                    <div className="text-xs text-neutral-500 mt-1">Paysage haute résolution — min. 1920×1080, idéal 2560×1440 px — sujet centré (recadrée pour remplir le hero, jamais déformée)</div>
+                                    <div className="flex gap-2 mt-1.5">
+                                        <Input value={form.banner_url} onChange={(e) => setForm({ ...form, banner_url: e.target.value })} placeholder="https://..." className="bg-[#111] border-[#262626] text-white flex-1" />
+                                        <label className="cursor-pointer">
+                                            <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "banner", (p) => setForm((f) => ({ ...f, banner_url: buildFileUrl(p) })))} />
+                                            <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("banner") ? "..." : "Upload"}</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Logo du titre (PNG transparent recommandé)</Label>
+                                    <div className="text-xs text-neutral-500 mt-1">PNG à fond transparent — paysage, ~800×320 px. <span className="text-neutral-400">S'il n'y a pas de logo, le <b>titre</b> (saisi en haut du formulaire) s'affiche automatiquement en texte.</span></div>
+                                    <div className="flex gap-2 mt-1.5">
+                                        <Input data-testid="form-title-logo" value={form.title_logo_url} onChange={(e) => setForm({ ...form, title_logo_url: e.target.value })} placeholder="https://... (superposé au hero à la place du texte)" className="bg-[#111] border-[#262626] text-white flex-1" />
+                                        <label className="cursor-pointer">
+                                            <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "image", "title_logo", (p) => setForm((f) => ({ ...f, title_logo_url: buildFileUrl(p) })))} />
+                                            <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300"><Upload size={14} /> {activeUpload("title_logo") ? "..." : "Upload"}</span>
+                                        </label>
+                                    </div>
+                                    {form.title_logo_url && (
+                                        <div className="mt-2 p-3 rounded bg-black inline-block">
+                                            <img src={form.title_logo_url} alt="" className="h-16 object-contain" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Bande-annonce YouTube (ID ou URL)</Label>
+                                    <Input value={form.trailer_youtube_id} onChange={(e) => setForm({ ...form, trailer_youtube_id: e.target.value })} placeholder="dQw4w9WgXcQ ou https://youtu.be/..." className="bg-[#111] border-[#262626] text-white mt-1.5" />
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Bande-annonce — fichier vidéo (glisser-déposer)</Label>
+                                    <label
+                                        onDragOver={(e) => { e.preventDefault(); setDragTrailer(true); }}
+                                        onDragLeave={() => setDragTrailer(false)}
+                                        onDrop={(e) => { e.preventDefault(); setDragTrailer(false); const f = e.dataTransfer.files?.[0]; if (f) uploadFile(f, "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url }))); }}
+                                        className={`mt-1.5 block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragTrailer ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
+                                    >
+                                        <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0], "video", "trailer", (p, url) => setForm((ff) => ({ ...ff, trailer_video_url: url })))} />
+                                        {activeUpload("trailer") ? (
+                                            <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadProgress("trailer")}%</div>
+                                        ) : form.trailer_video_url ? (
+                                            <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
+                                        ) : (
+                                            <div className="text-sm text-neutral-400"><Upload size={16} className="inline mr-1.5" />Glisse un fichier vidéo ici, ou clique pour choisir</div>
+                                        )}
+                                    </label>
+                                    {form.trailer_video_url && (
+                                        <div className="flex items-center gap-3 mt-2">
+                                            <video src={form.trailer_video_url} className="h-20 rounded border border-[#262626]" muted />
+                                            <button type="button" onClick={() => setForm((f) => ({ ...f, trailer_video_url: "" }))} className="text-xs text-neutral-500 hover:text-red-400">Retirer</button>
+                                        </div>
+                                    )}
+                                    <div className="text-xs text-neutral-500 mt-1">Si un fichier est présent, il est prioritaire sur YouTube pour la bande-annonce de l'accueil.</div>
+                                </div>
+                                <div>
+                                    <Label className="text-neutral-300">Classification d&apos;âge</Label>
+                                    <Select value={form.age_rating || "none"} onValueChange={(v) => setForm({ ...form, age_rating: v === "none" ? "" : v })}>
+                                        <SelectTrigger data-testid="form-age-rating" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs"><SelectValue placeholder="Aucune" /></SelectTrigger>
+                                        <SelectContent className="bg-[#111] border-[#262626] text-white">
+                                            <SelectItem value="none">Non renseigné</SelectItem>
+                                            <SelectItem value="0">Tous publics</SelectItem>
+                                            <SelectItem value="6">6+</SelectItem>
+                                            <SelectItem value="10">10+</SelectItem>
+                                            <SelectItem value="12">12+</SelectItem>
+                                            <SelectItem value="16">16+</SelectItem>
+                                            <SelectItem value="18">18+</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="text-xs text-neutral-500 mt-1">Utilisé pour le filtrage des profils enfants.</div>
+                                </div>
+                            </div>
+                        </section>
+                        </TabsContent>
+
+                        <TabsContent value="video" className="mt-8 space-y-10">
+                        {/* SECTION: Vidéo */}
+                        <section>
+                            <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Film size={16} /> Vidéo</h2>
+
+                            <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Film size={14} className="text-[#E8D2A6]" />
+                                    <span className="text-sm font-medium text-[#E8D2A6]">Vidéo principale</span>
+                                </div>
+                                <label
+                                    onDragOver={(e) => { e.preventDefault(); setDragBunny(true); }}
+                                    onDragLeave={() => setDragBunny(false)}
+                                    onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f); }}
+                                    className={`block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragBunny ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
+                                >
+                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
+                                    {activeUpload("bunny") ? (
+                                        <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadStage("bunny")} {uploadProgress("bunny")}%</div>
+                                    ) : form.bunny_video_id ? (
+                                        <div className="text-sm text-[#E8D2A6]">✓ Vidéo ajoutée — glisse un autre fichier pour remplacer</div>
+                                    ) : (
+                                        <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo ici, ou clique pour choisir</div>
+                                    )}
+                                </label>
+                                {form.bunny_video_id && (
+                                    <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
+                                )}
+                                <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présente, cette vidéo est utilisée en priorité.</div>
+                            </div>
+
+                            <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] mb-6">
+                                <Label className="text-neutral-300 text-xs">Vidéo externe de secours</Label>
+                                <div className="flex gap-2 mt-1.5">
+                                    <Input value={form.video_url} onChange={(e) => setForm({ ...form, video_url: e.target.value })} placeholder="URL MP4/HLS externe" className="bg-[#111] border-[#262626] text-white flex-1" />
+                                        <label className="cursor-pointer">
+                                            <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0], { key: "default_video" })} />
+                                            <span className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-[#262626] hover:border-[#E8D2A6]/50 text-sm text-neutral-300">{activeUpload("default_video") ? <><Loader2 size={14} className="animate-spin" /> {uploadProgress("default_video")}%</> : <><Upload size={14} /> Upload MP4</>}</span>
+                                        </label>
+                                </div>
+                                {form.video_file_path && <div className="text-xs text-neutral-500 mt-1.5">Fichier: {form.video_file_path}</div>}
+                            </div>
+                        </section>
+
+                        {/* SECTION: Saisons */}
+                        {form.type !== "movie" && (
+                            <section>
+                                <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Tv size={16} /> Saisons & épisodes</h2>
+
+                                {(form.seasons || []).length > 0 && (
+                                    <div className="mb-4">
+                                        <BulkEpisodeUpload
+                                            seasons={form.seasons}
+                                            title={form.title}
+                                            uploadToBunny={uploadToBunny}
+                                            updateEpisode={updateEpisode}
+                                            activeUpload={activeUpload}
+                                            scopedUploadKey={scopedUploadKey}
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="flex justify-end mb-3">
+                                    <Button variant="outline" size="sm" onClick={addSeason} className="border-[#262626] text-white bg-transparent hover:bg-white/5 rounded-full">
+                                        <Plus size={12} className="mr-1" /> Ajouter saison
+                                    </Button>
+                                </div>
+                                <div className="space-y-4">
+                                    {(form.seasons || []).map((s, i) => (
+                                        <div key={i} className="border border-[#262626] rounded-md p-4">
+                                            <div className="flex items-center gap-3 mb-3">
+                                                <Input type="number" value={s.season_number} onChange={(e) => updateSeason(i, { season_number: Number(e.target.value) })} className="w-24 bg-[#111] border-[#262626] text-white" placeholder="N°" />
+                                                <Input value={s.title || ""} onChange={(e) => updateSeason(i, { title: e.target.value })} className="bg-[#111] border-[#262626] text-white flex-1" placeholder="Titre saison (optionnel)" />
+                                                <Button variant="ghost" size="icon" onClick={() => removeSeason(i)} className="text-red-400 hover:bg-white/5"><X size={14} /></Button>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {(s.episodes || []).map((ep, j) => {
+                                                    const episodeKey = `episode:${s.season_number || i + 1}:${ep.ep_number || j + 1}`;
+                                                    const hasEpisodeVideo = Boolean(
+                                                        ep.bunny_video_id || ep.video_url || ep.video_file_path,
+                                                    );
+                                                    return (
+                                                        <div key={ep.tmdb_id || j} className="rounded-lg border border-[#222] bg-[#080808] p-3 space-y-3">
+                                                            <div className="flex items-center gap-2">
+                                                                {ep.still_url && <img src={ep.still_url} alt="" className="w-24 h-14 rounded object-cover shrink-0" />}
+                                                                <Input type="number" value={ep.ep_number} onChange={(e) => updateEpisode(i, j, { ep_number: Number(e.target.value) })} className="w-20 bg-[#0a0a0a] border-[#262626] text-white" placeholder="Ep" />
+                                                                <Input value={ep.title || ""} onChange={(e) => updateEpisode(i, j, { title: e.target.value })} className="bg-[#0a0a0a] border-[#262626] text-white flex-1" placeholder="Nom de l'épisode" />
+                                                                <Input type="number" value={ep.duration || ""} onChange={(e) => updateEpisode(i, j, { duration: Number(e.target.value) })} className="w-24 bg-[#0a0a0a] border-[#262626] text-white" placeholder="min" />
+                                                                <Button variant="ghost" size="icon" onClick={() => removeEpisode(i, j)} className="text-neutral-400 hover:text-red-400"><X size={12} /></Button>
+                                                            </div>
+                                                            <Textarea
+                                                                value={ep.description || ""}
+                                                                onChange={(e) => updateEpisode(i, j, { description: e.target.value })}
+                                                                className="bg-[#0a0a0a] border-[#262626] text-white min-h-16"
+                                                                placeholder="Synopsis de l'épisode"
+                                                            />
+                                                            <div className="flex flex-col sm:flex-row gap-2">
+                                                                <Input
+                                                                    value={ep.video_url || ""}
+                                                                    onChange={(e) => updateEpisode(i, j, { video_url: e.target.value })}
+                                                                    className="bg-[#0a0a0a] border-[#262626] text-white flex-1"
+                                                                    placeholder="URL du fichier MP4 de cet épisode"
+                                                                />
+                                                                <label className="cursor-pointer shrink-0">
+                                                                    <input
+                                                                        type="file"
+                                                                        accept="video/mp4,video/webm,video/quicktime"
+                                                                        className="hidden"
+                                                                        onChange={(e) => e.target.files?.[0] && uploadToBunny(
+                                                                            e.target.files[0],
+                                                                            {
+                                                                                key: episodeKey,
+                                                                                title: `${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`,
+                                                                                onReference: (reference) => updateEpisode(i, j, reference),
+                                                                            },
+                                                                        )}
+                                                                    />
+                                                                    <span
+                                                                        className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${hasEpisodeVideo
+                                                                            ? "border-[#E8D2A6]/45 bg-[#E8D2A6]/[0.06] text-[#E8D2A6] hover:border-[#E8D2A6]/75"
+                                                                            : "border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50"
+                                                                        }`}
+                                                                        title={hasEpisodeVideo ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
+                                                                    >
+                                                                        {activeUpload(episodeKey)
+                                                                            ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(episodeKey)}%</>
+                                                                            : hasEpisodeVideo
+                                                                                ? <><Film size={12} /> Fichier déjà ajouté</>
+                                                                                : <><Upload size={12} /> Ajouter le MP4</>}
+                                                                    </span>
+                                                                </label>
+                                                            </div>
+                                                            {ep.air_date && <div className="text-[11px] text-neutral-600">Diffusé le {ep.air_date}</div>}
+                                                        </div>
+                                                    );
+                                                })}
+                                                <Button variant="ghost" size="sm" onClick={() => addEpisode(i)} className="text-[#E8D2A6] hover:bg-white/5">
+                                                    <Plus size={12} className="mr-1" /> Ajouter épisode
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+                        </TabsContent>
+
+                        <TabsContent value="diffusion" className="mt-8 space-y-10">
+                        {/* SECTION: À l'affiche */}
+                        <section>
+                            <h2 className="font-display text-xl mb-4 flex items-center gap-2 text-[#E8D2A6]"><Sparkles size={16} /> Mise en avant</h2>
+                            <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] space-y-4">
+                                <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#262626]">
+                                    <div>
+                                        <div className="text-white">Actuellement au cinéma</div>
+                                        <div className="text-xs text-neutral-500">Avertit les spectateurs que la qualité disponible peut être réduite.</div>
+                                    </div>
+                                    <MediaFlagControl
+                                        checked={!!form.in_theaters}
+                                        disabled={!!mediaFlagSaving.in_theaters}
+                                        onToggle={() => toggleMediaFlag("in_theaters")}
+                                        testId="form-in-theaters"
+                                        label="Activer ou désactiver le statut actuellement au cinéma"
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <div className="text-white">À l&apos;affiche sur l&apos;accueil</div>
+                                        <div className="text-xs text-neutral-500">Ce contenu apparaîtra dans le carrousel du hero (défilement auto).</div>
+                                    </div>
+                                    <MediaFlagControl
+                                        checked={!!form.featured}
+                                        disabled={!!mediaFlagSaving.featured}
+                                        onToggle={() => toggleMediaFlag("featured")}
+                                        testId="form-featured"
+                                        label="Activer ou désactiver la mise à l'affiche"
+                                    />
+                                </div>
+                                {form.featured && (
+                                    <div>
+                                        <Label className="text-neutral-300">Ordre d&apos;affichage (plus petit = plus tôt)</Label>
+                                        <Input type="number" value={form.featured_order} onChange={(e) => setForm({ ...form, featured_order: e.target.value })} placeholder="0" data-testid="form-featured-order" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs" />
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* SECTION: Timeline / saga */}
+                        <section className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-5" data-testid="timeline-editor">
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex items-start gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#E8D2A6]/35 bg-[#E8D2A6]/10 text-[#E8D2A6]">
+                                        <GitBranch size={17} />
+                                    </div>
+                                    <div>
+                                        <h2 className="font-display text-xl text-[#E8D2A6]">Timeline, saga ou trilogie</h2>
+                                        <p className="mt-1 max-w-2xl text-xs leading-relaxed text-neutral-400">
+                                            L’assistant propose les œuvres liées dans l’ordre de sortie. Vérifie et réorganise la liste si l’ordre de visionnage est différent.
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={suggestTimeline}
+                                    disabled={timelineSuggesting || !form.tmdb_id}
+                                    data-testid="suggest-timeline-button"
+                                    className="shrink-0 rounded-full border-[#E8D2A6]/40 bg-[#E8D2A6]/5 text-[#E8D2A6] hover:bg-[#E8D2A6]/10 hover:text-[#E8D2A6]"
+                                >
+                                    {timelineSuggesting ? <Loader2 size={14} className="mr-2 animate-spin" /> : <WandSparkles size={14} className="mr-2" />}
+                                    {timelineSuggesting ? "Analyse…" : "Proposer avec l’IA"}
+                                </Button>
+                            </div>
+
+                            {!form.tmdb_id && (
+                                <div className="mt-4 rounded-lg border border-dashed border-[#333] bg-[#111] px-4 py-3 text-xs text-neutral-500">
+                                    Sélectionne d’abord le bon résultat dans « Import intelligent » pour permettre à l’assistant d’identifier la saga.
+                                </div>
+                            )}
+
+                            <div className="mt-5">
+                                <Label className="text-neutral-300">Nom affiché sur la fiche</Label>
+                                <Input
+                                    value={form.saga_title}
+                                    onChange={(e) => setForm((current) => ({ ...current, saga_title: e.target.value }))}
+                                    placeholder="Ex. La trilogie du Seigneur des Anneaux"
+                                    className="mt-1.5 border-[#262626] bg-[#111] text-white"
+                                    data-testid="timeline-title-input"
+                                />
+                            </div>
+
+                            <div className="mt-5 rounded-xl border border-[#262626] bg-[#080808] p-4">
+                                <div className="flex flex-col gap-1">
+                                    <Label className="text-neutral-300">Ajouter depuis le catalogue YourMovie’s</Label>
+                                    <p className="text-xs text-neutral-500">Recherche un film, une série ou un animé déjà publié, puis ajoute-le à la chronologie.</p>
+                                </div>
+                                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                    <div className="relative min-w-0 flex-1">
+                                        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600" />
+                                        <Input
+                                            value={timelineCatalogQuery}
+                                            onChange={(e) => setTimelineCatalogQuery(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    searchTimelineCatalog();
+                                                }
+                                            }}
+                                            placeholder="Rechercher dans le catalogue…"
+                                            className="border-[#2f2f2f] bg-[#111] pl-9 text-white"
+                                            data-testid="timeline-catalog-search"
+                                        />
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        onClick={searchTimelineCatalog}
+                                        disabled={timelineCatalogSearching}
+                                        className="bg-[#E8D2A6] text-black hover:bg-[#d8bf8c]"
+                                        data-testid="timeline-catalog-search-button"
+                                    >
+                                        {timelineCatalogSearching ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Search size={14} className="mr-2" />}
+                                        Rechercher
+                                    </Button>
+                                </div>
+
+                                {timelineCatalogResults.length > 0 && (
+                                    <div className="mt-3 grid max-h-80 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                                        {timelineCatalogResults.map((media) => {
+                                            const alreadyAdded = isTimelineMediaAdded(media);
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    key={media.id}
+                                                    onClick={() => addCatalogMediaToTimeline(media)}
+                                                    disabled={alreadyAdded}
+                                                    className="group flex min-w-0 items-center gap-3 rounded-lg border border-[#262626] bg-[#111] p-2.5 text-left transition-colors hover:border-[#E8D2A6]/55 disabled:cursor-default disabled:opacity-55"
+                                                    data-testid={`timeline-catalog-result-${media.id}`}
+                                                >
+                                                    <div className="h-[66px] w-11 shrink-0 overflow-hidden rounded-md border border-white/10 bg-[#161616]">
+                                                        {media.poster_url ? (
+                                                            <img src={media.poster_url} alt="" className="h-full w-full object-cover" />
+                                                        ) : (
+                                                            <div className="flex h-full items-center justify-center text-neutral-700"><Film size={14} /></div>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="truncate text-sm font-medium text-white group-hover:text-[#E8D2A6]">{media.title}</div>
+                                                        <div className="mt-1 text-xs text-neutral-500">
+                                                            {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"} · {media.year || "Année inconnue"}
+                                                        </div>
+                                                    </div>
+                                                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${alreadyAdded ? "border-white/10 text-neutral-600" : "border-[#E8D2A6]/35 bg-[#E8D2A6]/10 text-[#E8D2A6]"}`}>
+                                                        {alreadyAdded ? "Ajouté" : "Ajouter"}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            {(form.timeline || []).length > 0 ? (
+                                <div className="mt-5 space-y-2">
+                                    {(form.timeline || []).map((item, index) => (
+                                        <div key={`${item.tmdb_id || "manual"}-${index}`} className="grid grid-cols-[44px_minmax(0,1fr)_88px_auto] items-center gap-2 rounded-lg border border-[#262626] bg-[#111] p-2.5">
+                                            <div className="relative h-16 w-11 overflow-hidden rounded-md border border-white/10 bg-[#161616]">
+                                                {item.poster_url ? (
+                                                    <img src={item.poster_url} alt="" className="h-full w-full object-cover" />
+                                                ) : (
+                                                    <div className="flex h-full items-center justify-center text-neutral-700"><Film size={14} /></div>
+                                                )}
+                                                <span className="absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#E8D2A6] px-1 text-[10px] font-bold text-black">{index + 1}</span>
+                                            </div>
+                                            <div className="min-w-0 space-y-2">
+                                                <Input
+                                                    value={item.title || ""}
+                                                    onChange={(e) => updateTimelineItem(index, { title: e.target.value })}
+                                                    placeholder="Titre de l’œuvre"
+                                                    className="h-9 border-[#2f2f2f] bg-[#0a0a0a] text-white"
+                                                    data-testid={`timeline-item-title-${index}`}
+                                                />
+                                                <Select value={item.type || form.type} onValueChange={(value) => updateTimelineItem(index, { type: value })}>
+                                                    <SelectTrigger className="h-8 border-[#2f2f2f] bg-[#0a0a0a] text-xs text-neutral-300"><SelectValue /></SelectTrigger>
+                                                    <SelectContent className="border-[#262626] bg-[#111] text-white">
+                                                        <SelectItem value="movie">Film</SelectItem>
+                                                        <SelectItem value="series">Série</SelectItem>
+                                                        <SelectItem value="anime">Anime</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <Input
+                                                type="number"
+                                                value={item.year ?? ""}
+                                                onChange={(e) => updateTimelineItem(index, { year: e.target.value })}
+                                                placeholder="Année"
+                                                className="h-9 border-[#2f2f2f] bg-[#0a0a0a] text-white"
+                                                aria-label={`Année du titre ${index + 1}`}
+                                            />
+                                            <div className="flex items-center gap-1">
+                                                <Button type="button" variant="ghost" size="icon" onClick={() => moveTimelineItem(index, -1)} disabled={index === 0} className="h-8 w-8 text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]" aria-label="Monter"><ArrowUp size={14} /></Button>
+                                                <Button type="button" variant="ghost" size="icon" onClick={() => moveTimelineItem(index, 1)} disabled={index === form.timeline.length - 1} className="h-8 w-8 text-neutral-400 hover:bg-white/5 hover:text-[#E8D2A6]" aria-label="Descendre"><ArrowDown size={14} /></Button>
+                                                <Button type="button" variant="ghost" size="icon" onClick={() => removeTimelineItem(index)} className="h-8 w-8 text-neutral-500 hover:bg-red-500/10 hover:text-red-400" aria-label="Retirer"><X size={14} /></Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="mt-5 rounded-lg border border-dashed border-[#333] px-4 py-6 text-center text-sm text-neutral-500">
+                                    Aucune timeline renseignée. La section restera masquée sur la fiche média.
+                                </div>
+                            )}
+
+                            <Button type="button" variant="ghost" size="sm" onClick={addTimelineItem} className="mt-3 text-neutral-500 hover:bg-white/5 hover:text-[#E8D2A6]">
+                                <Plus size={13} className="mr-1.5" /> Ajouter une œuvre absente du catalogue
+                            </Button>
+                        </section>
+                        </TabsContent>
+                    </Tabs>
                 </div>
 
                 <div className="mt-12 flex justify-end gap-2 border-t border-[#262626] pt-6">

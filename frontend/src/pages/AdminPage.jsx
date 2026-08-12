@@ -33,6 +33,18 @@ function isMediaIncomplete(media) {
     return episodes.length === 0 || episodes.some((episode) => !hasPlayableVideo(episode));
 }
 
+function SectionHeader({ titre, description, children }) {
+    return (
+        <div className="mb-6 flex flex-col gap-3 border-b border-[#262626] pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl">
+                <h2 className="font-display text-2xl tracking-tight text-white">{titre}</h2>
+                <p className="mt-1 text-sm leading-relaxed text-neutral-500">{description}</p>
+            </div>
+            {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
+        </div>
+    );
+}
+
 export default function AdminPage() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
@@ -52,6 +64,7 @@ export default function AdminPage() {
     const [roleUser, setRoleUser] = useState(null);
     const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
+    const [mediaFilter, setMediaFilter] = useState("all");
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
     const [licenseKeys, setLicenseKeys] = useState([]);
@@ -354,7 +367,12 @@ export default function AdminPage() {
         comments: reviews.length,
     };
 
-    const filteredItems = items.filter((m) => !q || m.title.toLowerCase().includes(q.toLowerCase()));
+    const filteredItems = items.filter((m) => {
+        if (q && !m.title.toLowerCase().includes(q.toLowerCase())) return false;
+        if (mediaFilter === "incomplete") return isMediaIncomplete(m);
+        if (mediaFilter !== "all") return m.type === mediaFilter;
+        return true;
+    });
     const filteredUsers = users.filter((u) => !userQ ||
         (u.email || "").toLowerCase().includes(userQ.toLowerCase()) ||
         (u.name || "").toLowerCase().includes(userQ.toLowerCase())
@@ -583,14 +601,42 @@ export default function AdminPage() {
                     </TabsContent>
 
                     <TabsContent value="media" className="mt-0">
-                        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                            <div className="relative flex-1">
-                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
-                                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher..." className="pl-9 bg-[#111] border-[#262626] text-white" />
-                            </div>
-                            {can(user, "content.add") && <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-5 font-semibold">
+                        <SectionHeader
+                            titre="Contenus"
+                            description="Le catalogue complet. Ajoute, modifie, et gère ce qui passe en avant."
+                        >
+                            {can(user, "content.add") && <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-10 px-5 font-semibold">
                                 <Plus size={16} className="mr-2" /> Ajouter un contenu
                             </Button>}
+                        </SectionHeader>
+
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div className="relative sm:max-w-xs sm:flex-1">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un titre…" className="pl-9 bg-[#111] border-[#262626] text-white" />
+                            </div>
+                            <div className="flex flex-wrap gap-1.5" data-testid="media-filters">
+                                {[
+                                    { id: "all", label: "Tous", n: items.length },
+                                    { id: "movie", label: "Films", n: stats.movies },
+                                    { id: "series", label: "Séries", n: stats.series },
+                                    { id: "anime", label: "Animes", n: stats.animes },
+                                    { id: "incomplete", label: "Incomplets", n: incompleteItems.length },
+                                ].map((f) => (
+                                    <button
+                                        key={f.id}
+                                        type="button"
+                                        onClick={() => setMediaFilter(f.id)}
+                                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${mediaFilter === f.id
+                                            ? "border-[#E8D2A6] bg-[#E8D2A6] font-semibold text-black"
+                                            : f.id === "incomplete" && f.n > 0
+                                                ? "border-amber-400/40 text-amber-300 hover:bg-amber-400/10"
+                                                : "border-[#262626] text-neutral-400 hover:border-[#E8D2A6]/50 hover:text-white"}`}
+                                    >
+                                        {f.label} <span className="tabular-nums opacity-70">{f.n}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         <div className="border border-[#262626] rounded-lg overflow-hidden">
@@ -682,15 +728,11 @@ export default function AdminPage() {
 
                     {can(user, "content.add") && (
                         <TabsContent value="discovery" className="mt-0 space-y-6">
-                            <div className="flex flex-col gap-4 border-b border-[#262626] pb-6 sm:flex-row sm:items-end sm:justify-between">
+                            <div className="mb-6 flex flex-col gap-3 border-b border-[#262626] pb-5 sm:flex-row sm:items-end sm:justify-between">
                                 <div className="max-w-2xl">
-                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6]">
-                                        <Sparkles size={13} aria-hidden="true" />
-                                        Tendances
-                                    </div>
-                                    <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Veille IMDb</h2>
-                                    <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-                                        Repère les sorties récentes et les titres qui gagnent en popularité à partir de leurs données IMDb, même s&apos;ils ne sont pas encore disponibles sur YourMovie&apos;s.
+                                    <h2 className="font-display text-2xl tracking-tight text-white">Tendances</h2>
+                                    <p className="mt-1 text-sm leading-relaxed text-neutral-500">
+                                        Les titres qui montent sur IMDb, même absents du catalogue.
                                     </p>
                                 </div>
                                 <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
@@ -817,6 +859,10 @@ export default function AdminPage() {
                     )}
 
                     <TabsContent value="users" className="mt-0">
+                        <SectionHeader
+                            titre="Utilisateurs"
+                            description="Comptes, abonnements, blocages et permissions."
+                        />
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -904,6 +950,10 @@ export default function AdminPage() {
                     </TabsContent>
 
                     <TabsContent value="comments" className="mt-0">
+                        <SectionHeader
+                            titre="Commentaires"
+                            description="Tous les avis publiés et leurs réponses."
+                        />
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={reviewQ} onChange={(e) => setReviewQ(e.target.value)} placeholder="Rechercher (texte, utilisateur, titre)..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -946,7 +996,10 @@ export default function AdminPage() {
                     </TabsContent>
 
                     <TabsContent value="wishboard" className="mt-0">
-                        <p className="text-sm text-neutral-500 mb-6">Propositions des utilisateurs, triées par nombre de votes. Approuvez, laissez en attente ou refusez.</p>
+                        <SectionHeader
+                            titre="Wishboard"
+                            description="Propositions des visiteurs, triées par nombre de votes. Approuve, laisse en attente ou refuse."
+                        />
                         <div className="space-y-3">
                             {wishes.length === 0 && (
                                 <div className="p-6 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500 text-sm">Aucune proposition.</div>
@@ -989,6 +1042,10 @@ export default function AdminPage() {
                     </TabsContent>
 
                     <TabsContent value="coins" className="mt-0">
+                        <SectionHeader
+                            titre="Freemium"
+                            description="Ajuste le solde de points d'un compte."
+                        />
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -1033,6 +1090,10 @@ export default function AdminPage() {
                     </TabsContent>
 
                     <TabsContent value="cagnotte" className="mt-0">
+                        <SectionHeader
+                            titre="Cagnotte"
+                            description="Le total affiché publiquement sur le site."
+                        />
                         <div className="max-w-md p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-4">
                                 <PiggyBank size={18} className="text-[#E8D2A6]" />
@@ -1064,6 +1125,10 @@ export default function AdminPage() {
                     </TabsContent>
 
                     <TabsContent value="announcements" className="mt-0">
+                        <SectionHeader
+                            titre="Annonces"
+                            description="Messages visibles par tous les visiteurs."
+                        />
                         <div className="grid lg:grid-cols-2 gap-8">
                             <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] h-fit">
                                 <div className="flex items-center gap-2 mb-4">
@@ -1119,13 +1184,10 @@ export default function AdminPage() {
 
                     {can(user, "keys.manage") && (
                         <TabsContent value="license-keys" className="mt-0 space-y-6">
-                            <div>
-                                <div className="text-xs uppercase tracking-widest text-neutral-500">SellAuth</div>
-                                <h2 className="mt-1 font-display text-3xl">Whitelist des clés</h2>
-                                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-500">
-                                    Les clés sont transformées en empreintes non réversibles côté serveur. Elles ne sont jamais renvoyées ni affichées dans le panel.
-                                </p>
-                            </div>
+                            <SectionHeader
+                                titre="Clés SellAuth"
+                                description="Whitelist des clés d'activation. Elles sont transformées en empreintes non réversibles côté serveur : elles ne sont jamais réaffichées."
+                            />
 
                             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                                 {[
@@ -1257,12 +1319,20 @@ export default function AdminPage() {
 
                     {can(user, "pricing.manage") && (
                         <TabsContent value="pricing" className="mt-0">
+                            <SectionHeader
+                                titre="Tarifs"
+                                description="Prix Premium et Freemium, et réductions en cours."
+                            />
                             <AdminPricing />
                         </TabsContent>
                     )}
 
                     {can(user, "ads.manage") && (
                         <TabsContent value="ads" className="mt-0">
+                            <SectionHeader
+                                titre="Publicité"
+                                description="Emplacements publicitaires et étapes avant lecture."
+                            />
                             <AdminAds />
                         </TabsContent>
                     )}
