@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
-import { Search, Compass, Film, Tv, FileText, CheckCircle2, Star, ChevronUp, MessageSquare, Users, Megaphone, Coins, AlertTriangle, LifeBuoy } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { can } from "@/lib/perms";
+import { Search, Compass, Film, Tv, FileText, CheckCircle2, Star, ChevronUp, MessageSquare, Users, Megaphone, Coins, Tag, AlertTriangle, LifeBuoy, ShieldCheck } from "lucide-react";
 
 const Etape = ({ n, titre, children }) => (
     <div className="flex gap-4">
@@ -25,13 +27,15 @@ const Cle = ({ children }) => (
     <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[12px] text-[#E8D2A6]">{children}</code>
 );
 
+const CONTENU = ["content.add", "content.edit"];
+
 const RUBRIQUES = [
     {
         id: "prise-en-main",
         titre: "Prise en main du panel",
         icone: Compass,
         mots: "navigation menu accueil à traiter sections",
-        contenu: (
+        contenu: () => (
             <div className="space-y-4">
                 <p>Le menu de gauche range les sections en trois familles. <strong className="text-white">Catalogue</strong> pour les contenus, <strong className="text-white">Communauté</strong> pour les gens, <strong className="text-white">Monétisation</strong> pour l&apos;argent. Tu ne vois que les sections auxquelles tu as accès.</p>
                 <p>Tu arrives toujours sur <strong className="text-white">À traiter</strong>. Cette page ne sert qu&apos;à une chose : te dire ce qui attend une action, sans que tu aies à ouvrir chaque section pour vérifier. Les cartes sont cliquables et t&apos;emmènent au bon endroit.</p>
@@ -44,7 +48,8 @@ const RUBRIQUES = [
         titre: "Ajouter un film",
         icone: Film,
         mots: "film nouveau contenu import tmdb vidéo bunny enregistrer",
-        contenu: (
+        perms: CONTENU,
+        contenu: () => (
             <div className="space-y-4">
                 <Etape n="1" titre="Ouvre le formulaire">
                     Section <strong className="text-white">Contenus</strong>, puis le bouton <strong className="text-white">Ajouter un contenu</strong> en haut à droite.
@@ -72,7 +77,8 @@ const RUBRIQUES = [
         titre: "Ajouter une série ou un anime",
         icone: Tv,
         mots: "série anime saison épisode dépôt automatique masse",
-        contenu: (
+        perms: CONTENU,
+        contenu: () => (
             <div className="space-y-4">
                 <p>Le début est identique au film : <strong className="text-white">Import intelligent</strong>, tu choisis <em>Série</em> ou <em>Anime</em>, tu cherches le titre.</p>
                 <Etape n="1" titre="Crée la structure">
@@ -95,7 +101,8 @@ const RUBRIQUES = [
         titre: "Bien nommer les fichiers",
         icone: FileText,
         mots: "nom fichier nommage s01e02 1x02 épisode reconnaissance",
-        contenu: (
+        perms: CONTENU,
+        contenu: () => (
             <div className="space-y-4">
                 <p>C&apos;est le seul point à soigner en amont, et celui qui fait gagner le plus de temps. Le site reconnaît ces écritures :</p>
                 <div className="overflow-x-auto">
@@ -132,7 +139,8 @@ const RUBRIQUES = [
         titre: "Vérifier qu'un contenu est complet",
         icone: CheckCircle2,
         mots: "complet incomplet manquant vérification épisode sans vidéo",
-        contenu: (
+        perms: CONTENU,
+        contenu: () => (
             <div className="space-y-4">
                 <p>Deux endroits te le disent, tu n&apos;as jamais à parcourir la liste toi-même.</p>
                 <p><strong className="text-white">En bas du formulaire</strong>, un encadré liste précisément ce qui manque, épisode par épisode : <Cle>S02E05</Cle>, <Cle>S02E06</Cle>. Il repère aussi les saisons entières absentes.</p>
@@ -145,7 +153,8 @@ const RUBRIQUES = [
         titre: "Mettre un contenu en avant",
         icone: Star,
         mots: "à l'affiche cinéma priorité featured ordre accueil",
-        contenu: (
+        perms: ["content.edit"],
+        contenu: () => (
             <div className="space-y-4">
                 <p>Dans la liste des <strong className="text-white">Contenus</strong>, chaque ligne porte deux interrupteurs.</p>
                 <p><strong className="text-white">À l&apos;affiche</strong> place le contenu dans le grand bandeau de la page d&apos;accueil. Quand il est activé, un champ <em>priorité</em> apparaît à côté : plus le nombre est petit, plus le contenu passe tôt. Utilise 1, 2, 3… plutôt que des écarts au hasard.</p>
@@ -159,39 +168,108 @@ const RUBRIQUES = [
         titre: "Traiter le Wishboard",
         icone: ChevronUp,
         mots: "wishboard propositions votes approuver refuser attente",
-        contenu: (
+        perms: ["wishboard.view", "wishboard.approve", "wishboard.moderate"],
+        contenu: (peut) => (
             <div className="space-y-4">
                 <p>Les visiteurs proposent des titres et votent pour eux. La liste est triée par nombre de votes : le plus demandé est en haut.</p>
-                <p>Trois réponses possibles. <strong className="text-white">Approuver</strong> signale publiquement que le titre arrivera. <strong className="text-white">En attente</strong> le laisse dans la file sans t&apos;engager. <strong className="text-white">Refuser</strong> ferme la demande.</p>
-                <p>La corbeille supprime définitivement la proposition et ses votes. À réserver aux doublons et aux propositions hors sujet — un refus est plus honnête vis-à-vis de la personne qui a proposé.</p>
+                {peut("wishboard.approve") && (
+                    <p><strong className="text-white">Approuver</strong> signale publiquement que le titre arrivera. C&apos;est la réponse à donner dès que tu sais que le contenu sera ajouté.</p>
+                )}
+                {peut("wishboard.moderate") && (
+                    <>
+                        <p><strong className="text-white">En attente</strong> laisse la proposition dans la file sans t&apos;engager. <strong className="text-white">Refuser</strong> ferme la demande.</p>
+                        <p>La corbeille supprime définitivement la proposition et ses votes. À réserver aux doublons et aux propositions hors sujet — un refus est plus honnête vis-à-vis de la personne qui a proposé.</p>
+                    </>
+                )}
+                {!peut("wishboard.approve") && !peut("wishboard.moderate") && (
+                    <Note>Tu peux consulter les propositions mais pas les trancher. Demande la permission correspondante si tu dois le faire.</Note>
+                )}
             </div>
         ),
     },
     {
-        id: "communaute",
-        titre: "Commentaires, utilisateurs et annonces",
+        id: "commentaires",
+        titre: "Modérer les commentaires",
         icone: MessageSquare,
-        mots: "commentaires avis modération utilisateurs premium bloquer annonces permissions",
-        contenu: (
+        mots: "commentaires avis modération réponses supprimer",
+        perms: ["reviews.moderate"],
+        contenu: () => (
             <div className="space-y-4">
-                <p><strong className="text-white">Commentaires</strong> rassemble tous les avis et leurs réponses, avec une recherche par texte, par auteur ou par titre. Supprimer un avis supprime aussi les réponses qu&apos;il a reçues.</p>
-                <p><strong className="text-white">Utilisateurs</strong> permet de chercher un compte, de consulter sa fiche, de lui accorder un accès Premium, de le bloquer ou de le supprimer. Les colonnes se trient en cliquant sur leur en-tête.</p>
-                <p><strong className="text-white">Les permissions</strong> se règlent compte par compte, en cochant précisément ce que la personne peut faire — ajouter du contenu, modérer, gérer les tarifs… Trois préréglages existent pour aller vite, mais tu peux composer librement.</p>
-                <p><strong className="text-white">Annonces</strong> publie un message visible par tous les visiteurs. Titre obligatoire, texte libre.</p>
+                <p>La section rassemble tous les avis et leurs réponses, avec une recherche qui porte à la fois sur le texte, l&apos;auteur et le titre concerné.</p>
+                <p>Attention à un détail : supprimer un avis supprime aussi toutes les réponses qu&apos;il a reçues. Pour ne retirer qu&apos;une réponse, supprime la réponse elle-même, pas l&apos;avis parent.</p>
             </div>
         ),
     },
     {
-        id: "monetisation",
-        titre: "Freemium, cagnotte, tarifs, publicité et clés",
-        icone: Coins,
-        mots: "freemium coins cagnotte tarifs réduction publicité pub clés sellauth",
-        contenu: (
+        id: "utilisateurs",
+        titre: "Gérer les utilisateurs",
+        icone: Users,
+        mots: "utilisateurs comptes premium bloquer supprimer permissions rôles",
+        perms: ["users.view", "users.edit", "users.block", "users.delete", "users.premium", "roles.manage"],
+        contenu: (peut) => (
             <div className="space-y-4">
-                <p><strong className="text-white">Freemium</strong> ajuste le solde de points d&apos;un compte : ajouter, retirer, fixer une valeur ou remettre à zéro.</p>
-                <p><strong className="text-white">Cagnotte</strong> gère le total affiché publiquement. La remise à zéro demande deux confirmations, volontairement : elle est irréversible.</p>
-                <p><strong className="text-white">Tarifs</strong> fixe les prix Premium et Freemium ainsi que les réductions. <strong className="text-white">Publicité</strong> règle les emplacements et le nombre d&apos;étapes avant lecture.</p>
-                <p><strong className="text-white">Clés SellAuth</strong> tient la liste des clés d&apos;activation : import en masse, retrait d&apos;une clé, et un décompte de ce qui est disponible, utilisé ou révoqué.</p>
+                <p>Cherche un compte par nom ou par adresse. Les colonnes se trient en cliquant sur leur en-tête, et cliquer sur une ligne ouvre la fiche détaillée du compte.</p>
+                {peut("users.premium") && <p><strong className="text-white">Accorder un Premium</strong> se fait depuis la fiche : tu choisis la formule et la durée.</p>}
+                {peut("users.block") && <p><strong className="text-white">Bloquer</strong> empêche la connexion sans effacer les données. C&apos;est réversible, contrairement à la suppression.</p>}
+                {peut("users.delete") && <p><strong className="text-white">Supprimer</strong> efface le compte et tout ce qui lui appartient. Irréversible, et impossible sur ton propre compte.</p>}
+                {peut("roles.manage") && (
+                    <Note ton="attention">
+                        <strong>Les permissions</strong> se cochent une par une, comme sur Discord. Trois préréglages existent pour aller vite, mais tu peux composer librement. Garde en tête qu&apos;accorder la gestion des permissions permet à la personne de s&apos;accorder tout le reste.
+                    </Note>
+                )}
+            </div>
+        ),
+    },
+    {
+        id: "annonces",
+        titre: "Publier une annonce",
+        icone: Megaphone,
+        mots: "annonces message information visiteurs publier",
+        perms: ["announcements.manage"],
+        contenu: () => (
+            <div className="space-y-4">
+                <p>Une annonce est un message visible par tous les visiteurs du site. Le titre est obligatoire, le texte est libre.</p>
+                <p>La publication est immédiate. Relis avant de valider : il n&apos;y a pas de modification possible après coup, seulement la suppression et une nouvelle publication.</p>
+            </div>
+        ),
+    },
+    {
+        id: "freemium",
+        titre: "Freemium et cagnotte",
+        icone: Coins,
+        mots: "freemium coins points solde cagnotte dons total",
+        perms: ["users.coins", "cagnotte.manage"],
+        contenu: (peut) => (
+            <div className="space-y-4">
+                {peut("users.coins") && (
+                    <p><strong className="text-white">Freemium</strong> ajuste le solde de points d&apos;un compte : ajouter, retirer, fixer une valeur précise ou remettre à zéro. Le nouveau solde s&apos;affiche immédiatement après l&apos;opération.</p>
+                )}
+                {peut("cagnotte.manage") && (
+                    <>
+                        <p><strong className="text-white">Cagnotte</strong> gère le total affiché publiquement sur le site. Tu saisis le montant, tu enregistres.</p>
+                        <Note ton="attention">La remise à zéro demande deux confirmations successives. Ce n&apos;est pas une maladresse d&apos;interface : l&apos;opération est irréversible et le total public repart de zéro.</Note>
+                    </>
+                )}
+            </div>
+        ),
+    },
+    {
+        id: "commerce",
+        titre: "Tarifs, publicité et clés",
+        icone: Tag,
+        mots: "tarifs prix réduction publicité pub emplacements clés sellauth activation",
+        perms: ["pricing.manage", "ads.manage", "keys.manage"],
+        contenu: (peut) => (
+            <div className="space-y-4">
+                {peut("pricing.manage") && (
+                    <p><strong className="text-white">Tarifs</strong> fixe les prix Premium et Freemium ainsi que les réductions en cours. Les montants s&apos;appliquent au site dès l&apos;enregistrement.</p>
+                )}
+                {peut("ads.manage") && (
+                    <p><strong className="text-white">Publicité</strong> règle les emplacements et le nombre d&apos;étapes à franchir avant la lecture. Monte ce nombre avec prudence : chaque étape supplémentaire est un visiteur de plus qui abandonne.</p>
+                )}
+                {peut("keys.manage") && (
+                    <p><strong className="text-white">Clés SellAuth</strong> tient la liste des clés d&apos;activation. Tu peux en importer plusieurs d&apos;un coup en choisissant la formule et la périodicité, ou en retirer une. Le décompte en haut indique ce qui est disponible, utilisé ou révoqué.</p>
+                )}
             </div>
         ),
     },
@@ -200,7 +278,8 @@ const RUBRIQUES = [
         titre: "Les pièges classiques",
         icone: AlertTriangle,
         mots: "erreur piège brouillon publication onglet fermé",
-        contenu: (
+        perms: CONTENU,
+        contenu: () => (
             <div className="space-y-3">
                 <Note ton="attention">
                     <strong>Une fiche enregistrée est visible tout de suite.</strong> Il n&apos;existe pas de brouillon. Si tu enregistres avant d&apos;avoir envoyé la vidéo, les visiteurs tombent sur une fiche qui ne se lance pas. Le bon réflexe : envoyer d&apos;abord, enregistrer ensuite.
@@ -219,7 +298,7 @@ const RUBRIQUES = [
         titre: "Si ça coince",
         icone: LifeBuoy,
         mots: "problème bug aide bloqué erreur support",
-        contenu: (
+        contenu: () => (
             <div className="space-y-4">
                 <p>Un envoi bloqué à 0 %, une vidéo qui n&apos;apparaît pas, un épisode qui refuse de se rattacher : dans la grande majorité des cas c&apos;est un fichier mal nommé ou une connexion coupée en cours de route.</p>
                 <p>Avant de signaler quoi que ce soit, essaie dans cet ordre : vérifie le nom du fichier, recharge la page, relance l&apos;envoi. Si le problème revient, note <strong className="text-white">le titre concerné</strong>, <strong className="text-white">ce que tu faisais</strong> et <strong className="text-white">l&apos;heure</strong> — ces trois informations suffisent presque toujours à retrouver la cause.</p>
@@ -229,12 +308,20 @@ const RUBRIQUES = [
 ];
 
 export default function AdminGuide() {
+    const { user } = useAuth();
     const [recherche, setRecherche] = useState("");
+
+    const peut = (perm) => can(user, perm);
+    // Une rubrique sans permission déclarée concerne tout le monde ; les autres
+    // n'apparaissent que si la personne peut réellement agir dessus.
+    const autorisees = RUBRIQUES.filter((r) => !r.perms || r.perms.some(peut));
 
     const terme = recherche.trim().toLowerCase();
     const visibles = terme
-        ? RUBRIQUES.filter((r) => (r.titre + " " + r.mots).toLowerCase().includes(terme))
-        : RUBRIQUES;
+        ? autorisees.filter((r) => (r.titre + " " + r.mots).toLowerCase().includes(terme))
+        : autorisees;
+
+    const masquees = RUBRIQUES.length - autorisees.length;
 
     return (
         <div className="space-y-6" data-testid="admin-guide">
@@ -244,6 +331,12 @@ export default function AdminGuide() {
                     Tout ce qu&apos;il faut savoir pour publier un contenu et faire tourner le site au quotidien.
                     Chaque rubrique est indépendante : ouvre celle qui te concerne, ignore le reste.
                 </p>
+                {masquees > 0 && (
+                    <p className="mt-3 flex items-center gap-2 text-xs text-neutral-400">
+                        <ShieldCheck size={13} className="shrink-0 text-[#E8D2A6]" />
+                        Le guide suit tes autorisations : {masquees} rubrique{masquees > 1 ? "s" : ""} concernant des sections auxquelles tu n&apos;as pas accès {masquees > 1 ? "sont masquées" : "est masquée"}.
+                    </p>
+                )}
             </div>
 
             <div className="relative">
@@ -259,10 +352,10 @@ export default function AdminGuide() {
 
             {visibles.length === 0 ? (
                 <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-8 text-center text-sm text-neutral-500">
-                    Aucune rubrique ne correspond à « {recherche} ».
+                    {terme ? <>Aucune rubrique ne correspond à « {recherche} ».</> : "Aucune rubrique disponible avec tes autorisations actuelles."}
                 </div>
             ) : (
-                <Accordion type="single" collapsible defaultValue={RUBRIQUES[0].id} className="space-y-3">
+                <Accordion type="single" collapsible defaultValue={visibles[0].id} className="space-y-3">
                     {visibles.map((rubrique) => {
                         const Icone = rubrique.icone;
                         return (
@@ -276,7 +369,7 @@ export default function AdminGuide() {
                                     <span className="flex-1 font-display text-lg text-white">{rubrique.titre}</span>
                                 </AccordionTrigger>
                                 <AccordionContent className="pb-6 pt-1 text-sm leading-relaxed text-neutral-400">
-                                    <div className="space-y-4 border-t border-[#1a1a1a] pt-5">{rubrique.contenu}</div>
+                                    <div className="space-y-4 border-t border-[#1a1a1a] pt-5">{rubrique.contenu(peut)}</div>
                                 </AccordionContent>
                             </AccordionItem>
                         );
