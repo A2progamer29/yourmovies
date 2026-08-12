@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { HardDrive, Loader2, Trash2, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,6 +13,18 @@ function poids(octets) {
     return `${(valeur / (1024 * 1024 * 1024)).toFixed(2)} Go`;
 }
 
+// Mesure observee : une suppression Bunny prend environ un tiers de seconde,
+// et elles partent les unes apres les autres.
+const SECONDES_PAR_VIDEO = 0.32;
+
+function duree(secondes) {
+    const total = Math.max(0, Math.ceil(secondes));
+    if (total < 60) return `${total} s`;
+    const minutes = Math.floor(total / 60);
+    const reste = total % 60;
+    return reste ? `${minutes} min ${reste} s` : `${minutes} min`;
+}
+
 function date(valeur) {
     if (!valeur) return "—";
     const d = new Date(valeur);
@@ -24,6 +36,10 @@ export default function AdminStorage() {
     const [analyse, setAnalyse] = useState(false);
     const [purge, setPurge] = useState(false);
     const [selection, setSelection] = useState([]);
+    const [restant, setRestant] = useState(0);
+    const compteur = useRef(null);
+
+    useEffect(() => () => { if (compteur.current) window.clearInterval(compteur.current); }, []);
 
     const analyser = async () => {
         setAnalyse(true);
@@ -48,6 +64,11 @@ export default function AdminStorage() {
         if (!window.confirm(`Supprimer définitivement ${selection.length} vidéo(s) de Bunny Stream ?\n\nCes vidéos ne sont rattachées à aucun contenu du catalogue. L'opération est irréversible.`)) return;
         if (!window.confirm(`Dernière confirmation : ${poids(octets)} seront libérés et les fichiers seront perdus.`)) return;
         setPurge(true);
+        // Le serveur ne renvoie qu'a la fin : le decompte est une projection a
+        // partir du nombre de videos, d'ou le « environ » affiche.
+        setRestant(Math.ceil(selection.length * SECONDES_PAR_VIDEO));
+        if (compteur.current) window.clearInterval(compteur.current);
+        compteur.current = window.setInterval(() => setRestant((v) => Math.max(0, v - 1)), 1000);
         try {
             const r = await api.post("/admin/bunny/orphans/purge", {
                 video_ids: selection,
@@ -58,6 +79,9 @@ export default function AdminStorage() {
         } catch (e) {
             showError(toast, e, "Suppression impossible");
         } finally {
+            if (compteur.current) window.clearInterval(compteur.current);
+            compteur.current = null;
+            setRestant(0);
             setPurge(false);
         }
     };
@@ -129,7 +153,7 @@ export default function AdminStorage() {
                                 <span className="text-xs uppercase tracking-widest text-neutral-500">
                                     {selection.length === 0
                                         ? "Coche les vidéos à supprimer"
-                                        : `${selection.length} sélectionnée${selection.length > 1 ? "s" : ""}`}
+                                        : `${selection.length} sélectionnée${selection.length > 1 ? "s" : ""} · environ ${duree(selection.length * SECONDES_PAR_VIDEO)}`}
                                 </span>
                                 <Button
                                     onClick={supprimer}
@@ -138,7 +162,9 @@ export default function AdminStorage() {
                                     className="ml-auto h-9 rounded-full bg-red-500/15 px-4 text-xs font-semibold text-red-300 hover:bg-red-500/25 disabled:bg-[#161616] disabled:text-neutral-600"
                                 >
                                     {purge ? <Loader2 size={13} className="mr-2 animate-spin" /> : <Trash2 size={13} className="mr-2" />}
-                                    Supprimer la sélection{selection.length > 0 ? ` (${selection.length})` : ""}
+                                    {purge
+                                        ? (restant > 0 ? `Suppression… environ ${duree(restant)}` : "Suppression… bientôt fini")
+                                        : `Supprimer la sélection${selection.length > 0 ? ` (${selection.length})` : ""}`}
                                 </Button>
                             </div>
                             <div className="max-h-[420px] overflow-y-auto">
