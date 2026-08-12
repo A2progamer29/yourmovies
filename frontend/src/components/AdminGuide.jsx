@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
-import { can } from "@/lib/perms";
+import { can, PERM_GROUPS } from "@/lib/perms";
 import { Search, Compass, Film, Tv, FileText, CheckCircle2, Star, ChevronUp, MessageSquare, Users, Megaphone, Coins, Tag, AlertTriangle, LifeBuoy, ShieldCheck } from "lucide-react";
 
 const Etape = ({ n, titre, children }) => (
@@ -25,6 +25,10 @@ const Note = ({ ton = "info", children }) => {
 
 const Cle = ({ children }) => (
     <code className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[12px] text-[#E8D2A6]">{children}</code>
+);
+
+const LIBELLES = Object.fromEntries(
+    PERM_GROUPS.flatMap((groupe) => groupe.perms.map((perm) => [perm.id, perm.label]))
 );
 
 const CONTENU = ["content.add", "content.edit"];
@@ -312,6 +316,7 @@ export default function AdminGuide() {
     const [recherche, setRecherche] = useState("");
 
     const peut = (perm) => can(user, perm);
+    const mesPerms = Array.isArray(user?.admin_perms) ? user.admin_perms : [];
     // Une rubrique sans permission déclarée concerne tout le monde ; les autres
     // n'apparaissent que si la personne peut réellement agir dessus.
     const autorisees = RUBRIQUES.filter((r) => !r.perms || r.perms.some(peut));
@@ -331,12 +336,31 @@ export default function AdminGuide() {
                     Tout ce qu&apos;il faut savoir pour publier un contenu et faire tourner le site au quotidien.
                     Chaque rubrique est indépendante : ouvre celle qui te concerne, ignore le reste.
                 </p>
-                {masquees > 0 && (
-                    <p className="mt-3 flex items-center gap-2 text-xs text-neutral-400">
-                        <ShieldCheck size={13} className="shrink-0 text-[#E8D2A6]" />
-                        Le guide suit tes autorisations : {masquees} rubrique{masquees > 1 ? "s" : ""} concernant des sections auxquelles tu n&apos;as pas accès {masquees > 1 ? "sont masquées" : "est masquée"}.
-                    </p>
-                )}
+                <div className="mt-4 border-t border-[#E8D2A6]/15 pt-3">
+                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                        <ShieldCheck size={12} className="text-[#E8D2A6]" /> Tes autorisations
+                    </div>
+                    {user?.superadmin_locked ? (
+                        <p className="mt-2 text-xs text-neutral-300">
+                            Compte super-admin protégé : toutes les permissions, guide affiché en entier.
+                        </p>
+                    ) : mesPerms.length === 0 ? (
+                        <p className="mt-2 text-xs text-neutral-400">Aucune permission reçue du serveur.</p>
+                    ) : (
+                        <div className="mt-2 flex flex-wrap gap-1.5" data-testid="guide-perms">
+                            {mesPerms.map((perm) => (
+                                <span key={perm} className="rounded-full border border-[#262626] bg-[#111] px-2 py-0.5 text-[11px] text-neutral-300">
+                                    {LIBELLES[perm] || perm}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                    {masquees > 0 && (
+                        <p className="mt-2.5 text-xs text-neutral-500">
+                            {masquees} rubrique{masquees > 1 ? "s" : ""} {masquees > 1 ? "sont masquées" : "est masquée"} : {masquees > 1 ? "elles concernent" : "elle concerne"} des sections auxquelles tu n&apos;as pas accès.
+                        </p>
+                    )}
+                </div>
             </div>
 
             <div className="relative">
