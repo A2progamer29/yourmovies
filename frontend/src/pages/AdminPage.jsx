@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -65,7 +65,7 @@ export default function AdminPage() {
     const [aiDiscoveryError, setAiDiscoveryError] = useState("");
     const [aiDiscoveryLoadedAt, setAiDiscoveryLoadedAt] = useState(null);
     const [aiDiscoveryRemoving, setAiDiscoveryRemoving] = useState({});
-    const tabParam = new URLSearchParams(location.search).get("tab") || "media";
+    const tabParam = new URLSearchParams(location.search).get("tab") || "overview";
 
     const loadMedia = async () => {
         const r = await api.get("/media?limit=500");
@@ -139,18 +139,43 @@ export default function AdminPage() {
         }
     };
 
+    // Chaque section ne charge que ses propres données, une seule fois. Le panel
+    // lançait auparavant huit requêtes à chaque ouverture, même pour venir
+    // changer un simple tarif.
+    const loadedRef = useRef({});
     useEffect(() => {
-        if (user?.is_admin) {
-            loadMedia();
-            loadUsers();
-            loadAnnouncements();
-            if ((user?.admin_level || 0) >= 2) loadReviews();
-            loadWishes();
-            loadCagnotte();
-            if ((user?.admin_level || 0) >= 3) loadLicenseKeys();
-            if ((user?.admin_level || 0) >= 2) loadAiDiscovery();
+        if (!user?.is_admin) return;
+        const sources = {
+            media: { run: loadMedia },
+            users: { run: loadUsers, perm: "users.view" },
+            announcements: { run: loadAnnouncements },
+            reviews: { run: loadReviews, perm: "reviews.moderate" },
+            wishes: { run: loadWishes, perm: "wishboard.view" },
+            cagnotte: { run: loadCagnotte },
+            licenseKeys: { run: loadLicenseKeys, perm: "keys.manage" },
+            discovery: { run: loadAiDiscovery, perm: "content.add" },
+        };
+        const parSection = {
+            overview: ["media", "users", "wishes", "reviews"],
+            media: ["media"],
+            discovery: ["discovery"],
+            users: ["users"],
+            comments: ["reviews"],
+            wishboard: ["wishes"],
+            coins: ["users"],
+            cagnotte: ["cagnotte"],
+            announcements: ["announcements"],
+            "license-keys": ["licenseKeys"],
+        };
+        for (const nom of parSection[tabParam] || []) {
+            const source = sources[nom];
+            if (!source || loadedRef.current[nom]) continue;
+            if (source.perm && !can(user, source.perm)) continue;
+            loadedRef.current[nom] = true;
+            source.run();
         }
-    }, [user]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, tabParam]);
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
@@ -358,6 +383,36 @@ export default function AdminPage() {
 
     const setTab = (t) => navigate(`/admin?tab=${t}`, { replace: true });
 
+    const incompleteItems = items.filter(isMediaIncomplete);
+    const pendingWishes = wishes.filter((w) => (w.status || "pending") === "pending");
+
+    const NAV_GROUPS = [
+        { items: [{ value: "overview", label: "À traiter", icon: <LayoutDashboard size={14} /> }] },
+        {
+            label: "Catalogue", items: [
+                { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
+                { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
+            ],
+        },
+        {
+            label: "Communauté", items: [
+                { value: "users", label: "Utilisateurs", icon: <Users size={14} /> },
+                { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
+                { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
+                { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
+            ],
+        },
+        {
+            label: "Monétisation", items: [
+                { value: "pricing", label: "Tarifs", icon: <Tag size={14} />, perm: "pricing.manage" },
+                { value: "ads", label: "Publicité", icon: <Megaphone size={14} />, perm: "ads.manage" },
+                { value: "coins", label: "Freemium", icon: <Coins size={14} />, perm: "users.coins" },
+                { value: "cagnotte", label: "Cagnotte", icon: <PiggyBank size={14} />, perm: "cagnotte.manage" },
+                { value: "license-keys", label: "Clés SellAuth", icon: <KeyRound size={14} />, perm: "keys.manage" },
+            ],
+        },
+    ];
+
     return (
         <div className="min-h-screen bg-[#050505] text-white">
             <Header />
@@ -369,81 +424,149 @@ export default function AdminPage() {
                     </div>
                 </div>
 
-                <AdminTraffic />
-
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4 mb-10">
-                    {[
-                        { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
-                        { label: "Films", val: stats.movies, icon: <Film size={14} /> },
-                        { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
-                        { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
-                        { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
-                        { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
-                        { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
-                        { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
-                        { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
-                    ].map((s) => (
-                        <div key={s.label} className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5">{s.icon} {s.label}</div>
-                            <div className="font-display text-2xl mt-1.5">{s.val}</div>
-                        </div>
-                    ))}
-                </div>
-
-                <Tabs value={tabParam} onValueChange={setTab}>
-                    <TabsList className="h-auto flex flex-wrap justify-start bg-[#111] border border-[#262626]">
-                        <TabsTrigger value="media" data-testid="admin-tab-media" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Film size={14} className="mr-2" /> Contenus
-                        </TabsTrigger>
-                        {can(user, "content.add") && (
-                            <TabsTrigger value="discovery" data-testid="admin-tab-discovery" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Sparkles size={14} className="mr-2" /> Tendances
-                            </TabsTrigger>
-                        )}
-                        <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Users size={14} className="mr-2" /> Utilisateurs
-                        </TabsTrigger>
-                        {can(user, "reviews.moderate") && (
-                            <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <MessageSquare size={14} className="mr-2" /> Commentaires
-                            </TabsTrigger>
-                        )}
-                        <TabsTrigger value="wishboard" data-testid="admin-tab-wishboard" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <ChevronUp size={14} className="mr-2" /> Wishboard
-                        </TabsTrigger>
-                        {can(user, "users.coins") && (
-                            <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Coins size={14} className="mr-2" /> Freemium
-                            </TabsTrigger>
-                        )}
-                        {can(user, "cagnotte.manage") && (
-                            <TabsTrigger value="cagnotte" data-testid="admin-tab-cagnotte" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <PiggyBank size={14} className="mr-2" /> Cagnotte
-                            </TabsTrigger>
-                        )}
-                        {can(user, "announcements.manage") && (
-                            <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Megaphone size={14} className="mr-2" /> Annonces
-                            </TabsTrigger>
-                        )}
-                        {can(user, "pricing.manage") && (
-                            <TabsTrigger value="pricing" data-testid="admin-tab-pricing" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Tag size={14} className="mr-2" /> Tarifs
-                            </TabsTrigger>
-                        )}
-                        {can(user, "ads.manage") && (
-                            <TabsTrigger value="ads" data-testid="admin-tab-ads" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Megaphone size={14} className="mr-2" /> Publicité
-                            </TabsTrigger>
-                        )}
-                        {can(user, "keys.manage") && (
-                            <TabsTrigger value="license-keys" data-testid="admin-tab-license-keys" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <KeyRound size={14} className="mr-2" /> Clés SellAuth
-                            </TabsTrigger>
-                        )}
+                <Tabs value={tabParam} onValueChange={setTab} orientation="vertical" className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-10">
+                    <TabsList className="h-auto w-full shrink-0 flex-col items-stretch gap-1 rounded-xl border border-[#262626] bg-[#0a0a0a] p-2 lg:sticky lg:top-6 lg:w-60">
+                        {NAV_GROUPS.map((group, gi) => {
+                            const visibles = group.items.filter((item) => !item.perm || can(user, item.perm));
+                            if (visibles.length === 0) return null;
+                            return (
+                                <div key={group.label || gi} className={gi > 0 ? "mt-3" : ""}>
+                                    {group.label && (
+                                        <div className="px-3 pb-1.5 pt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-600">{group.label}</div>
+                                    )}
+                                    {visibles.map((item) => (
+                                        <TabsTrigger
+                                            key={item.value}
+                                            value={item.value}
+                                            data-testid={"admin-tab-" + item.value}
+                                            className="w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-sm text-neutral-400 data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black"
+                                        >
+                                            {item.icon}
+                                            <span className="flex-1 text-left">{item.label}</span>
+                                            {item.badge > 0 && (
+                                                <span className="rounded-full bg-[#E8D2A6]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#E8D2A6]">
+                                                    {item.badge}
+                                                </span>
+                                            )}
+                                        </TabsTrigger>
+                                    ))}
+                                </div>
+                            );
+                        })}
                     </TabsList>
 
-                    <TabsContent value="media" className="mt-8">
+                    <div className="min-w-0 flex-1">
+                    <TabsContent value="overview" className="mt-0 space-y-8">
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <button
+                                type="button"
+                                onClick={() => setTab("wishboard")}
+                                data-testid="todo-wishboard"
+                                className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                            >
+                                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                    <ChevronUp size={13} /> Wishboard
+                                </div>
+                                <div className={"mt-2 font-display text-3xl " + (pendingWishes.length > 0 ? "text-[#E8D2A6]" : "text-neutral-600")}>
+                                    {pendingWishes.length}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                    {pendingWishes.length > 0 ? "proposition(s) à trancher" : "rien en attente"}
+                                    <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setTab("media")}
+                                data-testid="todo-incomplete"
+                                className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                            >
+                                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                    <AlertTriangle size={13} /> Contenus incomplets
+                                </div>
+                                <div className={"mt-2 font-display text-3xl " + (incompleteItems.length > 0 ? "text-amber-400" : "text-neutral-600")}>
+                                    {incompleteItems.length}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                    {incompleteItems.length > 0 ? "sans vidéo jouable" : "tout est complet"}
+                                    <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            </button>
+
+                            {can(user, "reviews.moderate") && (
+                                <button
+                                    type="button"
+                                    onClick={() => setTab("comments")}
+                                    data-testid="todo-comments"
+                                    className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                                >
+                                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                        <MessageSquare size={13} /> Commentaires
+                                    </div>
+                                    <div className="mt-2 font-display text-3xl text-white">{reviews.length}</div>
+                                    <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                        à surveiller
+                                        <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                    </div>
+                                </button>
+                            )}
+                        </div>
+
+                        {incompleteItems.length > 0 && (
+                            <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-5">
+                                <div className="text-[10px] uppercase tracking-widest text-neutral-500">À compléter en priorité</div>
+                                <div className="mt-3 space-y-1">
+                                    {incompleteItems.slice(0, 6).map((m) => (
+                                        <button
+                                            key={m.id}
+                                            type="button"
+                                            onClick={() => navigate("/admin/media/" + m.id + "/edit")}
+                                            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-white/[0.03]"
+                                        >
+                                            {m.poster_url
+                                                ? <img src={m.poster_url} alt="" className="h-10 w-7 shrink-0 rounded object-cover" />
+                                                : <div className="h-10 w-7 shrink-0 rounded bg-[#111]" />}
+                                            <span className="min-w-0 flex-1 truncate text-sm text-white">{m.title}</span>
+                                            <span className="shrink-0 text-xs text-neutral-500">{m.type}</span>
+                                            <Edit size={13} className="shrink-0 text-neutral-600" />
+                                        </button>
+                                    ))}
+                                </div>
+                                {incompleteItems.length > 6 && (
+                                    <button type="button" onClick={() => setTab("media")} className="mt-3 text-xs text-[#E8D2A6] hover:underline">
+                                        Voir les {incompleteItems.length} contenus incomplets
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        <AdminTraffic />
+
+                        <div>
+                            <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Catalogue en chiffres</div>
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                                {[
+                                    { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
+                                    { label: "Films", val: stats.movies, icon: <Film size={14} /> },
+                                    { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
+                                    { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
+                                    { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
+                                    { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
+                                    { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
+                                    { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
+                                    { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
+                                ].map((c) => (
+                                    <div key={c.label} className="rounded-lg border border-[#262626] bg-[#0a0a0a] p-4">
+                                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-neutral-500">{c.icon} {c.label}</div>
+                                        <div className="mt-1.5 font-display text-2xl">{c.val}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="media" className="mt-0">
                         <div className="flex flex-col sm:flex-row gap-3 mb-6">
                             <div className="relative flex-1">
                                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
@@ -542,7 +665,7 @@ export default function AdminPage() {
                     </TabsContent>
 
                     {can(user, "content.add") && (
-                        <TabsContent value="discovery" className="mt-8 space-y-6">
+                        <TabsContent value="discovery" className="mt-0 space-y-6">
                             <div className="flex flex-col gap-4 border-b border-[#262626] pb-6 sm:flex-row sm:items-end sm:justify-between">
                                 <div className="max-w-2xl">
                                     <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6]">
@@ -677,7 +800,7 @@ export default function AdminPage() {
                         </TabsContent>
                     )}
 
-                    <TabsContent value="users" className="mt-8">
+                    <TabsContent value="users" className="mt-0">
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -764,7 +887,7 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="comments" className="mt-8">
+                    <TabsContent value="comments" className="mt-0">
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={reviewQ} onChange={(e) => setReviewQ(e.target.value)} placeholder="Rechercher (texte, utilisateur, titre)..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -806,7 +929,7 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="wishboard" className="mt-8">
+                    <TabsContent value="wishboard" className="mt-0">
                         <p className="text-sm text-neutral-500 mb-6">Propositions des utilisateurs, triées par nombre de votes. Approuvez, laissez en attente ou refusez.</p>
                         <div className="space-y-3">
                             {wishes.length === 0 && (
@@ -849,7 +972,7 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="coins" className="mt-8">
+                    <TabsContent value="coins" className="mt-0">
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -893,7 +1016,7 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="cagnotte" className="mt-8">
+                    <TabsContent value="cagnotte" className="mt-0">
                         <div className="max-w-md p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-4">
                                 <PiggyBank size={18} className="text-[#E8D2A6]" />
@@ -924,7 +1047,7 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="announcements" className="mt-8">
+                    <TabsContent value="announcements" className="mt-0">
                         <div className="grid lg:grid-cols-2 gap-8">
                             <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] h-fit">
                                 <div className="flex items-center gap-2 mb-4">
@@ -979,7 +1102,7 @@ export default function AdminPage() {
                     </TabsContent>
 
                     {can(user, "keys.manage") && (
-                        <TabsContent value="license-keys" className="mt-8 space-y-6">
+                        <TabsContent value="license-keys" className="mt-0 space-y-6">
                             <div>
                                 <div className="text-xs uppercase tracking-widest text-neutral-500">SellAuth</div>
                                 <h2 className="mt-1 font-display text-3xl">Whitelist des clés</h2>
@@ -1113,16 +1236,17 @@ export default function AdminPage() {
                     )}
 
                     {can(user, "pricing.manage") && (
-                        <TabsContent value="pricing" className="mt-8">
+                        <TabsContent value="pricing" className="mt-0">
                             <AdminPricing />
                         </TabsContent>
                     )}
 
                     {can(user, "ads.manage") && (
-                        <TabsContent value="ads" className="mt-8">
+                        <TabsContent value="ads" className="mt-0">
                             <AdminAds />
                         </TabsContent>
                     )}
+                    </div>
                 </Tabs>
             </div>
 
