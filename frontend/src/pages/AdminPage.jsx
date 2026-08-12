@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -15,6 +15,7 @@ import AdminRoleDialog from "@/components/AdminRoleDialog";
 import AdminPricing from "@/components/AdminPricing";
 import AdminAds from "@/components/AdminAds";
 import AdminTraffic from "@/components/AdminTraffic";
+import AdminGuide from "@/components/AdminGuide";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -411,6 +412,7 @@ export default function AdminPage() {
                 { value: "license-keys", label: "Clés SellAuth", icon: <KeyRound size={14} />, perm: "keys.manage" },
             ],
         },
+        { label: "Aide", items: [{ value: "guide", label: "Guide du panel", icon: <BookOpen size={14} /> }] },
     ];
 
     return (
@@ -540,6 +542,20 @@ export default function AdminPage() {
                                 )}
                             </div>
                         )}
+
+                        <button
+                            type="button"
+                            onClick={() => setTab("guide")}
+                            data-testid="overview-guide-link"
+                            className="group flex w-full items-center gap-3 rounded-xl border border-[#262626] bg-[#0a0a0a] p-4 text-left transition-colors hover:border-[#E8D2A6]/50"
+                        >
+                            <BookOpen size={16} className="shrink-0 text-[#E8D2A6]" />
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-sm text-white">Guide du panel</span>
+                                <span className="block text-xs text-neutral-500">Publier un film, une série, nommer ses fichiers, régler les permissions.</span>
+                            </span>
+                            <ArrowRight size={14} className="shrink-0 text-neutral-600 transition-colors group-hover:text-[#E8D2A6]" />
+                        </button>
 
                         <AdminTraffic />
 
@@ -1234,6 +1250,10 @@ export default function AdminPage() {
                             </div>
                         </TabsContent>
                     )}
+
+                    <TabsContent value="guide" className="mt-0">
+                        <AdminGuide />
+                    </TabsContent>
 
                     {can(user, "pricing.manage") && (
                         <TabsContent value="pricing" className="mt-0">
