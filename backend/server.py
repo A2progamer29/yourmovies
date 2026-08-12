@@ -1374,16 +1374,29 @@ async def admin_bunny_purge(
     # On revérifie côté serveur : une vidéo redevenue utilisée entre l'analyse
     # et la confirmation ne doit jamais être supprimée.
     utilises = await _referenced_bunny_ids()
-    supprimees, ignorees = 0, 0
+    a_traiter = []
+    ignorees = 0
     for video_id in inp.video_ids:
         propre = str(video_id or "").strip()
         if not propre or propre in utilises:
             ignorees += 1
-            continue
-        if await _delete_bunny_video(propre, library):
-            supprimees += 1
         else:
-            ignorees += 1
+            a_traiter.append(propre)
+
+    # Par paquets plutôt qu'une par une : sur plusieurs centaines de vidéos, la
+    # boucle séquentielle tenait la requête ouverte une à deux minutes.
+    supprimees = 0
+    for depart in range(0, len(a_traiter), 8):
+        lot = a_traiter[depart:depart + 8]
+        resultats = await asyncio.gather(
+            *(_delete_bunny_video(video_id, library) for video_id in lot),
+            return_exceptions=True,
+        )
+        for resultat in resultats:
+            if resultat is True:
+                supprimees += 1
+            else:
+                ignorees += 1
     logger.info("Purge Bunny par %s : %s supprimées, %s ignorées", user.get("user_id"), supprimees, ignorees)
     return {"deleted": supprimees, "skipped": ignorees}
 

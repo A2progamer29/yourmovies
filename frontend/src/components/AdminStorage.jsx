@@ -13,9 +13,9 @@ function poids(octets) {
     return `${(valeur / (1024 * 1024 * 1024)).toFixed(2)} Go`;
 }
 
-// Mesure observee : une suppression Bunny prend environ un tiers de seconde,
-// et elles partent les unes apres les autres.
-const SECONDES_PAR_VIDEO = 0.32;
+// Une suppression Bunny prend environ un tiers de seconde, et le serveur en
+// lance huit de front : c'est ce rapport qui donne l'estimation affichee.
+const SECONDES_PAR_VIDEO = 0.32 / 8;
 
 function duree(secondes) {
     const total = Math.max(0, Math.ceil(secondes));
@@ -74,15 +74,19 @@ export default function AdminStorage() {
                 video_ids: selection,
                 library_id: rapport.library_id,
             });
+            if (compteur.current) window.clearInterval(compteur.current);
+            compteur.current = null;
+            setRestant(0);
             toast.success(`${r.data.deleted} vidéo(s) supprimée(s)${r.data.skipped ? ` · ${r.data.skipped} ignorée(s)` : ""}`);
-            await analyser();
+            // Rechargement plutôt qu'une nouvelle analyse : celle-ci reparcourt
+            // toute la bibliothèque et donnait l'impression d'un chargement sans fin.
+            window.setTimeout(() => window.location.reload(), 1200);
         } catch (e) {
-            showError(toast, e, "Suppression impossible");
-        } finally {
             if (compteur.current) window.clearInterval(compteur.current);
             compteur.current = null;
             setRestant(0);
             setPurge(false);
+            showError(toast, e, "Suppression impossible");
         }
     };
 
@@ -163,7 +167,7 @@ export default function AdminStorage() {
                                 >
                                     {purge ? <Loader2 size={13} className="mr-2 animate-spin" /> : <Trash2 size={13} className="mr-2" />}
                                     {purge
-                                        ? (restant > 0 ? `Suppression… environ ${duree(restant)}` : "Suppression… bientôt fini")
+                                        ? (restant > 0 ? `Suppression… environ ${duree(restant)}` : "Presque terminé, la page va se recharger")
                                         : `Supprimer la sélection${selection.length > 0 ? ` (${selection.length})` : ""}`}
                                 </Button>
                             </div>
