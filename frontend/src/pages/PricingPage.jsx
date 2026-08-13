@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
+import ReferralCard from "@/components/ReferralCard";
 
 const PLAN_ICON = {
   basic: <Star size={18} />,
@@ -246,6 +247,17 @@ export default function PricingPage() {
 
         <div className="text-center mt-10 text-xs text-neutral-500">
           Paiement au choix via SellAuth ou notre Discord. Sans engagement.
+        </div>
+
+        <div className="mt-14">
+          <div className="mb-4 text-center">
+            <div className="text-[10px] uppercase tracking-widest text-neutral-500">Sans sortir un centime</div>
+            <h2 className="mt-1 font-display text-2xl tracking-tight text-white">Le Premium se gagne aussi</h2>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-neutral-400">
+              Les Freemium s&apos;échangent contre du Premium. Parrainer est la façon la plus rapide d&apos;en accumuler.
+            </p>
+          </div>
+          <ReferralCard />
         </div>
       </section>
 
