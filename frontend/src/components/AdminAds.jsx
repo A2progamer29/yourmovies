@@ -59,7 +59,7 @@ export default function AdminAds() {
 
     return (
         <div className="space-y-8 max-w-4xl">
-            <section className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a]">
+            <section className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c]">
                 <div className="flex items-center gap-2 mb-1"><Megaphone size={18} className="text-[#E8D2A6]" /><h3 className="font-display text-xl">Régie publicitaire</h3></div>
                 <p className="text-xs text-neutral-400 mb-4">
                     Interrupteur général. Les abonnés Premium ne voient jamais de publicité.

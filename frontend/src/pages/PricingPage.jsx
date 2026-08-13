@@ -98,7 +98,7 @@ export default function PricingPage() {
         </div>
 
         {welcome?.active && (
-          <div className="max-w-3xl mx-auto mb-10 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-gradient-to-r from-[#E8D2A6]/15 to-[#0a0a0a] flex items-center gap-4">
+          <div className="max-w-3xl mx-auto mb-10 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-[#111] flex items-center gap-4">
             <Gift size={28} className="text-[#E8D2A6] shrink-0" />
             <div>
               <div className="font-display text-xl text-white">
@@ -158,7 +158,7 @@ export default function PricingPage() {
                 data-testid={`plan-${plan.id}`}
                 className={`relative rounded-2xl border p-8 flex flex-col ${
                   highlight
-                    ? "border-[#E8D2A6] bg-gradient-to-b from-[#171208] to-[#0a0a0a]"
+                    ? "border-[#E8D2A6] bg-[#0c0c0c]"
                     : "border-[#262626] bg-[#0a0a0a]"
                 }`}
               >

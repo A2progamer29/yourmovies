@@ -165,7 +165,7 @@ export default function BrowsePage() {
                 {chargement ? (
                     <GrilleSkeleton />
                 ) : filtered.length === 0 ? (
-                    <div className="mx-auto max-w-xl rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-b from-[#171208] to-[#0a0a0a] px-6 py-12 text-center">
+                    <div className="mx-auto max-w-xl rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] px-6 py-12 text-center">
                         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#E8D2A6] text-black">
                             <Sparkles size={24} />
                         </div>

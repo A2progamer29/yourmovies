@@ -68,7 +68,7 @@ export default function CagnottePage() {
                     </div>
                 )}
 
-                <div className={`p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a] mb-8${chargement ? " hidden" : ""}`}>
+                <div className={`p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] mb-8${chargement ? " hidden" : ""}`}>
                     <div className="flex items-baseline justify-between mb-3">
                         <div className="font-display text-4xl text-white">{data.total.toLocaleString("fr-FR")} €</div>
                         <div className="text-neutral-400 text-sm">objectif {data.goal.toLocaleString("fr-FR")} €</div>
@@ -96,7 +96,7 @@ export default function CagnottePage() {
                         {TIERS.map((tier) => {
                             const reached = data.total >= tier.amount;
                             return (
-                                <div key={tier.amount} className={`flex items-start gap-4 p-4 rounded-lg border ${reached ? "border-[#E8D2A6]/40 bg-gradient-to-br from-[#171208] to-[#0a0a0a]" : "border-[#262626] bg-[#0a0a0a]"}`}>
+                                <div key={tier.amount} className={`flex items-start gap-4 p-4 rounded-lg border ${reached ? "border-[#E8D2A6]/40 bg-[#0c0c0c]" : "border-[#262626] bg-[#0a0a0a]"}`}>
                                     <div className={`flex flex-col items-center justify-center w-16 shrink-0 ${reached ? "text-[#E8D2A6]" : "text-neutral-600"}`}>
                                         {reached ? <Check size={18} /> : <Lock size={16} />}
                                         <span className="font-display text-lg mt-0.5">{tier.amount}€</span>

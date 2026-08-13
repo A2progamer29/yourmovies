@@ -86,7 +86,7 @@ export default function SubscriptionPage() {
                     <Crown className="text-[#E8D2A6]" /> Mon abonnement
                 </h1>
 
-                <div className="rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-b from-[#171208] to-[#0a0a0a] p-8 mb-6">
+                <div className="rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] p-8 mb-6">
                     <div className="flex items-center justify-between gap-4 mb-6">
                         <div>
                             <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Plan actuel</div>

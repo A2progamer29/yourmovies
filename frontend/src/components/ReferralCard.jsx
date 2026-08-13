@@ -41,7 +41,7 @@ export default function ReferralCard() {
 
     return (
         <div
-            className="rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a] p-6"
+            className="rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] p-6"
             data-testid="referral-card"
         >
             <div className="flex items-start gap-3">

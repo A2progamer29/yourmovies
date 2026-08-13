@@ -80,7 +80,7 @@ export default function AboutPage() {
                 </section>
 
                 {/* Mises à jour du catalogue */}
-                <section className="mt-12 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a] p-6 sm:p-8">
+                <section className="mt-12 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] p-6 sm:p-8">
                     <div className="flex items-start gap-4">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#E8D2A6] text-black">
                             <CalendarClock size={20} />

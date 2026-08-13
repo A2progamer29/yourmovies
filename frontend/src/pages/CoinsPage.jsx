@@ -142,7 +142,7 @@ export default function CoinsPage() {
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">Ta monnaie YourMovie's</h1>
 
                 {offer?.active && (
-                    <div className="mb-8 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-gradient-to-r from-[#E8D2A6]/15 to-[#0a0a0a] flex items-center gap-4">
+                    <div className="mb-8 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-[#111] flex items-center gap-4">
                         <Gift size={28} className="text-[#E8D2A6] shrink-0" />
                         <div>
                             <div className="font-display text-xl text-white">Offre de bienvenue : -{offer.pct}% 🎉</div>
@@ -152,7 +152,7 @@ export default function CoinsPage() {
                 )}
 
                 {!user && (
-                    <div className="mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center justify-between gap-5 flex-wrap">
+                    <div className="mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] flex items-center justify-between gap-5 flex-wrap">
                         <div>
                             <div className="font-display text-xl text-white">Gagne des Freemium gratuitement</div>
                             <div className="text-sm text-neutral-400 mt-1">Connecte-toi pour cumuler des Freemium et les échanger contre du Premium.</div>
@@ -165,7 +165,7 @@ export default function CoinsPage() {
 
                 {user && (
                 <div className="grid sm:grid-cols-2 gap-4 mb-12">
-                    <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a]">
+                    <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c]">
                         <div className="flex items-center gap-2">
                             <Coins size={28} className="text-[#E8D2A6]" />
                             <span className="font-display text-5xl text-white" data-testid="coins-balance">{balance}</span>
@@ -217,7 +217,7 @@ export default function CoinsPage() {
                 <div>
                     <h2 className="font-display text-2xl mb-4">Échanger contre du Premium</h2>
                     {offer?.active && (
-                        <div className="mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center gap-3">
+                        <div className="mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-[#0c0c0c] flex items-center gap-3">
                             <Gift size={20} className="text-[#E8D2A6] shrink-0" />
                             <div className="text-sm">
                                 <span className="text-white font-semibold">Offre de bienvenue : -{offer.pct}% en Freemium</span>
