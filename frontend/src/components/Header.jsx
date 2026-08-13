@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Search, User, Users, LogOut, Settings, Heart, Crown, Sliders, Coins, X, Gift } from "lucide-react";
+import { Search, User, Users, LogOut, Settings, Heart, Crown, Sliders, Coins, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import NotificationsBell from "@/components/NotificationsBell";
 import MessagesButton from "@/components/MessagesButton";
@@ -251,13 +251,6 @@ export default function Header() {
                                 className="flex-1 bg-transparent outline-none text-white placeholder:text-neutral-500"
                             />
                             <button onClick={() => setSearchOpen(false)} className="text-neutral-500 hover:text-white"><X size={18} /></button>
-                                <button
-                                    onClick={() => navigate("/parrainage")}
-                                    data-testid="menu-referral"
-                                    className="w-full flex items-center px-4 py-2.5 text-sm text-neutral-300 hover:bg-white/5 hover:text-white transition-colors"
-                                >
-                                    <Gift size={14} className="mr-2" /> Parrainage
-                                </button>
                         </div>
                         <div className="max-h-[60vh] overflow-y-auto">
                             {searchResults.length === 0 && userResults.length === 0 ? (
