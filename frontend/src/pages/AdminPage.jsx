@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -22,6 +22,7 @@ import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
 import AdminReferral from "@/components/AdminReferral";
 import AdminViews from "@/components/AdminViews";
+import AdminPlayers from "@/components/AdminPlayers";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -187,6 +188,7 @@ export default function AdminPage() {
         const parSection = {
             overview: ["media", "users", "wishes", "reviews", "pending"],
             media: ["media"],
+            players: ["media"],
             discovery: ["discovery"],
             users: ["users"],
             comments: ["reviews"],
@@ -418,6 +420,7 @@ export default function AdminPage() {
     const setTab = (t) => navigate(`/admin?tab=${t}`, { replace: true });
 
     const incompleteItems = items.filter(isMediaIncomplete);
+    const brokenCount = items.filter((m) => m.player_broken).length;
     const pendingWishes = wishes.filter((w) => (w.status || "pending") === "pending");
 
     const NAV_GROUPS = [
@@ -427,6 +430,7 @@ export default function AdminPage() {
                 { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
                 { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
                 { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
+                { value: "players", label: "Lecteurs", icon: <TriangleAlert size={14} />, perm: "content.edit", badge: brokenCount },
                 { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
                 { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
@@ -1359,6 +1363,19 @@ export default function AdminPage() {
                                 description="Publie une question aux visiteurs, connectés ou non. Chacun ne vote qu'une fois et découvre les résultats juste après."
                             />
                             <AdminPolls />
+                        </TabsContent>
+                    )}
+
+                    {can(user, "content.edit") && (
+                        <TabsContent value="players" className="mt-0">
+                            <SectionHeader
+                                titre="Lecteurs"
+                                description="Préviens les visiteurs qu'un contenu ne se lance pas, plutôt que de les laisser croire à une panne de leur côté."
+                            />
+                            <AdminPlayers
+                                items={items}
+                                onUpdated={(id, frais) => setItems((liste) => liste.map((m) => (m.id === id ? { ...m, ...frais } : m)))}
+                            />
                         </TabsContent>
                     )}
 

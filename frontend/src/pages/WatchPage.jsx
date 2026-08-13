@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
@@ -795,7 +795,17 @@ export default function WatchPage() {
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
                         <div className="relative overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            {showGate ? (
+                            {media.player_broken ? (
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }} data-testid="player-broken">
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[#0a0a0a] to-[#050505] px-6 text-center">
+                                    <TriangleAlert size={24} className="text-amber-400" />
+                                    <div className="font-display text-2xl text-white">Lecture indisponible</div>
+                                    <p className="max-w-md text-sm leading-relaxed text-neutral-400">
+                                        {media.player_notice || "Le lecteur de ce contenu est momentanément indisponible. Nous travaillons à le rétablir."}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : showGate ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <AdGate onUnlock={() => setGateDone(true)} />
                             </div>

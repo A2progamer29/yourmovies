@@ -195,6 +195,8 @@ class MediaBase(BaseModel):
     featured: bool = False
     featured_order: Optional[int] = None
     in_theaters: bool = False
+    player_broken: bool = False
+    player_notice: Optional[str] = Field(default=None, max_length=300)
 
 class MediaUpdate(BaseModel):
     title: Optional[str] = None
@@ -226,6 +228,8 @@ class MediaUpdate(BaseModel):
     featured: Optional[bool] = None
     featured_order: Optional[int] = None
     in_theaters: Optional[bool] = None
+    player_broken: Optional[bool] = None
+    player_notice: Optional[str] = Field(default=None, max_length=300)
 
 class MediaCreate(MediaBase):
     pass
@@ -1159,6 +1163,8 @@ def serialize_media(doc) -> dict:
         "featured": doc.get("featured", False),
         "featured_order": doc.get("featured_order"),
         "in_theaters": doc.get("in_theaters", False),
+        "player_broken": doc.get("player_broken", False),
+        "player_notice": doc.get("player_notice") or "",
         "created_at": doc.get("created_at", ""),
     }
 
@@ -1362,6 +1368,8 @@ class AdminMediaFlagsInput(BaseModel):
     featured: Optional[bool] = None
     featured_order: Optional[int] = Field(default=None, ge=1, le=999)
     in_theaters: Optional[bool] = None
+    player_broken: Optional[bool] = None
+    player_notice: Optional[str] = Field(default=None, max_length=300)
 
 @api_router.patch("/admin/media/{media_id}/flags")
 async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, user: dict = Depends(require_perm("content.edit"))):

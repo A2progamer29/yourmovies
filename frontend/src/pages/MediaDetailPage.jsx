@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Play, Heart, Bookmark, Star, Clock, Calendar, Users, Film as FilmIcon, Pencil, Trash2, Reply, X, ArrowRight, GitBranch } from "lucide-react";
+import { Play, Heart, Bookmark, Star, Clock, Calendar, Users, Film as FilmIcon, Pencil, Trash2, Reply, X, ArrowRight, GitBranch, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
@@ -238,6 +238,12 @@ export default function MediaDetailPage() {
                                 </div>
                             )}
                             <p className="mt-5 text-sm sm:text-base text-neutral-300 leading-relaxed max-w-3xl line-clamp-4 sm:line-clamp-none">{media.description}</p>
+                            {media.player_broken && (
+                                <div className="mt-6 flex max-w-2xl items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-4 text-sm leading-relaxed text-amber-100/90" data-testid="player-notice">
+                                    <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-400" />
+                                    <span>{media.player_notice || "Le lecteur de ce contenu est momentanément indisponible. Nous travaillons à le rétablir."}</span>
+                                </div>
+                            )}
                             <div className="mt-6 flex flex-wrap items-center gap-3">
                                 <Button
                                     onClick={() => media.in_theaters ? setQualityWarningOpen(true) : navigate(`/watch/${media.id}`)}
