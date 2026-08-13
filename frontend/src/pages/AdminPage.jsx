@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3 } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -18,6 +18,8 @@ import AdminTraffic from "@/components/AdminTraffic";
 import AdminGuide from "@/components/AdminGuide";
 import AdminStorage from "@/components/AdminStorage";
 import AdminPolls from "@/components/AdminPolls";
+import AdminPending from "@/components/AdminPending";
+import AdminContributors from "@/components/AdminContributors";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -67,6 +69,7 @@ export default function AdminPage() {
     const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
     const [mediaFilter, setMediaFilter] = useState("all");
+    const [pendingCount, setPendingCount] = useState(0);
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
     const [licenseKeys, setLicenseKeys] = useState([]);
@@ -126,6 +129,13 @@ export default function AdminPage() {
         } catch (e) { showError(toast, e, "Chargement des clés impossible"); }
     };
 
+    const loadPendingCount = async () => {
+        try {
+            const r = await api.get("/admin/pending", { silent: true });
+            setPendingCount(Array.isArray(r.data) ? r.data.length : 0);
+        } catch { setPendingCount(0); }
+    };
+
     const loadAiDiscovery = async () => {
         setAiDiscoveryLoading(true);
         setAiDiscoveryError("");
@@ -170,9 +180,10 @@ export default function AdminPage() {
             cagnotte: { run: loadCagnotte },
             licenseKeys: { run: loadLicenseKeys, perm: "keys.manage" },
             discovery: { run: loadAiDiscovery, perm: "content.add" },
+            pending: { run: loadPendingCount, perm: "content.add" },
         };
         const parSection = {
-            overview: ["media", "users", "wishes", "reviews"],
+            overview: ["media", "users", "wishes", "reviews", "pending"],
             media: ["media"],
             discovery: ["discovery"],
             users: ["users"],
@@ -413,6 +424,7 @@ export default function AdminPage() {
             label: "Catalogue", items: [
                 { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
                 { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
+                { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
                 { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
         },
@@ -421,6 +433,7 @@ export default function AdminPage() {
                 { value: "users", label: "Utilisateurs", icon: <Users size={14} /> },
                 { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
+                { value: "contributors", label: "Contributeurs", icon: <Trophy size={14} />, perm: "content.add" },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
@@ -496,6 +509,24 @@ export default function AdminPage() {
                                 </div>
                                 <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
                                     {pendingWishes.length > 0 ? "proposition(s) à trancher" : "rien en attente"}
+                                    <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setTab("pending")}
+                                data-testid="todo-pending"
+                                className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                            >
+                                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                    <Inbox size={13} /> Propositions
+                                </div>
+                                <div className={"mt-2 font-display text-3xl " + (pendingCount > 0 ? "text-[#E8D2A6]" : "text-neutral-600")}>
+                                    {pendingCount}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                    {pendingCount > 0 ? "en attente de validation" : "rien à valider"}
                                     <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
                                 </div>
                             </button>
@@ -1326,6 +1357,22 @@ export default function AdminPage() {
                             <AdminPolls />
                         </TabsContent>
                     )}
+
+                    <TabsContent value="pending" className="mt-0">
+                        <SectionHeader
+                            titre="Propositions"
+                            description="Les contenus ajoutés par un compte sans droit de publication. Vérifie la fiche, puis publie ou refuse."
+                        />
+                        <AdminPending onCount={setPendingCount} />
+                    </TabsContent>
+
+                    <TabsContent value="contributors" className="mt-0">
+                        <SectionHeader
+                            titre="Contributeurs"
+                            description="Qui alimente le catalogue, et depuis combien de temps."
+                        />
+                        <AdminContributors />
+                    </TabsContent>
 
                     {can(user, "content.delete") && (
                         <TabsContent value="storage" className="mt-0">

@@ -464,7 +464,7 @@ def _admin_level(user: dict) -> int:
 
 # ---------- Permissions admin (cochables individuellement) ----------
 ALL_PERMS = [
-    "content.add", "content.edit", "content.delete",
+    "content.add", "content.edit", "content.delete", "content.publish",
     "wishboard.view", "wishboard.approve", "wishboard.moderate",
     "users.view", "users.block", "users.edit", "users.delete", "users.premium", "users.coins",
     "reviews.moderate", "announcements.manage", "polls.manage",
@@ -475,7 +475,7 @@ ALL_PERMS = [
 ROLE_PRESETS = {
     "editor": ["content.add", "wishboard.view", "wishboard.approve", "users.view"],
     "moderator": [
-        "content.add", "content.edit",
+        "content.add", "content.edit", "content.publish",
         "wishboard.view", "wishboard.approve", "wishboard.moderate",
         "users.view", "users.block", "users.coins",
         "reviews.moderate", "announcements.manage", "polls.manage",
@@ -495,6 +495,13 @@ def _admin_perms(user: dict) -> set:
     if role in ROLE_PRESETS:
         return set(ROLE_PRESETS[role])
     return set(ROLE_PRESETS["editor"]) if user.get("is_admin") else set()
+
+def _peut_publier(user: dict) -> bool:
+    """Publier directement, sans passer par la file de validation. Accorde aussi
+    a qui peut supprimer du contenu : ces comptes existaient avant la file et ne
+    doivent pas se retrouver soudainement en attente de leur propre validation."""
+    return has_perm(user, "content.publish") or has_perm(user, "content.delete")
+
 
 def has_perm(user: dict, perm: str) -> bool:
     return perm in _admin_perms(user)
@@ -1179,8 +1186,12 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
     return [serialize_media(d) for d in docs]
 
 @api_router.get("/media/{media_id}")
-async def get_media(media_id: str):
+async def get_media(media_id: str, user: Optional[dict] = Depends(get_optional_user)):
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not doc and user and has_perm(user, "content.add"):
+        # Les propositions vivent dans une collection a part : le catalogue
+        # public ne peut donc jamais en laisser filtrer une.
+        doc = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
     return serialize_media(doc)
@@ -1253,6 +1264,11 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_perm("conten
     doc = m.model_dump()
     doc["id"] = media_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["created_by"] = user.get("user_id")
+    if not _peut_publier(user):
+        doc["proposed_by_name"] = user.get("name", "")
+        await db.media_pending.insert_one(dict(doc))
+        return {**serialize_media(doc), "pending": True}
     await db.media.insert_one(doc)
     try:
         await _record_catalog_history(doc, active=True, user_id=user.get("user_id"))
@@ -1268,6 +1284,10 @@ async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(requi
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await db.media.update_one({"id": media_id}, {"$set": doc})
     if result.matched_count == 0:
+        en_attente = await db.media_pending.update_one({"id": media_id}, {"$set": doc})
+        if en_attente.matched_count:
+            fresh = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
+            return serialize_media(fresh)
         raise HTTPException(status_code=404, detail="Not found")
     fresh = await db.media.find_one({"id": media_id}, {"_id": 0})
     return serialize_media(fresh)
@@ -1309,6 +1329,10 @@ async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, u
 async def delete_media(media_id: str, user: dict = Depends(require_perm("content.delete"))):
     media = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not media:
+        proposition = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
+        if proposition:
+            await db.media_pending.delete_one({"id": media_id})
+            return {"ok": True, "bunny_deleted": await _purge_bunny_of(proposition)}
         raise HTTPException(status_code=404, detail="Contenu introuvable")
     await db.media.delete_one({"id": media_id})
     await db.reviews.delete_many({"media_id": media_id})
@@ -1399,6 +1423,90 @@ async def admin_bunny_purge(
                 ignorees += 1
     logger.info("Purge Bunny par %s : %s supprimées, %s ignorées", user.get("user_id"), supprimees, ignorees)
     return {"deleted": supprimees, "skipped": ignorees}
+
+
+@api_router.get("/admin/pending")
+async def admin_list_pending(user: dict = Depends(require_perm("content.add"))):
+    docs = await db.media_pending.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [serialize_media(doc) | {
+        "proposed_by_name": doc.get("proposed_by_name") or "",
+        "created_by": doc.get("created_by"),
+    } for doc in docs]
+
+
+@api_router.post("/admin/pending/{media_id}/publish")
+async def admin_publish_pending(media_id: str, user: dict = Depends(require_perm("content.publish"))):
+    doc = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Proposition introuvable")
+    doc.pop("proposed_by_name", None)
+    doc["published_at"] = datetime.now(timezone.utc).isoformat()
+    doc["published_by"] = user.get("user_id")
+    await db.media.insert_one(dict(doc))
+    await db.media_pending.delete_one({"id": media_id})
+    try:
+        await _record_catalog_history(doc, active=True, user_id=doc.get("created_by"))
+        await _record_media_event("added", doc, user_id=doc.get("created_by"))
+    except Exception as exc:
+        logger.error("Journalisation de la publication de %s impossible : %s", media_id, exc)
+    return serialize_media(doc)
+
+
+@api_router.delete("/admin/pending/{media_id}")
+async def admin_reject_pending(media_id: str, user: dict = Depends(require_perm("content.publish"))):
+    doc = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Proposition introuvable")
+    await db.media_pending.delete_one({"id": media_id})
+    # Les fichiers ont bien ete televerses sur Bunny : les laisser reviendrait a
+    # payer le stockage d'une proposition refusee.
+    supprimees = await _purge_bunny_of(doc)
+    logger.info("Proposition %s refusee par %s (%s videos supprimees)", media_id, user.get("user_id"), supprimees)
+    return {"ok": True, "bunny_deleted": supprimees}
+
+
+@api_router.get("/admin/contributors")
+async def admin_contributors(user: dict = Depends(require_perm("content.add"))):
+    """Qui a ajoute quoi : reconstruit depuis le journal deja tenu a chaque ajout."""
+    evenements = await db.media_events.find(
+        {"action": "added", "created_by": {"$ne": None}},
+        {"_id": 0, "created_by": 1, "created_at": 1, "media": 1},
+    ).to_list(100000)
+    par_personne = {}
+    for evenement in evenements:
+        identifiant = evenement.get("created_by")
+        entree = par_personne.setdefault(identifiant, {"user_id": identifiant, "total": 0, "dernier": None, "derniers_titres": []})
+        entree["total"] += 1
+        quand = evenement.get("created_at")
+        horodatage = quand.isoformat() if hasattr(quand, "isoformat") else str(quand or "")
+        if not entree["dernier"] or horodatage > entree["dernier"]:
+            entree["dernier"] = horodatage
+        if len(entree["derniers_titres"]) < 5:
+            entree["derniers_titres"].append((evenement.get("media") or {}).get("title", ""))
+
+    en_attente = await db.media_pending.find({}, {"_id": 0, "created_by": 1}).to_list(1000)
+    for proposition in en_attente:
+        identifiant = proposition.get("created_by")
+        if identifiant:
+            entree = par_personne.setdefault(identifiant, {"user_id": identifiant, "total": 0, "dernier": None, "derniers_titres": []})
+            entree["en_attente"] = entree.get("en_attente", 0) + 1
+
+    comptes = await db.users.find(
+        {"user_id": {"$in": [i for i in par_personne if i]}},
+        {"_id": 0, "user_id": 1, "name": 1, "avatar_url": 1},
+    ).to_list(1000)
+    noms = {c["user_id"]: c for c in comptes}
+    sortie = []
+    for identifiant, entree in par_personne.items():
+        compte = noms.get(identifiant) or {}
+        sortie.append({
+            **entree,
+            "en_attente": entree.get("en_attente", 0),
+            "name": compte.get("name") or "Compte supprimé",
+            "avatar_url": compte.get("avatar_url"),
+        })
+    sortie.sort(key=lambda e: e["total"], reverse=True)
+    return sortie
 
 
 # ---------- Trending / Genres ----------

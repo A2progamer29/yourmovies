@@ -453,8 +453,12 @@ export default function AdminMediaForm() {
                 await api.put(`/media/${id}`, payload);
                 toast.success("Contenu mis à jour");
             } else {
-                await api.post("/media", payload);
-                toast.success("Contenu créé");
+                const r = await api.post("/media", payload);
+                if (r.data?.pending) {
+                    toast.success("Proposition envoyée : elle sera publiée après vérification.");
+                } else {
+                    toast.success("Contenu créé");
+                }
             }
             if (!isEdit) {
                 window.sessionStorage.removeItem("yourmovies_admin_media_draft_scope");
