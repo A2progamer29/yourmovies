@@ -94,10 +94,10 @@ CLOUDINARY_CONFIGURED = bool(os.environ.get("CLOUDINARY_URL"))
 if CLOUDINARY_CONFIGURED:
     cloudinary.config(secure=True)
 
-# ---------- Bunny Stream (hébergement des grosses vidéos) ----------
+# ---------- Hébergement des grosses vidéos ----------
 BUNNY_LIBRARY_ID = os.environ.get("BUNNY_LIBRARY_ID")
 BUNNY_API_KEY = os.environ.get("BUNNY_API_KEY")
-# Clé distincte disponible dans Bunny Stream > Security > Token Authentication.
+# Clé distincte disponible côté hébergeur, section Token Authentication.
 # Elle sert uniquement à signer des URLs de lecture temporaires et ne quitte jamais le backend.
 BUNNY_TOKEN_AUTH_KEY = os.environ.get("BUNNY_TOKEN_AUTH_KEY")
 BUNNY_CDN_HOST = os.environ.get("BUNNY_CDN_HOST")
@@ -1403,7 +1403,7 @@ async def delete_media(media_id: str, user: dict = Depends(require_perm("content
     await db.media.delete_one({"id": media_id})
     await db.reviews.delete_many({"media_id": media_id})
     await db.favorites.delete_many({"media_id": media_id})
-    # Sans cela, chaque contenu supprimé laissait ses fichiers sur Bunny
+    # Sans cela, chaque contenu supprimé laissait ses fichiers chez l'hébergeur
     # indéfiniment, facturés et invisibles depuis le panel.
     videos_supprimees = await _purge_bunny_of(media)
     try:
@@ -1418,10 +1418,10 @@ async def admin_bunny_views(
     library_id: Optional[str] = Query(None),
     user: dict = Depends(require_perm("content.add")),
 ):
-    """Vues comptees par Bunny Stream, regroupees par contenu du catalogue.
+    """Vues comptees par l'hebergeur video, regroupees par contenu du catalogue.
     Pour une serie, on additionne les vues de chacun de ses episodes."""
     if not BUNNY_CONFIGURED:
-        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
     library = _validated_bunny_library_id(library_id)
     videos = await _bunny_library_videos(library)
     par_guid = {str(v.get("guid")): v for v in videos if v.get("guid")}
@@ -1473,9 +1473,9 @@ async def admin_bunny_orphans(
     library_id: Optional[str] = Query(None),
     user: dict = Depends(require_perm("content.delete")),
 ):
-    """Vidéos présentes sur Bunny mais rattachées à aucun contenu du catalogue."""
+    """Vidéos présentes chez l'hébergeur mais rattachées à aucun contenu du catalogue."""
     if not BUNNY_CONFIGURED:
-        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
     library = _validated_bunny_library_id(library_id)
     videos = await _bunny_library_videos(library)
     utilises = await _referenced_bunny_ids()
@@ -1514,7 +1514,7 @@ async def admin_bunny_purge(
     user: dict = Depends(require_perm("content.delete")),
 ):
     if not BUNNY_CONFIGURED:
-        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
     library = _validated_bunny_library_id(inp.library_id)
     # On revérifie côté serveur : une vidéo redevenue utilisée entre l'analyse
     # et la confirmation ne doit jamais être supprimée.
@@ -1542,7 +1542,7 @@ async def admin_bunny_purge(
                 supprimees += 1
             else:
                 ignorees += 1
-    logger.info("Purge Bunny par %s : %s supprimées, %s ignorées", user.get("user_id"), supprimees, ignorees)
+    logger.info("Purge hébergeur par %s : %s supprimées, %s ignorées", user.get("user_id"), supprimees, ignorees)
     return {"deleted": supprimees, "skipped": ignorees}
 
 
@@ -1579,7 +1579,7 @@ async def admin_reject_pending(media_id: str, user: dict = Depends(require_perm(
     if not doc:
         raise HTTPException(status_code=404, detail="Proposition introuvable")
     await db.media_pending.delete_one({"id": media_id})
-    # Les fichiers ont bien ete televerses sur Bunny : les laisser reviendrait a
+    # Les fichiers ont bien ete televerses chez l'hebergeur : les laisser reviendrait a
     # payer le stockage d'une proposition refusee.
     supprimees = await _purge_bunny_of(doc)
     logger.info("Proposition %s refusee par %s (%s videos supprimees)", media_id, user.get("user_id"), supprimees)
@@ -3347,7 +3347,7 @@ async def upload_sign(kind: str = Form("image"), user: dict = Depends(get_curren
 @api_router.post("/bunny/create-video")
 async def bunny_create_video(title: str = Form("video"), user: dict = Depends(require_perm("content.add"))):
     if not BUNNY_CONFIGURED:
-        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
     import hashlib, time
     r = await run_in_threadpool(lambda: requests.post(
         f"https://video.bunnycdn.com/library/{BUNNY_LIBRARY_ID}/videos",
@@ -3355,8 +3355,8 @@ async def bunny_create_video(title: str = Form("video"), user: dict = Depends(re
         json={"title": title}, timeout=30,
     ))
     if not r.ok:
-        logger.error(f"Bunny create video failed: {r.status_code} {r.text[:200]}")
-        raise HTTPException(status_code=500, detail="Création vidéo Bunny impossible")
+        logger.error(f"Video creation failed: {r.status_code} {r.text[:200]}")
+        raise HTTPException(status_code=500, detail="Création de la vidéo impossible")
     video_id = r.json().get("guid")
     expire = int(time.time()) + 3600
     signature = hashlib.sha256(f"{BUNNY_LIBRARY_ID}{BUNNY_API_KEY}{expire}{video_id}".encode()).hexdigest()
@@ -3402,7 +3402,7 @@ async def _remove_bunny_reference(video_id: str, library_id: str) -> None:
 def _validated_bunny_library_id(library_id: Optional[str]) -> str:
     resolved = str(library_id or BUNNY_LIBRARY_ID or "").strip()
     if not resolved or not re.fullmatch(r"\d+", resolved):
-        raise HTTPException(status_code=400, detail="Bibliothèque Bunny invalide")
+        raise HTTPException(status_code=400, detail="Bibliothèque vidéo invalide")
     return resolved
 
 
@@ -3413,7 +3413,7 @@ async def bunny_video_status(
     user: dict = Depends(require_admin),
 ):
     if not BUNNY_CONFIGURED:
-        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
     resolved_library_id = _validated_bunny_library_id(library_id)
     r = await run_in_threadpool(lambda: requests.get(
         f"https://video.bunnycdn.com/library/{resolved_library_id}/videos/{video_id}",
@@ -3421,10 +3421,10 @@ async def bunny_video_status(
     ))
     if r.status_code == 404:
         await _remove_bunny_reference(video_id, resolved_library_id)
-        raise HTTPException(status_code=404, detail="Vidéo supprimée de Bunny Stream")
+        raise HTTPException(status_code=404, detail="Vidéo supprimée de l'hébergeur")
     if not r.ok:
-        logger.error(f"Bunny status failed: {r.status_code} {r.text[:200]}")
-        raise HTTPException(status_code=502, detail="Statut vidéo Bunny indisponible")
+        logger.error(f"Video status failed: {r.status_code} {r.text[:200]}")
+        raise HTTPException(status_code=502, detail="Statut de la vidéo indisponible")
     j = r.json()
     return {
         "exists": True,
@@ -3441,22 +3441,22 @@ async def bunny_delete_video(
     library_id: Optional[str] = Query(None),
     user: dict = Depends(require_admin),
 ):
-    """Annule un téléversement YourMovie's et supprime sa vidéo Bunny, même partielle."""
+    """Annule un téléversement YourMovie's et supprime sa vidéo hébergée, même partielle."""
     if not BUNNY_CONFIGURED:
-        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
     resolved_library_id = _validated_bunny_library_id(library_id)
     r = await run_in_threadpool(lambda: requests.delete(
         f"https://video.bunnycdn.com/library/{resolved_library_id}/videos/{video_id}",
         headers={"AccessKey": BUNNY_API_KEY}, timeout=30,
     ))
     if r.status_code not in (200, 204, 404):
-        logger.error(f"Bunny delete failed: {r.status_code} {r.text[:200]}")
-        raise HTTPException(status_code=502, detail="Suppression Bunny impossible")
+        logger.error(f"Video delete failed: {r.status_code} {r.text[:200]}")
+        raise HTTPException(status_code=502, detail="Suppression impossible")
     await _remove_bunny_reference(video_id, resolved_library_id)
     return {"ok": True, "alreadyDeleted": r.status_code == 404}
 
 def _bunny_references_of(media: dict) -> list:
-    """Toutes les vidéos Bunny d'un contenu : le fichier principal et chaque épisode."""
+    """Toutes les vidéos hébergées d'un contenu : le fichier principal et chaque épisode."""
     trouvees = []
     vus = set()
 
@@ -3479,7 +3479,7 @@ def _bunny_references_of(media: dict) -> list:
 
 
 async def _delete_bunny_video(video_id: str, library_id: str) -> bool:
-    """Supprime une vidéo côté Bunny. Best-effort : un échec ne doit jamais
+    """Supprime une vidéo côté hébergeur. Best-effort : un échec ne doit jamais
     empêcher la suppression du contenu dans le catalogue."""
     if not BUNNY_CONFIGURED or not video_id:
         return False
@@ -3493,9 +3493,9 @@ async def _delete_bunny_video(video_id: str, library_id: str) -> bool:
         ))
         if r.status_code in (200, 204, 404):
             return True
-        logger.error("Suppression Bunny refusée pour %s : %s %s", video_id, r.status_code, r.text[:200])
+        logger.error("Suppression refusée par l'hébergeur pour %s : %s %s", video_id, r.status_code, r.text[:200])
     except Exception as exc:
-        logger.error("Suppression Bunny impossible pour %s : %s", video_id, exc)
+        logger.error("Suppression impossible chez l'hébergeur pour %s : %s", video_id, exc)
     return False
 
 
@@ -3519,7 +3519,7 @@ async def _bunny_library_videos(library_id: str) -> list:
             timeout=30,
         ))
         if not r.ok:
-            raise HTTPException(status_code=502, detail="Bibliothèque Bunny illisible")
+            raise HTTPException(status_code=502, detail="Bibliothèque vidéo illisible")
         payload = r.json()
         lot = payload.get("items") or []
         videos.extend(lot)
@@ -3540,7 +3540,7 @@ async def _referenced_bunny_ids() -> set:
 
 
 def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
-    """Normalise un GUID ou une URL d'embed Bunny sans faire confiance au client."""
+    """Normalise un GUID ou une URL d'embed sans faire confiance au client."""
     library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
     for candidate in (doc.get("bunny_video_id"), doc.get("video_url")):
         raw = str(candidate or "").strip()

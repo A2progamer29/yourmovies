@@ -40,7 +40,7 @@ api.interceptors.response.use(
         const isSilentUrl = silentUrls.some((u) => url.includes(u)) && status === 401;
 
         // Une limitation temporaire est gérée par l'appelant (notamment le suivi
-        // Bunny qui respecte Retry-After). Elle ne doit jamais exposer le code
+        // un hébergeur qui respecte Retry-After). Elle ne doit jamais exposer le code
         // technique 429 ni déclencher une notification utilisateur.
         if (status === 429) {
             err.__silent = true;

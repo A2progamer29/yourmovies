@@ -92,7 +92,7 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
             if (done[row.file.name]) continue;
             setCurrent(row.file.name);
             try {
-                // On attend la fin du *transfert* seulement : l'encodage Bunny se
+                // On attend la fin du *transfert* seulement : la préparation de la vidéo se
                 // poursuit en arrière-plan pendant que le fichier suivant démarre.
                 await new Promise((resolve, reject) => {
                     uploadToBunny(row.file, {
@@ -106,7 +106,7 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
             } catch {
                 setDone((d) => ({ ...d, [row.file.name]: "error" }));
             }
-            // Court répit entre deux envois : laisse Bunny et la connexion respirer.
+            // Court répit entre deux envois : laisse l'hébergeur et la connexion respirer.
             await new Promise((r) => setTimeout(r, 1200));
         }
         setCurrent(null);

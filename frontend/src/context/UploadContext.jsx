@@ -17,7 +17,7 @@ function restoreUploads() {
                     ...item,
                     status: item.videoId ? "checking" : "interrupted",
                     stage: item.videoId
-                        ? "Vérification du téléversement Bunny…"
+                        ? "Vérification du téléversement…"
                         : "Interrompu par l’actualisation — sélectionne à nouveau le fichier",
                     updatedAt: Date.now(),
                 }
@@ -127,7 +127,7 @@ export function UploadProvider({ children }) {
     const cancelUpload = useCallback(async (id) => {
         const item = uploadsRef.current.find((candidate) => candidate.id === id);
         if (!item || item.status === "cancelling") return;
-        updateUpload(id, { status: "cancelling", stage: "Annulation et suppression sur Bunny…" });
+        updateUpload(id, { status: "cancelling", stage: "Annulation et suppression du fichier…" });
         try {
             const localHandler = cancelHandlers.current.get(id);
             if (localHandler) {
@@ -138,7 +138,7 @@ export function UploadProvider({ children }) {
                 });
             }
             cancelHandlers.current.delete(id);
-            updateUpload(id, { status: "cancelled", stage: "Annulé et supprimé de Bunny Stream", progress: 0 });
+            updateUpload(id, { status: "cancelled", stage: "Annulé et fichier supprimé", progress: 0 });
         } catch (error) {
             updateUpload(id, {
                 status: "error",
@@ -181,7 +181,7 @@ export function UploadProvider({ children }) {
 
         const verifyUploads = async () => {
             if (stopped || requestInFlight) return;
-            // Le suivi d'encodage Bunny est réservé aux admins : sans ce contrôle,
+            // Le suivi de préparation est réservé aux admins : sans ce contrôle,
             // les téléversements restaurés déclencheraient des 401 en boucle.
             if (!isAdmin) return;
             requestInFlight = true;

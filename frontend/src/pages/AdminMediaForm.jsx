@@ -169,7 +169,7 @@ export default function AdminMediaForm() {
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
     const uploadStage = (key) => activeUpload(key)?.stage || "";
     // L'enregistrement est bloqué uniquement pendant les quelques secondes avant
-    // que Bunny fournisse une référence. Dès que videoId existe, le transfert peut
+    // que l'hébergeur fournisse une référence. Dès que videoId existe, le transfert peut
     // continuer globalement pendant que l'admin crée un autre contenu.
     const hasUploadWithoutReference = uploads.some((item) =>
         item.key?.startsWith(`${uploadScope}:`)
@@ -251,11 +251,11 @@ export default function AdminMediaForm() {
             key = "bunny",
             title = form.title || file.name,
             onReference = (reference) => setForm((f) => ({ ...f, ...reference })),
-            // Signalé dès la fin du transfert, avant l'encodage Bunny : permet à une
+            // Signalé dès la fin du transfert, avant la préparation de la vidéo : permet à une
             // file d'attente d'enchaîner sans attendre les minutes d'encodage.
             onTransferred = null,
         } = options;
-        const uploadId = beginUpload(file, scopedUploadKey(key), "Préparation Bunny");
+        const uploadId = beginUpload(file, scopedUploadKey(key), "Préparation");
         let cancelled = false;
         let tusUpload = null;
         try {
@@ -277,7 +277,7 @@ export default function AdminMediaForm() {
             };
             onReference(reference);
             updateUpload(uploadId, {
-                stage: "Envoi vers Bunny",
+                stage: "Envoi de la vidéo",
                 progress: 0,
                 videoId,
                 libraryId: String(libraryId),
@@ -288,7 +288,7 @@ export default function AdminMediaForm() {
                     try {
                         await tusUpload.abort(true);
                     } catch {
-                        // Bunny sera quand même nettoyé par la route backend.
+                        // L'hébergeur sera quand même nettoyé par la route backend.
                     }
                 }
                 await api.delete(`/bunny/videos/${videoId}`, {
@@ -332,7 +332,7 @@ export default function AdminMediaForm() {
                 await api.put(`/media/${id}`, reference);
             }
             try { onTransferred?.(); } catch { }
-            updateUpload(uploadId, { status: "checking", stage: "Encodage Bunny", progress: 0 });
+            updateUpload(uploadId, { status: "checking", stage: "Préparation de la vidéo", progress: 0 });
             for (let i = 0; i < 200 && !cancelled; i++) {
                 try {
                     const s = await api.get(`/bunny/video-status/${videoId}`, {
@@ -348,8 +348,8 @@ export default function AdminMediaForm() {
                         failUpload(
                             uploadId,
                             status === 404
-                                ? "Supprimé depuis Bunny Stream — téléversement annulé"
-                                : "Référence Bunny invalide — relance ce téléversement"
+                                ? "Fichier supprimé de l'hébergeur — téléversement annulé"
+                                : "Référence vidéo invalide — relance ce téléversement"
                         );
                         return;
                     }
@@ -405,7 +405,7 @@ export default function AdminMediaForm() {
 
     const save = async () => {
         if (hasUploadWithoutReference) {
-            toast.error("Patiente quelques secondes, le temps que Bunny crée la référence vidéo.");
+            toast.error("Patiente quelques secondes, le temps que la référence vidéo soit créée.");
             return;
         }
         const payload = {
@@ -738,7 +738,7 @@ export default function AdminMediaForm() {
                         </h1>
                     </div>
                     <Button onClick={save} disabled={!form.title || saving || hasUploadWithoutReference} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Préparation Bunny…" : "Enregistrer"}
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Préparation…" : "Enregistrer"}
                     </Button>
                 </div>
 

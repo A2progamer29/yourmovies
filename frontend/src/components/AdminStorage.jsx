@@ -13,7 +13,7 @@ function poids(octets) {
     return `${(valeur / (1024 * 1024 * 1024)).toFixed(2)} Go`;
 }
 
-// Une suppression Bunny prend environ un tiers de seconde, et le serveur en
+// Une suppression chez l'hébergeur prend environ un tiers de seconde, et le serveur en
 // lance huit de front : c'est ce rapport qui donne l'estimation affichee.
 const SECONDES_PAR_VIDEO = 0.32 / 8;
 
@@ -61,7 +61,7 @@ export default function AdminStorage() {
         const octets = (rapport?.orphans || [])
             .filter((o) => selection.includes(o.video_id))
             .reduce((total, o) => total + (Number(o.size_bytes) || 0), 0);
-        if (!window.confirm(`Supprimer définitivement ${selection.length} vidéo(s) de Bunny Stream ?\n\nCes vidéos ne sont rattachées à aucun contenu du catalogue. L'opération est irréversible.`)) return;
+        if (!window.confirm(`Supprimer définitivement ${selection.length} vidéo(s) de l'hébergeur ?\n\nCes vidéos ne sont rattachées à aucun contenu du catalogue. L'opération est irréversible.`)) return;
         if (!window.confirm(`Dernière confirmation : ${poids(octets)} seront libérés et les fichiers seront perdus.`)) return;
         setPurge(true);
         // Le serveur ne renvoie qu'a la fin : le decompte est une projection a
@@ -104,10 +104,10 @@ export default function AdminStorage() {
                     <div className="flex items-start gap-3">
                         <HardDrive size={18} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
                         <div>
-                            <div className="text-sm font-medium text-white">Vidéos orphelines sur Bunny Stream</div>
+                            <div className="text-sm font-medium text-white">Vidéos orphelines chez l'hébergeur</div>
                             <p className="mt-1 max-w-xl text-sm leading-relaxed text-neutral-500">
                                 Les fichiers restés en ligne alors que leur contenu a été retiré du catalogue.
-                                Depuis maintenant, supprimer un contenu supprime aussi ses vidéos — cette analyse
+                                Depuis maintenant, supprimer un contenu supprime aussi ses fichiers — cette analyse
                                 sert à rattraper tout ce qui a été supprimé avant.
                             </p>
                         </div>
@@ -128,7 +128,7 @@ export default function AdminStorage() {
                 <>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                         {[
-                            { label: "Vidéos sur Bunny", valeur: rapport.total_videos },
+                            { label: "Vidéos hébergées", valeur: rapport.total_videos },
                             { label: "Orphelines", valeur: orphans.length, alerte: orphans.length > 0 },
                             { label: "Espace récupérable", valeur: poids(rapport.orphan_bytes) },
                         ].map((c) => (

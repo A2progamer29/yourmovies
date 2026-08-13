@@ -1365,7 +1365,7 @@ export default function AdminPage() {
                     <TabsContent value="views" className="mt-0">
                         <SectionHeader
                             titre="Vues"
-                            description="Ce que Bunny Stream a réellement compté, contenu par contenu, du plus regardé au moins regardé."
+                            description="Ce que l'hébergeur vidéo a réellement compté, contenu par contenu, du plus regardé au moins regardé."
                         />
                         <AdminViews />
                     </TabsContent>
@@ -1390,7 +1390,7 @@ export default function AdminPage() {
                         <TabsContent value="storage" className="mt-0">
                             <SectionHeader
                                 titre="Stockage"
-                                description="L'espace occupé sur Bunny Stream et les fichiers restés en ligne sans contenu associé."
+                                description="L'espace occupé par les vidéos et les fichiers restés en ligne sans contenu associé."
                             />
                             <AdminStorage />
                         </TabsContent>

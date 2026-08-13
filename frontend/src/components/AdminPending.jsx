@@ -49,7 +49,7 @@ export default function AdminPending({ onCount }) {
     };
 
     const refuser = async (media) => {
-        if (!window.confirm(`Refuser « ${media.title} » ?\n\nLa proposition est supprimée et ses vidéos sont retirées de Bunny Stream. Irréversible.`)) return;
+        if (!window.confirm(`Refuser « ${media.title} » ?\n\nLa proposition est supprimée et ses vidéos sont retirées de l'hébergeur. Irréversible.`)) return;
         setOccupe(media.id);
         try {
             const r = await api.delete(`/admin/pending/${media.id}`);

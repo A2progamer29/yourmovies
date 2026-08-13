@@ -33,7 +33,7 @@ export default function AdminViews() {
         return (
             <div className="flex items-center gap-2.5 rounded-xl border border-[#262626] bg-[#0a0a0a] p-8 text-sm text-neutral-400" data-testid="admin-views">
                 <Loader2 size={15} className="animate-spin text-[#E8D2A6]" />
-                Lecture de la bibliothèque Bunny Stream…
+                Lecture de la bibliothèque vidéo…
             </div>
         );
     }
@@ -116,7 +116,7 @@ export default function AdminViews() {
             )}
 
             <p className="text-xs leading-relaxed text-neutral-600">
-                Chiffres comptés par Bunny Stream, indépendamment du site : une vue correspond au démarrage
+                Chiffres comptés par l'hébergeur vidéo, indépendamment du site : une vue correspond au démarrage
                 d&apos;une vidéo. Pour une série, le total additionne tous ses épisodes.
             </p>
         </div>

@@ -35,7 +35,7 @@ function loadBunnyPlayerApi() {
     bunnyPlayerApiPromise = new Promise((resolve, reject) => {
         const finish = () => window.playerjs?.Player
             ? resolve(window.playerjs)
-            : reject(new Error("Bunny Player API unavailable"));
+            : reject(new Error("Player API unavailable"));
         const existing = document.querySelector(`script[src="${BUNNY_PLAYER_API_URL}"]`);
         if (existing) {
             existing.addEventListener("load", finish, { once: true });
@@ -74,7 +74,7 @@ function resolveBunnySource(media) {
                 };
             }
         } catch {
-            // A raw Bunny GUID is the preferred stored format.
+            // A raw GUID is the preferred stored format.
         }
 
         if (/^[a-zA-Z0-9-]{12,}$/.test(raw) && !raw.includes("/")) {
@@ -314,7 +314,7 @@ export default function WatchPage() {
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     // En salon, la fin des publicités change la mise en page et reconstruit
-    // l'iframe Bunny : on recharge la page pour repartir sur un lecteur propre.
+    // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
     // L'état est donc mémorisé le temps de la session, sinon le rechargement
     // rejouerait les publicités et bouclerait indéfiniment.
     const adsMemoryKey = searchParams.get("party") ? `ym_party_ads:${searchParams.get("party")}:${id}` : null;
@@ -405,7 +405,7 @@ export default function WatchPage() {
                 }
                 if (data.libraryMatchesUploadConfig === false) {
                     setBunnyPlaybackError(
-                        `Cette vidéo appartient à la bibliothèque Bunny ${data.libraryId}, mais Render est configuré pour une autre bibliothèque. Corrige BUNNY_LIBRARY_ID ou réimporte la vidéo.`
+                        `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
                     );
                     return;
                 }
@@ -416,7 +416,7 @@ export default function WatchPage() {
                 const status = error?.response?.status;
                 const detail = error?.response?.data?.detail;
                 setBunnyPlaybackError(
-                    detail || `Impossible d’obtenir l’autorisation Bunny${status ? ` (HTTP ${status})` : ""}. Vérifie Render et la sécurité de la bibliothèque Bunny.`
+                    detail || `Impossible d’obtenir l’autorisation de lecture${status ? ` (HTTP ${status})` : ""}. Vérifie la configuration du serveur et la sécurité de la bibliothèque.`
                 );
             });
         return () => { active = false; };
@@ -525,7 +525,7 @@ export default function WatchPage() {
             saveProgress(position, knownDuration || null);
         };
 
-        // Repli : si l'API Bunny est indisponible (script tiers bloqué par une
+        // Repli : si l'API du lecteur est indisponible (script tiers bloqué par une
         // extension, réseau filtré…), on estime la progression au temps écoulé
         // pendant que l'onglet est visible. Moins précis, mais évite de perdre
         // totalement la reprise de lecture.
@@ -571,7 +571,7 @@ export default function WatchPage() {
                 }, 45_000);
             })
             .catch(() => {
-                // La lecture reste disponible même si l'API de suivi Bunny est
+                // La lecture reste disponible même si l'API de suivi est
                 // indisponible : on bascule sur l'estimation par temps écoulé.
                 startFallbackTracking();
             });
@@ -665,7 +665,7 @@ export default function WatchPage() {
         window.location.reload();
     }, [adsMemoryKey, gateDone, adDone, user]);
 
-    // Entrer dans un salon recharge la page : le lecteur Bunny est reconstruit
+    // Entrer dans un salon recharge la page : le lecteur est reconstruit
     // par le changement de mise en page, et l'ancienne instance restait
     // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
     const gotoParty = (code) => {
@@ -830,7 +830,7 @@ export default function WatchPage() {
                                 )}
                                 {partyOpen && partyStarted && !isPartyHost && (
                                     <div className="pointer-events-none absolute inset-0 z-30" data-testid="party-guest-shield">
-                                        {/* Le lecteur Bunny est sur un autre domaine : impossible de
+                                        {/* Le lecteur est sur un autre domaine : impossible de
                                             désactiver certains de ses boutons. On masque donc la zone
                                             de lecture et la barre de progression, en laissant libre le
                                             coin des réglages et du plein écran. */}
