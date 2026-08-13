@@ -8,15 +8,18 @@ const CLE_MASQUE = "ym_support_banner_hidden";
 export default function SupportBanner() {
     const navigate = useNavigate();
     const [config, setConfig] = useState(null);
-    const [masque, setMasque] = useState(() => {
-        try { return window.sessionStorage.getItem(CLE_MASQUE) === "1"; } catch { return false; }
-    });
+    const [masque, setMasque] = useState(false);
 
     useEffect(() => {
         (async () => {
             try {
                 const r = await api.get("/support-banner", { silent: true });
                 setConfig(r.data);
+                // En mode « à chaque rechargement », la fermeture ne dure que le
+                // temps de la page : on ne relit donc aucune préférence stockée.
+                if (!r.data?.always_show) {
+                    try { setMasque(window.sessionStorage.getItem(CLE_MASQUE) === "1"); } catch { }
+                }
             } catch {
                 setConfig(null);
             }
@@ -25,15 +28,17 @@ export default function SupportBanner() {
 
     if (!config?.enabled || masque) return null;
 
-    // Masqué pour la session seulement : le message doit revenir à la visite
-    // suivante, sans harceler quelqu'un qui navigue de page en page.
     const fermer = () => {
         setMasque(true);
-        try { window.sessionStorage.setItem(CLE_MASQUE, "1"); } catch { }
+        // Sans l'option, le bandeau reste masqué jusqu'à la prochaine visite ;
+        // avec, il revient dès le rechargement suivant.
+        if (!config.always_show) {
+            try { window.sessionStorage.setItem(CLE_MASQUE, "1"); } catch { }
+        }
     };
 
     return (
-        <div className="border-b border-[#E8D2A6]/20 bg-[#171208]" data-testid="support-banner">
+        <div className="border-b border-[#E8D2A6]/20 bg-[#0c0c0c]" data-testid="support-banner">
             <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 py-2.5">
                 <PiggyBank size={16} className="shrink-0 text-[#E8D2A6]" />
                 <p className="min-w-0 flex-1 text-xs leading-relaxed text-neutral-300 sm:text-sm">

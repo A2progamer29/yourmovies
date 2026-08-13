@@ -2201,6 +2201,7 @@ async def admin_delete_report(report_id: str, user: dict = Depends(require_perm(
 # ---------- Bandeau de soutien ----------
 BANNER_DEFAULTS = {
     "enabled": False,
+    "always_show": False,
     "message": "Chaque visionnage a un coût, et YourMovie's ne rapporte rien pour l'instant. Un coup de main aide à garder les lecteurs allumés.",
     "cta_label": "Soutenir le site",
 }
@@ -2210,6 +2211,7 @@ async def _effective_banner() -> dict:
     doc = await db.settings.find_one({"id": "support_banner"}, {"_id": 0}) or {}
     config = dict(BANNER_DEFAULTS)
     config["enabled"] = bool(doc.get("enabled", config["enabled"]))
+    config["always_show"] = bool(doc.get("always_show", config["always_show"]))
     for cle in ("message", "cta_label"):
         valeur = doc.get(cle)
         if isinstance(valeur, str) and valeur.strip():
@@ -2219,6 +2221,7 @@ async def _effective_banner() -> dict:
 
 class BannerInput(BaseModel):
     enabled: Optional[bool] = None
+    always_show: Optional[bool] = None
     message: Optional[str] = Field(default=None, max_length=300)
     cta_label: Optional[str] = Field(default=None, max_length=40)
 

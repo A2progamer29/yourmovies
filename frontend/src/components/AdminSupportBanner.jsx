@@ -26,6 +26,7 @@ export default function AdminSupportBanner() {
         try {
             const r = await api.post("/admin/support-banner", {
                 enabled: !!config.enabled,
+                always_show: !!config.always_show,
                 message: config.message,
                 cta_label: config.cta_label,
             });
@@ -60,7 +61,24 @@ export default function AdminSupportBanner() {
                 </div>
             </div>
 
-            <label className="mt-5 block">
+            <label className="mt-5 flex items-start gap-3 rounded-lg border border-[#1f1f1f] bg-[#111] p-3.5">
+                <Switch
+                    checked={!!config.always_show}
+                    onCheckedChange={(v) => setConfig((c) => ({ ...c, always_show: v }))}
+                    data-testid="banner-always"
+                    className="mt-0.5 shrink-0"
+                />
+                <span className="min-w-0">
+                    <span className="block text-sm text-white">Réafficher à chaque rechargement</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-neutral-500">
+                        La croix ferme toujours le bandeau, mais il revient au chargement suivant au lieu de
+                        rester masqué jusqu&apos;à la prochaine visite. Plus insistant : à réserver aux périodes
+                        où ça compte vraiment.
+                    </span>
+                </span>
+            </label>
+
+            <label className="mt-4 block">
                 <span className="text-[10px] uppercase tracking-widest text-neutral-500">Message</span>
                 <Textarea
                     value={config.message || ""}
