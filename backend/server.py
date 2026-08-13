@@ -4314,21 +4314,39 @@ def _refund_pct(total: float, goal: float) -> float:
 
 PALIERS_DEFAUT = [
     {
-        "amount": 3,
-        "label": "Coup de pouce",
-        "rewards": ["500 Freemium", "Rôle Soutien sur le Discord"],
+        "amount": 25,
+        "label": "Les lecteurs tiennent le mois",
+        "rewards": ["Un mois de lecture assurée pour tout le monde, sans coupure"],
         "highlight": False,
     },
     {
-        "amount": 6,
-        "label": "Soutien",
-        "rewards": ["1 500 Freemium", "15 jours de Premium", "Rôle Soutien sur le Discord"],
+        "amount": 50,
+        "label": "Une semaine sans publicité",
+        "rewards": ["Publicités désactivées pour tous les visiteurs pendant sept jours"],
         "highlight": True,
     },
     {
-        "amount": 12,
-        "label": "Mécène",
-        "rewards": ["1 mois de Premium", "Couleur d'accent personnalisée", "Ton pseudo dans les remerciements"],
+        "amount": 100,
+        "label": "Le catalogue s'agrandit",
+        "rewards": ["Les cinq titres les plus votés du Wishboard ajoutés dans la foulée"],
+        "highlight": False,
+    },
+    {
+        "amount": 200,
+        "label": "Tirage au sort",
+        "rewards": [
+            "Une carte cadeau tirée au sort parmi les contributeurs",
+            "Trois mois de Premium à gagner sur le Discord",
+        ],
+        "highlight": False,
+    },
+    {
+        "amount": 350,
+        "label": "La soirée YourMovie's",
+        "rewards": [
+            "Une Watch Party géante, le film choisi par vote",
+            "Giveaway pendant la séance",
+        ],
         "highlight": False,
     },
 ]

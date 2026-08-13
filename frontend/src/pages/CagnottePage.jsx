@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PiggyBank, Heart, Info, Gift, Check, Trophy } from "lucide-react";
+import { PiggyBank, Heart, Info, Gift, Check, Trophy, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -82,55 +82,75 @@ export default function CagnottePage() {
                 <div className="mb-8">
                     <div className="mb-1 flex items-center gap-2">
                         <Trophy size={18} className="text-[#E8D2A6]" />
-                        <h2 className="font-display text-2xl">Ce que tu reçois</h2>
+                        <h2 className="font-display text-2xl">Paliers de récompenses</h2>
                     </div>
                     <p className="mb-5 text-sm text-neutral-500">
-                        Une contrepartie pour chaque contribution, quel que soit le montant.
+                        Chaque palier atteint débloque quelque chose pour <span className="text-neutral-300">tout le monde</span>,
+                        pas seulement pour ceux qui contribuent.
                     </p>
 
-                    <div className="grid gap-3 sm:grid-cols-3">
-                        {(data.tiers || []).map((palier) => (
-                            <div
-                                key={palier.amount}
-                                className={`flex flex-col rounded-2xl border p-5 ${palier.highlight
-                                    ? "border-[#E8D2A6]/50 bg-[#0f0f0f]"
-                                    : "border-[#262626] bg-[#0a0a0a]"}`}
-                            >
-                                {palier.highlight && (
-                                    <span className="mb-3 w-fit rounded-full bg-[#E8D2A6] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black">
-                                        Le plus choisi
-                                    </span>
-                                )}
-                                <div className="font-display text-3xl text-white">
-                                    {palier.amount} €
-                                </div>
-                                <div className="mt-0.5 text-sm text-[#E8D2A6]">{palier.label}</div>
-                                <ul className="mt-4 space-y-2">
-                                    {(palier.rewards || []).map((recompense, i) => (
-                                        <li key={i} className="flex items-start gap-2 text-sm leading-relaxed text-neutral-300">
-                                            <Check size={14} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
-                                            {recompense}
-                                        </li>
-                                    ))}
-                                </ul>
-                                <button
-                                    type="button"
-                                    onClick={() => setAmount(String(palier.amount))}
-                                    data-testid={`tier-${palier.amount}`}
-                                    className={`mt-5 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${palier.highlight
-                                        ? "bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
-                                        : "border border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"}`}
+                    <div className="space-y-2.5">
+                        {(data.tiers || []).map((palier) => {
+                            const atteint = data.total >= palier.amount;
+                            const manquant = Math.max(0, palier.amount - data.total);
+                            const progression = Math.min(100, Math.round((data.total / Math.max(1, palier.amount)) * 100));
+                            return (
+                                <div
+                                    key={palier.amount}
+                                    className={`relative overflow-hidden rounded-xl border p-4 ${atteint
+                                        ? "border-[#E8D2A6]/45 bg-[#0f0f0f]"
+                                        : palier.highlight
+                                            ? "border-[#E8D2A6]/25 bg-[#0c0c0c]"
+                                            : "border-[#262626] bg-[#0a0a0a]"}`}
                                 >
-                                    Choisir ce montant
-                                </button>
-                            </div>
-                        ))}
+                                    {!atteint && (
+                                        <div
+                                            className="absolute inset-y-0 left-0 bg-[#E8D2A6]/[0.06]"
+                                            style={{ width: `${progression}%` }}
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                    <div className="relative flex items-start gap-4">
+                                        <div className={`flex w-16 shrink-0 flex-col items-center justify-center ${atteint ? "text-[#E8D2A6]" : "text-neutral-600"}`}>
+                                            {atteint ? <Check size={18} /> : <Lock size={16} />}
+                                            <span className="mt-0.5 font-display text-lg">{palier.amount}€</span>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className={`font-medium ${atteint ? "text-white" : "text-neutral-300"}`}>
+                                                    {palier.label}
+                                                </span>
+                                                {atteint ? (
+                                                    <span className="rounded-full bg-[#E8D2A6] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">
+                                                        Débloqué
+                                                    </span>
+                                                ) : palier.highlight ? (
+                                                    <span className="rounded-full border border-[#E8D2A6]/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#E8D2A6]">
+                                                        Prochain objectif
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <ul className="mt-1.5 space-y-1">
+                                                {(palier.rewards || []).map((recompense, i) => (
+                                                    <li key={i} className="text-sm leading-relaxed text-neutral-400">
+                                                        {recompense}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                            {!atteint && (
+                                                <div className="mt-2 text-xs text-neutral-600">
+                                                    Encore {manquant.toLocaleString("fr-FR")} € pour débloquer
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     <p className="mt-3 text-[11px] leading-relaxed text-neutral-600">
-                        Les contreparties sont attribuées manuellement après confirmation de la contribution,
-                        via le Discord. Tu peux aussi donner un autre montant : la contrepartie du palier
-                        atteint s&apos;applique.
+                        Récompenses et tirages au sort gérés à la main sur le Discord, une fois le palier atteint.
                     </p>
                 </div>
 

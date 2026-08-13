@@ -51,10 +51,10 @@ export default function AdminCagnotteTiers() {
             <div className="flex items-start gap-3">
                 <Trophy size={17} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
                 <div>
-                    <div className="text-sm font-medium text-white">Contreparties</div>
+                    <div className="text-sm font-medium text-white">Paliers de récompenses</div>
                     <p className="mt-1 max-w-2xl text-sm leading-relaxed text-neutral-500">
-                        Ce que reçoit une personne selon son montant. Elles s&apos;attribuent à la main après
-                        confirmation, alors n&apos;annonce que ce que tu peux réellement tenir.
+                        Ce que débloque la cagnotte pour tout le monde une fois le montant atteint. L&apos;étoile
+                        marque le prochain objectif. N&apos;annonce que ce que tu pourras réellement tenir.
                     </p>
                 </div>
             </div>
@@ -81,7 +81,7 @@ export default function AdminCagnotteTiers() {
                             <button
                                 type="button"
                                 onClick={() => setPaliers((liste) => liste.map((p, i) => ({ ...p, highlight: i === index && !p.highlight })))}
-                                title="Mettre en avant"
+                                title="Marquer comme prochain objectif"
                                 className={`shrink-0 rounded-full border p-2 transition-colors ${palier.highlight
                                     ? "border-[#E8D2A6] text-[#E8D2A6]"
                                     : "border-[#262626] text-neutral-600 hover:text-neutral-300"}`}
@@ -104,7 +104,7 @@ export default function AdminCagnotteTiers() {
                                     <Input
                                         value={recompense}
                                         onChange={(e) => modifierRecompense(index, rang, e.target.value)}
-                                        placeholder="Ce que la personne reçoit"
+                                        placeholder="Ce que ça débloque"
                                         maxLength={80}
                                         className="h-9 border-[#262626] bg-[#0a0a0a] text-sm text-white"
                                     />
