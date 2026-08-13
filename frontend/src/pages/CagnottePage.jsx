@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PiggyBank, Heart, Info, Gift, Lock, Check, Trophy } from "lucide-react";
+import { PiggyBank, Heart, Info, Gift, Check, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -12,14 +12,6 @@ import { PanneauSkeleton } from "@/components/Skeletons";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PRESETS = [5, 10, 20, 50];
-
-const TIERS = [
-    { amount: 100, title: "Plans offerts", desc: "L'organisateur s'engage à offrir 10 plans Standard et 5 plans Basic." },
-    { amount: 300, title: "Giveaway Discord", desc: "Un giveaway de 50 € est organisé sur le Discord." },
-    { amount: 500, title: "Premium à vie à gagner", desc: "Chance de gagner aléatoirement le plan Premium à vie + 50 € en giveaway." },
-    { amount: 700, title: "Gros lot", desc: "100 € en giveaway + 5 plans Premium à vie." },
-    { amount: 1000, title: "Récompense finale", desc: "Une récompense de 250 € max à choisir (carte cadeau, etc.)." },
-];
 
 export default function CagnottePage() {
     const { user } = useAuth();
@@ -88,34 +80,58 @@ export default function CagnottePage() {
                 </div>
 
                 <div className="mb-8">
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="mb-1 flex items-center gap-2">
                         <Trophy size={18} className="text-[#E8D2A6]" />
-                        <h2 className="font-display text-2xl">Paliers de récompenses</h2>
+                        <h2 className="font-display text-2xl">Ce que tu reçois</h2>
                     </div>
-                    <div className="space-y-2.5">
-                        {TIERS.map((tier) => {
-                            const reached = data.total >= tier.amount;
-                            return (
-                                <div key={tier.amount} className={`flex items-start gap-4 p-4 rounded-lg border ${reached ? "border-[#E8D2A6]/40 bg-[#0c0c0c]" : "border-[#262626] bg-[#0a0a0a]"}`}>
-                                    <div className={`flex flex-col items-center justify-center w-16 shrink-0 ${reached ? "text-[#E8D2A6]" : "text-neutral-600"}`}>
-                                        {reached ? <Check size={18} /> : <Lock size={16} />}
-                                        <span className="font-display text-lg mt-0.5">{tier.amount}€</span>
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className={`font-medium flex items-center gap-1.5 ${reached ? "text-white" : "text-neutral-300"}`}>
-                                            <Gift size={14} className={reached ? "text-[#E8D2A6]" : "text-neutral-600"} /> {tier.title}
-                                            {reached && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[#E8D2A6] text-black font-bold">Débloqué</span>}
-                                        </div>
-                                        <div className="text-sm text-neutral-400 mt-1 leading-relaxed">{tier.desc}</div>
-                                        {!reached && (
-                                            <div className="text-xs text-neutral-600 mt-1.5">Encore {(tier.amount - data.total).toLocaleString("fr-FR")} € pour débloquer</div>
-                                        )}
-                                    </div>
+                    <p className="mb-5 text-sm text-neutral-500">
+                        Une contrepartie pour chaque contribution, quel que soit le montant.
+                    </p>
+
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        {(data.tiers || []).map((palier) => (
+                            <div
+                                key={palier.amount}
+                                className={`flex flex-col rounded-2xl border p-5 ${palier.highlight
+                                    ? "border-[#E8D2A6]/50 bg-[#0f0f0f]"
+                                    : "border-[#262626] bg-[#0a0a0a]"}`}
+                            >
+                                {palier.highlight && (
+                                    <span className="mb-3 w-fit rounded-full bg-[#E8D2A6] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black">
+                                        Le plus choisi
+                                    </span>
+                                )}
+                                <div className="font-display text-3xl text-white">
+                                    {palier.amount} €
                                 </div>
-                            );
-                        })}
+                                <div className="mt-0.5 text-sm text-[#E8D2A6]">{palier.label}</div>
+                                <ul className="mt-4 space-y-2">
+                                    {(palier.rewards || []).map((recompense, i) => (
+                                        <li key={i} className="flex items-start gap-2 text-sm leading-relaxed text-neutral-300">
+                                            <Check size={14} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
+                                            {recompense}
+                                        </li>
+                                    ))}
+                                </ul>
+                                <button
+                                    type="button"
+                                    onClick={() => setAmount(String(palier.amount))}
+                                    data-testid={`tier-${palier.amount}`}
+                                    className={`mt-5 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${palier.highlight
+                                        ? "bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                        : "border border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"}`}
+                                >
+                                    Choisir ce montant
+                                </button>
+                            </div>
+                        ))}
                     </div>
-                    <p className="text-[11px] text-neutral-600 mt-3">Récompenses et giveaways gérés manuellement par l'organisateur sur le Discord.</p>
+
+                    <p className="mt-3 text-[11px] leading-relaxed text-neutral-600">
+                        Les contreparties sont attribuées manuellement après confirmation de la contribution,
+                        via le Discord. Tu peux aussi donner un autre montant : la contrepartie du palier
+                        atteint s&apos;applique.
+                    </p>
                 </div>
 
                 <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] mb-8">

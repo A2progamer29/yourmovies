@@ -24,6 +24,7 @@ import AdminReferral from "@/components/AdminReferral";
 import AdminViews from "@/components/AdminViews";
 import AdminReports from "@/components/AdminReports";
 import AdminSupportBanner from "@/components/AdminSupportBanner";
+import AdminCagnotteTiers from "@/components/AdminCagnotteTiers";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -1139,6 +1140,7 @@ export default function AdminPage() {
                             titre="Cagnotte"
                             description="Le total affiché publiquement, et le bandeau qui invite à contribuer."
                         />
+                        {can(user, "cagnotte.manage") && <AdminCagnotteTiers />}
                         {can(user, "cagnotte.manage") && <AdminSupportBanner />}
                         <div className="max-w-md p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-4">

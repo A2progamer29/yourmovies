@@ -4312,6 +4312,73 @@ def _refund_pct(total: float, goal: float) -> float:
         return 0.0
     return round(min(10.0, 10.0 * (goal - total) / goal), 1)
 
+PALIERS_DEFAUT = [
+    {
+        "amount": 3,
+        "label": "Coup de pouce",
+        "rewards": ["500 Freemium", "Rôle Soutien sur le Discord"],
+        "highlight": False,
+    },
+    {
+        "amount": 6,
+        "label": "Soutien",
+        "rewards": ["1 500 Freemium", "15 jours de Premium", "Rôle Soutien sur le Discord"],
+        "highlight": True,
+    },
+    {
+        "amount": 12,
+        "label": "Mécène",
+        "rewards": ["1 mois de Premium", "Couleur d'accent personnalisée", "Ton pseudo dans les remerciements"],
+        "highlight": False,
+    },
+]
+
+
+async def _paliers_cagnotte() -> list:
+    doc = await db.settings.find_one({"id": "cagnotte_tiers"}, {"_id": 0, "tiers": 1}) or {}
+    paliers = doc.get("tiers")
+    if not isinstance(paliers, list) or not paliers:
+        return [dict(p) for p in PALIERS_DEFAUT]
+    propres = []
+    for palier in paliers[:6]:
+        if not isinstance(palier, dict):
+            continue
+        recompenses = [str(r).strip()[:80] for r in (palier.get("rewards") or []) if str(r).strip()][:5]
+        propres.append({
+            "amount": max(0, round(float(palier.get("amount") or 0), 2)),
+            "label": str(palier.get("label") or "")[:40],
+            "rewards": recompenses,
+            "highlight": bool(palier.get("highlight")),
+        })
+    return propres or [dict(p) for p in PALIERS_DEFAUT]
+
+
+class PalierInput(BaseModel):
+    amount: float = Field(ge=0, le=1000)
+    label: str = Field(default="", max_length=40)
+    rewards: List[str] = Field(default_factory=list, max_length=5)
+    highlight: bool = False
+
+
+class PaliersInput(BaseModel):
+    tiers: List[PalierInput] = Field(default_factory=list, max_length=6)
+
+
+@api_router.get("/admin/cagnotte/tiers")
+async def admin_get_tiers(admin: dict = Depends(require_perm("cagnotte.manage"))):
+    return {"tiers": await _paliers_cagnotte()}
+
+
+@api_router.post("/admin/cagnotte/tiers")
+async def admin_set_tiers(inp: PaliersInput, admin: dict = Depends(require_perm("cagnotte.manage"))):
+    await db.settings.update_one(
+        {"id": "cagnotte_tiers"},
+        {"$set": {"tiers": [p.model_dump() for p in inp.tiers]}},
+        upsert=True,
+    )
+    return {"tiers": await _paliers_cagnotte()}
+
+
 async def _get_cagnotte() -> dict:
     doc = await db.cagnotte.find_one({"id": "main"}, {"_id": 0})
     if not doc:
@@ -4319,7 +4386,11 @@ async def _get_cagnotte() -> dict:
         await db.cagnotte.insert_one(doc)
     total = round(float(doc.get("total", 0) or 0), 2)
     goal = float(doc.get("goal", CAGNOTTE_GOAL) or CAGNOTTE_GOAL)
-    return {"total": total, "goal": goal, "reached": total >= goal, "refund_pct": _refund_pct(total, goal)}
+    return {
+        "total": total, "goal": goal, "reached": total >= goal,
+        "refund_pct": _refund_pct(total, goal),
+        "tiers": await _paliers_cagnotte(),
+    }
 
 @api_router.get("/cagnotte")
 async def get_cagnotte():
