@@ -146,6 +146,7 @@ class RegisterInput(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
     name: str = Field(min_length=2, max_length=40)
+    ref: Optional[str] = Field(default=None, max_length=40)
 
 class LoginInput(BaseModel):
     email: EmailStr
@@ -699,6 +700,65 @@ async def _pricing_doc() -> dict:
     return await db.settings.find_one({"id": "pricing"}, {"_id": 0}) or {}
 
 # ---------- Publicité (régie configurable depuis l'admin) ----------
+REFERRAL_DEFAULTS = {
+    "enabled": True,
+    "coins_parrain": 50,
+    "coins_filleul": 25,
+}
+
+
+async def _effective_referral() -> dict:
+    doc = await db.settings.find_one({"id": "referral"}, {"_id": 0}) or {}
+    config = dict(REFERRAL_DEFAULTS)
+    config["enabled"] = bool(doc.get("enabled", config["enabled"]))
+    for cle in ("coins_parrain", "coins_filleul"):
+        valeur = doc.get(cle)
+        if isinstance(valeur, (int, float)):
+            config[cle] = max(0, min(1000, round(float(valeur), 1)))
+    return config
+
+
+async def _apply_referral(code: Optional[str], filleul: dict) -> None:
+    """Credite le parrain et le filleul. Toute anomalie est silencieuse : une
+    inscription ne doit jamais echouer a cause d'un code de parrainage."""
+    propre = re.sub(r"[^A-Za-z0-9-]", "", str(code or "")).upper()
+    if not propre:
+        return
+    try:
+        config = await _effective_referral()
+        if not config["enabled"]:
+            return
+        parrain = await db.users.find_one({"account_identifier": propre}, {"_id": 0, "user_id": 1, "name": 1})
+        if not parrain or parrain["user_id"] == filleul["user_id"]:
+            return
+        deja = await db.referrals.find_one({"filleul_id": filleul["user_id"]}, {"_id": 1})
+        if deja:
+            return
+        await db.referrals.insert_one({
+            "parrain_id": parrain["user_id"],
+            "filleul_id": filleul["user_id"],
+            "filleul_name": filleul.get("name", ""),
+            "coins_parrain": config["coins_parrain"],
+            "coins_filleul": config["coins_filleul"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        await db.users.update_one({"user_id": filleul["user_id"]}, {"$set": {"referred_by": parrain["user_id"]}})
+        if config["coins_parrain"]:
+            await award_coins(
+                parrain["user_id"], config["coins_parrain"],
+                "Parrainage réussi",
+                f"{filleul.get('name', 'Un nouveau membre')} vient de s'inscrire avec ton lien.",
+            )
+        if config["coins_filleul"]:
+            await award_coins(
+                filleul["user_id"], config["coins_filleul"],
+                "Bienvenue !",
+                f"Tu as rejoint YourMovie's grâce à {parrain.get('name', 'un membre')}.",
+            )
+    except Exception as exc:
+        logger.error("Parrainage impossible pour %s : %s", filleul.get("user_id"), exc)
+
+
 ADS_DEFAULTS = {
     "enabled": False,
     "preroll": {"enabled": False, "vast_tag_url": "", "duration": 15, "skip_after": 5, "frequency_minutes": 30},
@@ -976,6 +1036,8 @@ async def register(inp: RegisterInput, request: Request):
     except DuplicateKeyError:
         # course entre deux inscriptions simultanées sur le même email
         raise HTTPException(status_code=400, detail="Email already registered")
+    await _apply_referral(inp.ref, doc)
+    doc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or doc
     token = await create_jwt(user_id)
     return {"token": token, "user": user_public_dict(doc)}
 
@@ -992,6 +1054,7 @@ async def login(inp: LoginInput, request: Request):
 
 class GoogleAuthInput(BaseModel):
     credential: str
+    ref: Optional[str] = Field(default=None, max_length=40)
 
 @api_router.post("/auth/google")
 async def auth_google(inp: GoogleAuthInput, request: Request):
@@ -1032,6 +1095,9 @@ async def auth_google(inp: GoogleAuthInput, request: Request):
             "auth_provider": "google",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
+        nouveau_compte = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if nouveau_compte:
+            await _apply_referral(inp.ref, nouveau_compte)
     user = await get_user_by_id(user_id)
     if user.get("blocked_at"):
         raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
@@ -1960,6 +2026,45 @@ async def delete_review(review_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 # ---------- Notifications & Announcements ----------
+@api_router.get("/referral/config")
+async def referral_config():
+    return await _effective_referral()
+
+
+@api_router.get("/referral/me")
+async def referral_me(user: dict = Depends(get_current_user)):
+    config = await _effective_referral()
+    filleuls = await db.referrals.find(
+        {"parrain_id": user["user_id"]}, {"_id": 0, "filleul_name": 1, "coins_parrain": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(200)
+    return {
+        **config,
+        "code": user.get("account_identifier") or "",
+        "filleuls": filleuls,
+        "total": len(filleuls),
+        "coins_gagnes": round(sum(float(f.get("coins_parrain") or 0) for f in filleuls), 1),
+    }
+
+
+class ReferralConfigInput(BaseModel):
+    enabled: Optional[bool] = None
+    coins_parrain: Optional[float] = Field(default=None, ge=0, le=1000)
+    coins_filleul: Optional[float] = Field(default=None, ge=0, le=1000)
+
+
+@api_router.get("/admin/referral")
+async def admin_get_referral(user: dict = Depends(require_perm("pricing.manage"))):
+    return await _effective_referral()
+
+
+@api_router.post("/admin/referral")
+async def admin_set_referral(inp: ReferralConfigInput, user: dict = Depends(require_perm("pricing.manage"))):
+    update = {k: v for k, v in inp.model_dump(exclude_unset=True).items() if v is not None}
+    if update:
+        await db.settings.update_one({"id": "referral"}, {"$set": update}, upsert=True)
+    return await _effective_referral()
+
+
 @api_router.get("/notifications")
 async def get_notifications(user: dict = Depends(get_current_user)):
     personal = await db.notifications.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)

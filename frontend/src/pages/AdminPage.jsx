@@ -20,6 +20,7 @@ import AdminStorage from "@/components/AdminStorage";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
+import AdminReferral from "@/components/AdminReferral";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -1079,8 +1080,9 @@ export default function AdminPage() {
                     <TabsContent value="coins" className="mt-0">
                         <SectionHeader
                             titre="Freemium"
-                            description="Ajuste le solde de points d'un compte."
+                            description="Ajuste le solde de points d'un compte, et règle les gains du parrainage."
                         />
+                        {can(user, "pricing.manage") && <AdminReferral />}
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />

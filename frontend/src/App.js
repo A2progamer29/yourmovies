@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
@@ -22,6 +22,8 @@ import SubscriptionPage from "@/pages/SubscriptionPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import WishboardPage from "@/pages/WishboardPage";
+import ReferralPage from "@/pages/ReferralPage";
+import { captureRef } from "@/lib/referral";
 import PollsPage from "@/pages/PollsPage";
 import CoinsPage from "@/pages/CoinsPage";
 import CagnottePage from "@/pages/CagnottePage";
@@ -76,6 +78,7 @@ function AppRouter() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/wishboard" element={<WishboardPage />} />
             <Route path="/sondages" element={<PollsPage />} />
+            <Route path="/parrainage" element={<ReferralPage />} />
             <Route path="/coins" element={<CoinsPage />} />
             <Route path="/cagnotte" element={<CagnottePage />} />
             <Route path="/u/:id" element={<PublicProfilePage />} />
@@ -100,6 +103,10 @@ function AppRouter() {
 }
 
 function App() {
+    // Le code du parrain se lit une seule fois, au chargement : la navigation
+    // interne efface ensuite la question de l'URL.
+    useEffect(() => { captureRef(); }, []);
+
     return (
         <div className="App">
             <Splash />
