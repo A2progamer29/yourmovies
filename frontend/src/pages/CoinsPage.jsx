@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+import ReferralCard from "@/components/ReferralCard";
 
 function DiscordIcon({ size = 18 }) {
     return (
@@ -125,6 +126,7 @@ export default function CoinsPage() {
         { icon: <Flame size={16} />, label: "Connexion quotidienne", value: "+3 → +50 selon la série" },
         { icon: <MessageSquare size={16} />, label: "Publier un avis / une réponse", value: "+1 à +3" },
         { icon: <Coins size={16} />, label: "Proposer un titre au Wishboard", value: "+0.5 à +5" },
+        { icon: <Gift size={16} />, label: "Parrainer un nouveau membre", value: "+50" },
     ];
 
     return (
@@ -176,6 +178,10 @@ export default function CoinsPage() {
                     </div>
                 </div>
                 )}
+
+                <div className="mb-12">
+                    <ReferralCard />
+                </div>
 
                 <div className="mb-12">
                     <h2 className="font-display text-2xl mb-4">Comment en gagner</h2>

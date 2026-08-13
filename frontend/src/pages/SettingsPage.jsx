@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
 import SupportWithAds from "@/components/SupportWithAds";
+import ReferralCard from "@/components/ReferralCard";
 
 const ACCENT_PRESETS = [
     { name: "Or pâle (défaut)", value: "#E8D2A6" },
@@ -651,6 +652,7 @@ export default function SettingsPage() {
                 {tab === "subscription" && (
                     <div className="space-y-6">
                         {!user.premium && <SupportWithAds />}
+                        <ReferralCard />
                         {!user.premium ? (
                             <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a] text-center">
                                 <Crown size={36} className="mx-auto text-[#E8D2A6] mb-4" />
