@@ -1413,6 +1413,61 @@ async def delete_media(media_id: str, user: dict = Depends(require_perm("content
         logger.error("Journalisation de la suppression du média %s impossible : %s", media_id, exc)
     return {"ok": True, "bunny_deleted": videos_supprimees}
 
+@api_router.get("/admin/bunny/views")
+async def admin_bunny_views(
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.add")),
+):
+    """Vues comptees par Bunny Stream, regroupees par contenu du catalogue.
+    Pour une serie, on additionne les vues de chacun de ses episodes."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Bunny Stream non configuré")
+    library = _validated_bunny_library_id(library_id)
+    videos = await _bunny_library_videos(library)
+    par_guid = {str(v.get("guid")): v for v in videos if v.get("guid")}
+
+    docs = await db.media.find(
+        {}, {"_id": 0, "id": 1, "title": 1, "type": 1, "poster_url": 1, "bunny_video_id": 1, "bunny_library_id": 1, "seasons": 1},
+    ).to_list(100000)
+
+    items = []
+    total = 0
+    rattachees = set()
+    for doc in docs:
+        vues, comptees, meilleur = 0, 0, None
+        for video_id, _ in _bunny_references_of(doc):
+            video = par_guid.get(video_id)
+            if not video:
+                continue
+            rattachees.add(video_id)
+            comptees += 1
+            n = int(video.get("views") or 0)
+            vues += n
+            if meilleur is None or n > meilleur["views"]:
+                meilleur = {"title": video.get("title") or "", "views": n}
+        if comptees == 0:
+            continue
+        total += vues
+        items.append({
+            "id": doc["id"],
+            "title": doc.get("title", ""),
+            "type": doc.get("type", "movie"),
+            "poster_url": doc.get("poster_url"),
+            "views": vues,
+            "videos": comptees,
+            "best": meilleur if doc.get("type") != "movie" else None,
+        })
+
+    items.sort(key=lambda e: e["views"], reverse=True)
+    hors_catalogue = sum(int(v.get("views") or 0) for k, v in par_guid.items() if k not in rattachees)
+    return {
+        "library_id": library,
+        "total_views": total,
+        "unlinked_views": hors_catalogue,
+        "items": items,
+    }
+
+
 @api_router.get("/admin/bunny/orphans")
 async def admin_bunny_orphans(
     library_id: Optional[str] = Query(None),

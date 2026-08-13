@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -21,6 +21,7 @@ import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
 import AdminReferral from "@/components/AdminReferral";
+import AdminViews from "@/components/AdminViews";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -425,6 +426,7 @@ export default function AdminPage() {
             label: "Catalogue", items: [
                 { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
                 { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
+                { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
                 { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
                 { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
@@ -1359,6 +1361,14 @@ export default function AdminPage() {
                             <AdminPolls />
                         </TabsContent>
                     )}
+
+                    <TabsContent value="views" className="mt-0">
+                        <SectionHeader
+                            titre="Vues"
+                            description="Ce que Bunny Stream a réellement compté, contenu par contenu, du plus regardé au moins regardé."
+                        />
+                        <AdminViews />
+                    </TabsContent>
 
                     <TabsContent value="pending" className="mt-0">
                         <SectionHeader
