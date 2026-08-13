@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { voterKey } from "@/lib/voter";
 import Header from "@/components/Header";
+import { ListeSkeleton } from "@/components/Skeletons";
 
 function Choix({ option, index, sondage, onVoter, envoi }) {
     const aVote = sondage.my_vote !== null && sondage.my_vote !== undefined;
@@ -99,7 +100,7 @@ export default function PollsPage() {
                 </div>
 
                 {chargement ? (
-                    <div className="text-sm text-neutral-500">Chargement…</div>
+                    <ListeSkeleton nombre={3} hauteur="h-44" />
                 ) : sondages.length === 0 ? (
                     <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-10 text-center">
                         <BarChart3 size={22} className="mx-auto mb-3 text-neutral-600" />

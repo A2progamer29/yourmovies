@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { api } from "@/lib/api";
 import Header from "@/components/Header";
+import { GrilleSkeleton } from "@/components/Skeletons";
 import MediaCard from "@/components/MediaCard";
 import AdBanner from "@/components/AdBanner";
 
@@ -24,13 +25,19 @@ export default function BrowsePage() {
     const [year, setYear] = useState(searchParams.get("year") || "");
     const [minRating, setMinRating] = useState(Number(searchParams.get("minRating") || 0));
 
+    const [chargement, setChargement] = useState(true);
+
     useEffect(() => {
         (async () => {
             const params = new URLSearchParams();
             if (type) params.set("type", type);
             if (q) params.set("q", q);
-            const res = await api.get(`/media?${params.toString()}&limit=200`);
-            setItems(res.data);
+            try {
+                const res = await api.get(`/media?${params.toString()}&limit=200`);
+                setItems(res.data);
+            } finally {
+                setChargement(false);
+            }
         })();
     }, [type, q]);
 
@@ -155,7 +162,9 @@ export default function BrowsePage() {
                     </button>
                 )}
 
-                {filtered.length === 0 ? (
+                {chargement ? (
+                    <GrilleSkeleton />
+                ) : filtered.length === 0 ? (
                     <div className="mx-auto max-w-xl rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-b from-[#171208] to-[#0a0a0a] px-6 py-12 text-center">
                         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#E8D2A6] text-black">
                             <Sparkles size={24} />

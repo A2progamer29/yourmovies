@@ -7,6 +7,7 @@ import { showError } from "@/lib/errors";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+import { PanneauSkeleton } from "@/components/Skeletons";
 
 export default function ReferralPage() {
     const { user, loading } = useAuth();
@@ -57,7 +58,9 @@ export default function ReferralPage() {
                     )}
                 </div>
 
-                {infos?.enabled === false ? (
+                {!infos ? (
+                    <PanneauSkeleton colonnes={2} nombre={2} />
+                ) : infos.enabled === false ? (
                     <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-8 text-center text-sm text-neutral-400">
                         Le parrainage est momentanément désactivé.
                     </div>

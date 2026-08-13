@@ -8,6 +8,7 @@ import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
+import { PanneauSkeleton } from "@/components/Skeletons";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PRESETS = [5, 10, 20, 50];
@@ -26,13 +27,18 @@ export default function CagnottePage() {
     const [data, setData] = useState({ total: 0, goal: 1000, reached: false, refund_pct: 0 });
     const [amount, setAmount] = useState("10");
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [chargement, setChargement] = useState(true);
     const [offer, setOffer] = useState("");
 
     const load = async () => {
         try {
             const r = await api.get("/cagnotte");
             setData(r.data);
-        } catch (e) { showError(toast, e, "Chargement impossible"); }
+        } catch (e) {
+            showError(toast, e, "Chargement impossible");
+        } finally {
+            setChargement(false);
+        }
     };
 
     useEffect(() => { load(); }, []);
@@ -56,7 +62,13 @@ export default function CagnottePage() {
                 <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-2 flex items-center gap-2"><PiggyBank size={14} /> Cagnotte</div>
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">Soutiens YourMovie's</h1>
 
-                <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a] mb-8">
+                {chargement && (
+                    <div className="mb-8">
+                        <PanneauSkeleton colonnes={2} nombre={2} />
+                    </div>
+                )}
+
+                <div className={`p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a] mb-8${chargement ? " hidden" : ""}`}>
                     <div className="flex items-baseline justify-between mb-3">
                         <div className="font-display text-4xl text-white">{data.total.toLocaleString("fr-FR")} €</div>
                         <div className="text-neutral-400 text-sm">objectif {data.goal.toLocaleString("fr-FR")} €</div>

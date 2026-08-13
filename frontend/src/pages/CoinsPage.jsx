@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+import { PanneauSkeleton } from "@/components/Skeletons";
 import ReferralCard from "@/components/ReferralCard";
 
 function DiscordIcon({ size = 18 }) {
@@ -88,6 +89,7 @@ export default function CoinsPage() {
     const navigate = useNavigate();
     const [balance, setBalance] = useState(0);
     const [plans, setPlans] = useState([]);
+    const [chargement, setChargement] = useState(true);
     const [offer, setOffer] = useState(null);
     const [busy, setBusy] = useState("");
 
@@ -96,8 +98,9 @@ export default function CoinsPage() {
             const r = await api.get("/coins/plans");
             setBalance(r.data.balance);
             setPlans(r.data.plans);
+            setChargement(false);
             setOffer(r.data.offer || null);
-        } catch (e) { showError(toast, e, "Chargement impossible"); }
+        } catch (e) { setChargement(false); showError(toast, e, "Chargement impossible"); }
     };
 
     useEffect(() => {
@@ -223,6 +226,7 @@ export default function CoinsPage() {
                         </div>
                     )}
                     <div className="grid sm:grid-cols-3 gap-4">
+                        {chargement && plans.length === 0 && <PanneauSkeleton colonnes={3} nombre={3} />}
                         {plans.map((plan) => (
                             <PlanCard key={plan.id} plan={plan} balance={balance} busy={busy} onRedeem={redeem} />
                         ))}

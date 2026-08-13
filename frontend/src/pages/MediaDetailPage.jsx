@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import Header from "@/components/Header";
+import { FicheSkeleton } from "@/components/Skeletons";
 import MediaCard from "@/components/MediaCard";
 import HScroller from "@/components/HScroller";
 
@@ -115,7 +116,7 @@ export default function MediaDetailPage() {
         return (
             <div className="min-h-screen bg-[#050505] text-white">
                 <Header />
-                <div className="max-w-7xl mx-auto px-6 py-20 text-neutral-400">Chargement...</div>
+                <FicheSkeleton />
             </div>
         );
     }
