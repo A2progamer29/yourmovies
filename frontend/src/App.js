@@ -23,6 +23,7 @@ import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import WishboardPage from "@/pages/WishboardPage";
 import ReferralPage from "@/pages/ReferralPage";
+import NotFoundPage from "@/pages/NotFoundPage";
 import { captureRef } from "@/lib/referral";
 import PollsPage from "@/pages/PollsPage";
 import CoinsPage from "@/pages/CoinsPage";
@@ -95,6 +96,7 @@ function AppRouter() {
             <Route path="/admin/media/:id/edit" element={<AdminMediaForm />} />
             <Route path="/admin/users/:id" element={<AdminUserPage />} />
             <Route path="/pricing" element={<PricingPage />} />
+            <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </main>
         {!noFooter && <Footer />}

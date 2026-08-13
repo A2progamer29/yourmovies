@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
+import HomeSkeleton from "@/components/HomeSkeleton";
 import MediaCarousel from "@/components/MediaCarousel";
 import TopTenCarousel from "@/components/TopTenCarousel";
 import HScroller from "@/components/HScroller";
@@ -45,6 +46,7 @@ export default function HomePage() {
     const [removingProgressId, setRemovingProgressId] = useState(null);
     const [progressRemovalError, setProgressRemovalError] = useState("");
     const [progressLoaded, setProgressLoaded] = useState(false);
+    const [chargement, setChargement] = useState(true);
     const rotateTimer = useRef(null);
     const [heroArrowSide, setHeroArrowSide] = useState(null);
 
@@ -89,6 +91,7 @@ export default function HomePage() {
             setGenres(Array.isArray(gen?.data) ? gen.data : []);
             setRecommendations(enCours.length > 0 && Array.isArray(reco?.data) ? reco.data : []);
             setProgressLoaded(true);
+            setChargement(false);
         })();
         return () => { annule = true; };
     }, [user, activeProfile?.id]);
@@ -163,6 +166,16 @@ export default function HomePage() {
             && items.findIndex((candidate) => candidate?.id === item.id) === index
         )
         .slice(0, 20);
+
+    if (chargement) {
+        return (
+            <div className="min-h-screen bg-[#050505] relative">
+                <div className="noise-overlay" />
+                <Header />
+                <HomeSkeleton />
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-[#050505] relative">
