@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import Header from "@/components/Header";
+import ReportDialog from "@/components/ReportDialog";
 import { FicheSkeleton } from "@/components/Skeletons";
 import MediaCard from "@/components/MediaCard";
 import HScroller from "@/components/HScroller";
@@ -252,6 +253,7 @@ export default function MediaDetailPage() {
                                 >
                                     <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
                                 </Button>
+                                <ReportDialog mediaId={media.id} />
                                 <Button
                                     onClick={() => toggle("favorite")}
                                     data-testid="toggle-favorite-btn"

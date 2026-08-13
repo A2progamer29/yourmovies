@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +23,8 @@ import AdminContributors from "@/components/AdminContributors";
 import AdminReferral from "@/components/AdminReferral";
 import AdminViews from "@/components/AdminViews";
 import AdminPlayers from "@/components/AdminPlayers";
+import AdminReports from "@/components/AdminReports";
+import AdminSupportBanner from "@/components/AdminSupportBanner";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -73,6 +75,7 @@ export default function AdminPage() {
     const [q, setQ] = useState("");
     const [mediaFilter, setMediaFilter] = useState("all");
     const [pendingCount, setPendingCount] = useState(0);
+    const [reportCount, setReportCount] = useState(0);
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
     const [licenseKeys, setLicenseKeys] = useState([]);
@@ -421,6 +424,7 @@ export default function AdminPage() {
 
     const incompleteItems = items.filter(isMediaIncomplete);
     const brokenCount = items.filter((m) => m.player_broken).length;
+    const alertes = reportCount + brokenCount;
     const pendingWishes = wishes.filter((w) => (w.status || "pending") === "pending");
 
     const NAV_GROUPS = [
@@ -430,7 +434,7 @@ export default function AdminPage() {
                 { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
                 { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
                 { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
-                { value: "players", label: "Lecteurs", icon: <TriangleAlert size={14} />, perm: "content.edit", badge: brokenCount },
+                { value: "players", label: "Signalements", icon: <Flag size={14} />, perm: "content.edit", badge: alertes },
                 { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
                 { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
@@ -1135,8 +1139,9 @@ export default function AdminPage() {
                     <TabsContent value="cagnotte" className="mt-0">
                         <SectionHeader
                             titre="Cagnotte"
-                            description="Le total affiché publiquement sur le site."
+                            description="Le total affiché publiquement, et le bandeau qui invite à contribuer."
                         />
+                        {can(user, "cagnotte.manage") && <AdminSupportBanner />}
                         <div className="max-w-md p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-4">
                                 <PiggyBank size={18} className="text-[#E8D2A6]" />
@@ -1369,9 +1374,18 @@ export default function AdminPage() {
                     {can(user, "content.edit") && (
                         <TabsContent value="players" className="mt-0">
                             <SectionHeader
-                                titre="Lecteurs"
-                                description="Préviens les visiteurs qu'un contenu ne se lance pas, plutôt que de les laisser croire à une panne de leur côté."
+                                titre="Signalements"
+                                description="Les problèmes remontés par les visiteurs, et les contenus dont tu signales toi-même l'indisponibilité."
                             />
+                            <AdminReports onCount={setReportCount} />
+
+                            <div className="mt-10 border-t border-[#262626] pt-8">
+                                <h3 className="mb-1 font-display text-xl text-white">Prévenir sur un contenu</h3>
+                                <p className="mb-5 text-sm text-neutral-500">
+                                    Affiche un bandeau sur la fiche et à la place du lecteur, pour éviter que le
+                                    problème soit signalé dix fois.
+                                </p>
+                            </div>
                             <AdminPlayers
                                 items={items}
                                 onUpdated={(id, frais) => setItems((liste) => liste.map((m) => (m.id === id ? { ...m, ...frais } : m)))}

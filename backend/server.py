@@ -2128,6 +2128,119 @@ async def admin_set_referral(inp: ReferralConfigInput, user: dict = Depends(requ
     return await _effective_referral()
 
 
+# ---------- Signalements ----------
+MOTIFS_SIGNALEMENT = {
+    "player": "Le lecteur ne démarre pas",
+    "quality": "Mauvaise qualité d'image",
+    "sound": "Problème de son",
+    "subtitles": "Sous-titres absents ou décalés",
+    "wrong": "Ce n'est pas le bon contenu",
+    "other": "Autre",
+}
+
+
+class ReportCreate(BaseModel):
+    media_id: str = Field(min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=30)
+    message: str = Field(default="", max_length=500)
+    season_number: Optional[int] = Field(default=None, ge=0, le=99)
+    episode_number: Optional[int] = Field(default=None, ge=0, le=999)
+
+
+@api_router.post("/reports")
+async def create_report(inp: ReportCreate, request: Request, user: Optional[dict] = Depends(get_optional_user)):
+    await _enforce_rate_limit(request, "report", 10, 3600)
+    if inp.reason not in MOTIFS_SIGNALEMENT:
+        raise HTTPException(status_code=400, detail="Motif inconnu")
+    media = await db.media.find_one({"id": inp.media_id}, {"_id": 0, "id": 1, "title": 1, "poster_url": 1, "type": 1})
+    if not media:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    await db.reports.insert_one({
+        "id": f"rep_{uuid.uuid4().hex[:12]}",
+        "media_id": media["id"],
+        "media_title": media.get("title", ""),
+        "media_poster": media.get("poster_url"),
+        "reason": inp.reason,
+        "message": inp.message.strip(),
+        "season_number": inp.season_number,
+        "episode_number": inp.episode_number,
+        "user_id": user.get("user_id") if user else None,
+        "user_name": (user or {}).get("name") or "Visiteur",
+        "handled": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+@api_router.get("/admin/reports")
+async def admin_list_reports(user: dict = Depends(require_perm("content.edit"))):
+    docs = await db.reports.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for doc in docs:
+        doc["reason_label"] = MOTIFS_SIGNALEMENT.get(doc.get("reason"), "Autre")
+    return {"items": docs, "open": sum(1 for d in docs if not d.get("handled"))}
+
+
+@api_router.patch("/admin/reports/{report_id}")
+async def admin_handle_report(report_id: str, user: dict = Depends(require_perm("content.edit"))):
+    doc = await db.reports.find_one({"id": report_id}, {"_id": 0, "handled": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Signalement introuvable")
+    nouveau = not bool(doc.get("handled"))
+    await db.reports.update_one({"id": report_id}, {"$set": {"handled": nouveau}})
+    return {"ok": True, "handled": nouveau}
+
+
+@api_router.delete("/admin/reports/{report_id}")
+async def admin_delete_report(report_id: str, user: dict = Depends(require_perm("content.edit"))):
+    result = await db.reports.delete_one({"id": report_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Signalement introuvable")
+    return {"ok": True}
+
+
+# ---------- Bandeau de soutien ----------
+BANNER_DEFAULTS = {
+    "enabled": False,
+    "message": "Chaque visionnage a un coût, et YourMovie's ne rapporte rien pour l'instant. Un coup de main aide à garder les lecteurs allumés.",
+    "cta_label": "Soutenir le site",
+}
+
+
+async def _effective_banner() -> dict:
+    doc = await db.settings.find_one({"id": "support_banner"}, {"_id": 0}) or {}
+    config = dict(BANNER_DEFAULTS)
+    config["enabled"] = bool(doc.get("enabled", config["enabled"]))
+    for cle in ("message", "cta_label"):
+        valeur = doc.get(cle)
+        if isinstance(valeur, str) and valeur.strip():
+            config[cle] = valeur.strip()[:300]
+    return config
+
+
+class BannerInput(BaseModel):
+    enabled: Optional[bool] = None
+    message: Optional[str] = Field(default=None, max_length=300)
+    cta_label: Optional[str] = Field(default=None, max_length=40)
+
+
+@api_router.get("/support-banner")
+async def support_banner():
+    return await _effective_banner()
+
+
+@api_router.get("/admin/support-banner")
+async def admin_get_banner(user: dict = Depends(require_perm("cagnotte.manage"))):
+    return await _effective_banner()
+
+
+@api_router.post("/admin/support-banner")
+async def admin_set_banner(inp: BannerInput, user: dict = Depends(require_perm("cagnotte.manage"))):
+    update = {k: v for k, v in inp.model_dump(exclude_unset=True).items() if v is not None}
+    if update:
+        await db.settings.update_one({"id": "support_banner"}, {"$set": update}, upsert=True)
+    return await _effective_banner()
+
+
 @api_router.get("/notifications")
 async def get_notifications(user: dict = Depends(get_current_user)):
     personal = await db.notifications.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)

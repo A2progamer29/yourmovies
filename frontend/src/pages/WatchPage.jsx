@@ -9,6 +9,7 @@ import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
+import ReportDialog from "@/components/ReportDialog";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
@@ -950,6 +951,17 @@ export default function WatchPage() {
                                 </Button>
                             </div>
                         )}
+                        </div>
+
+                        <div className="mt-3 flex justify-end">
+                            <ReportDialog
+                                mediaId={media.id}
+                                variant="discret"
+                                episode={selectedEpisode ? {
+                                    season_number: selectedEpisode.season_number,
+                                    episode_number: selectedEpisode.ep_number,
+                                } : null}
+                            />
                         </div>
 
                         {resumeAt > 0 && !bunnySource && (
