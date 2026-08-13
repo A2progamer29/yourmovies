@@ -25,6 +25,7 @@ import WishboardPage from "@/pages/WishboardPage";
 import ReferralPage from "@/pages/ReferralPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 import { captureRef } from "@/lib/referral";
+import SupportBanner from "@/components/SupportBanner";
 import PollsPage from "@/pages/PollsPage";
 import CoinsPage from "@/pages/CoinsPage";
 import CagnottePage from "@/pages/CagnottePage";
@@ -66,6 +67,7 @@ function AppRouter() {
         || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca" || p === "/documentation";
     return (
         <>
+        <SupportBanner />
         <ScrollToTop />
         <main key={location.pathname} className="ym-page-enter">
         <Routes>

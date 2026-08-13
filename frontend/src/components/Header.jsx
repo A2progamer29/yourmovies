@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
-import SupportBanner from "@/components/SupportBanner";
 import { useAuth } from "@/context/AuthContext";
 import { Search, User, Users, LogOut, Settings, Heart, Crown, Sliders, Coins, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -77,8 +76,6 @@ export default function Header() {
     };
 
     return (
-        <>
-        <SupportBanner />
         <header className="sticky top-0 z-40 backdrop-blur-2xl bg-[#050505]/70 border-b border-white/5">
             <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-6">
                 <Link to="/" data-testid="header-logo" className="flex items-center gap-2 group">
@@ -306,6 +303,5 @@ export default function Header() {
                 </div>
             )}
         </header>
-        </>
     );
 }

@@ -22,7 +22,6 @@ import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
 import AdminReferral from "@/components/AdminReferral";
 import AdminViews from "@/components/AdminViews";
-import AdminPlayers from "@/components/AdminPlayers";
 import AdminReports from "@/components/AdminReports";
 import AdminSupportBanner from "@/components/AdminSupportBanner";
 import { showError } from "@/lib/errors";
@@ -423,8 +422,7 @@ export default function AdminPage() {
     const setTab = (t) => navigate(`/admin?tab=${t}`, { replace: true });
 
     const incompleteItems = items.filter(isMediaIncomplete);
-    const brokenCount = items.filter((m) => m.player_broken).length;
-    const alertes = reportCount + brokenCount;
+    const alertes = reportCount;
     const pendingWishes = wishes.filter((w) => (w.status || "pending") === "pending");
 
     const NAV_GROUPS = [
@@ -1378,18 +1376,6 @@ export default function AdminPage() {
                                 description="Les problèmes remontés par les visiteurs, et les contenus dont tu signales toi-même l'indisponibilité."
                             />
                             <AdminReports onCount={setReportCount} />
-
-                            <div className="mt-10 border-t border-[#262626] pt-8">
-                                <h3 className="mb-1 font-display text-xl text-white">Prévenir sur un contenu</h3>
-                                <p className="mb-5 text-sm text-neutral-500">
-                                    Affiche un bandeau sur la fiche et à la place du lecteur, pour éviter que le
-                                    problème soit signalé dix fois.
-                                </p>
-                            </div>
-                            <AdminPlayers
-                                items={items}
-                                onUpdated={(id, frais) => setItems((liste) => liste.map((m) => (m.id === id ? { ...m, ...frais } : m)))}
-                            />
                         </TabsContent>
                     )}
 
