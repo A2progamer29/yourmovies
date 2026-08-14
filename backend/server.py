@@ -4315,13 +4315,13 @@ def _refund_pct(total: float, goal: float) -> float:
 PALIERS_DEFAUT = [
     {
         "amount": 25,
-        "label": "Premiers abonnements offerts",
+        "label": "Le coup d'envoi",
         "rewards": ["3 abonnements Basic d'un mois tirés au sort sur le Discord"],
         "highlight": False,
     },
     {
         "amount": 50,
-        "label": "Plus de gagnants",
+        "label": "Deux fois plus de gagnants",
         "rewards": [
             "3 abonnements Standard d'un mois",
             "2 abonnements Basic d'un mois",
@@ -4331,7 +4331,7 @@ PALIERS_DEFAUT = [
     },
     {
         "amount": 75,
-        "label": "Le mois Premium",
+        "label": "Le palier Premium",
         "rewards": [
             "3 abonnements Premium d'un mois",
             "5 abonnements Standard d'un mois",
@@ -4340,7 +4340,7 @@ PALIERS_DEFAUT = [
     },
     {
         "amount": 100,
-        "label": "Cashprize",
+        "label": "Le cashprize",
         "rewards": [
             "20 € en cash à gagner sur le Discord",
             "5 abonnements Premium d'un mois",

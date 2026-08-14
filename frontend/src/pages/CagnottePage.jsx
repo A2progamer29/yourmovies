@@ -82,11 +82,11 @@ export default function CagnottePage() {
                 <div className="mb-8">
                     <div className="mb-1 flex items-center gap-2">
                         <Trophy size={18} className="text-[#E8D2A6]" />
-                        <h2 className="font-display text-2xl">Paliers de récompenses</h2>
+                        <h2 className="font-display text-2xl tracking-tight">Plus la cagnotte monte, plus il y a de gagnants</h2>
                     </div>
-                    <p className="mb-5 text-sm text-neutral-500">
-                        Chaque palier atteint déclenche une distribution d&apos;abonnements
-                        <span className="text-neutral-300"> tirés au sort sur le Discord</span>, ouverte à tous les membres.
+                    <p className="mb-5 max-w-2xl text-sm leading-relaxed text-neutral-500">
+                        Chaque palier atteint déclenche un tirage au sort sur le Discord, ouvert à
+                        <span className="text-neutral-300"> tous les membres</span> — y compris ceux qui n&apos;ont rien donné.
                     </p>
 
                     <div className="space-y-2.5">
