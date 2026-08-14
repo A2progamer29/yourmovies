@@ -45,12 +45,12 @@ export default function AdBanner({ className = "" }) {
     if (!banner) return null;
 
     return (
-        <section className={`max-w-7xl mx-auto px-6 mt-12 ${className}`} aria-label="Publicité">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-neutral-600 mb-2">Publicité</div>
+        <section className={`ym-pub mx-auto max-w-7xl px-6 ${className}`} aria-label="Publicité">
+            <div className="ym-pub-label mb-2 text-[10px] uppercase tracking-[0.18em] text-neutral-600">Publicité</div>
             <div
                 ref={slotRef}
                 data-testid="promo-slot"
-                className="min-h-[90px] w-full overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]"
+                className="ym-pub-slot flex w-full justify-center overflow-hidden"
             />
         </section>
     );
