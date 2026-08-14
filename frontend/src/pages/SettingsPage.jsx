@@ -699,7 +699,7 @@ export default function SettingsPage() {
 
                 {tab === "activation" && (
                     <div className="space-y-6">
-                        <div className="relative overflow-hidden rounded-2xl border border-[#E8D2A6]/35 bg-gradient-to-br from-[#151107] via-[#0a0a0a] to-[#080808] p-6 sm:p-8">
+                        <div className="relative overflow-hidden rounded-2xl border border-[#E8D2A6]/35 bg-[#0c0c0c] p-6 sm:p-8">
                             <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
                             <div className="relative max-w-2xl">
                                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-[#E8D2A6]/30 bg-[#E8D2A6]/10 text-[#E8D2A6]">

@@ -1252,7 +1252,7 @@ export default function AdminPage() {
                             </div>
 
                             <div className="grid gap-5 lg:grid-cols-2">
-                                <div className="rounded-2xl border border-[#E8D2A6]/25 bg-gradient-to-br from-[#151107] to-[#0a0a0a] p-5">
+                                <div className="rounded-2xl border border-[#E8D2A6]/25 bg-[#0c0c0c] p-5">
                                     <div className="mb-1 flex items-center gap-2 text-white">
                                         <Plus size={16} className="text-[#E8D2A6]" />
                                         <h3 className="font-medium">Ajouter des clés</h3>

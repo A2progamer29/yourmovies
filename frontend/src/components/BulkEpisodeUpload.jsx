@@ -155,7 +155,7 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                             const live = matched && activeUpload ? activeUpload(scopedUploadKey ? scopedUploadKey(r.key) : r.key) : null;
                             const isCurrent = current === r.file.name;
                             return (
-                                <div key={r.file.name} className={`rounded-lg border px-3 py-2 ${isCurrent ? "border-[#E8D2A6]/40 bg-[#171208]" : "border-[#1a1a1a] bg-[#111]"}`}>
+                                <div key={r.file.name} className={`rounded-lg border px-3 py-2 ${isCurrent ? "border-[#E8D2A6]/40 bg-[#111]" : "border-[#1a1a1a] bg-[#111]"}`}>
                                     <div className="flex items-center gap-3">
                                         <span className="shrink-0">
                                             {state === "ok" ? <Check size={14} className="text-emerald-400" />

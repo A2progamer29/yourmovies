@@ -436,7 +436,7 @@ export default function HomePage() {
                         <Link
                             to="/wishboard"
                             data-testid="wishboard-cta"
-                            className="group relative block overflow-hidden rounded-3xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#1c1509] via-[#120d05] to-[#0a0a0a] hover:border-[#E8D2A6]/70 transition-colors p-8 sm:p-12"
+                            className="group relative block overflow-hidden rounded-3xl border border-[#E8D2A6]/30 bg-[#0c0c0c] hover:border-[#E8D2A6]/70 transition-colors p-8 sm:p-12"
                         >
                             <div className="pointer-events-none absolute -right-16 -top-16 w-56 h-56 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
                             <div className="relative flex items-center justify-between gap-6 flex-wrap">

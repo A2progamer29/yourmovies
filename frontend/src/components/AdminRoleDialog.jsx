@@ -46,7 +46,7 @@ export default function AdminRoleDialog({ user, open, onOpenChange, onDone }) {
                 </p>
 
                 {locked ? (
-                    <div className="mt-3 p-4 rounded-xl border border-[#E8D2A6]/30 bg-[#171208] flex items-center gap-3">
+                    <div className="mt-3 p-4 rounded-xl border border-[#E8D2A6]/30 bg-[#111] flex items-center gap-3">
                         <Lock size={18} className="text-[#E8D2A6] shrink-0" />
                         <div className="text-sm text-neutral-300">
                             Ce compte est <span className="text-[#E8D2A6]">super-admin protégé</span> : il possède toutes les permissions et ne peut pas être modifié.

@@ -343,7 +343,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             <div className="border-b border-[#262626] p-4">
                 {isHost ? (
                     pauseRequest ? (
-                        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[#E8D2A6]/40 bg-[#171208] px-3 py-2.5 text-xs text-neutral-200">
+                        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[#E8D2A6]/40 bg-[#111] px-3 py-2.5 text-xs text-neutral-200">
                             <Hand size={14} className="shrink-0 text-[#E8D2A6]" />
                             <span className="min-w-0 flex-1">
                                 <span className="text-white">{pauseRequest.name}</span> demande une pause.
