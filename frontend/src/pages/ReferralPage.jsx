@@ -66,7 +66,7 @@ export default function ReferralPage() {
                     </div>
                 ) : (
                     <>
-                        <div className="rounded-2xl border border-[#E8D2A6]/25 bg-[#E8D2A6]/[0.04] p-5 sm:p-6">
+                        <div className="ym-shimmer rounded-2xl border border-[#E8D2A6]/25 bg-[#E8D2A6]/[0.04] p-5 sm:p-6">
                             <div className="text-[10px] uppercase tracking-widest text-neutral-400">Ton lien</div>
                             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
                                 <code

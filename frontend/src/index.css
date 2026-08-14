@@ -168,6 +168,46 @@ html[style*="--accent"] .bg-\[\#E8D2A6\]\/\[0\.08\] {
     background-color: color-mix(in srgb, var(--accent) 8%, transparent) !important;
 }
 
+
+/* Reflet balayant sur les cadres mis en avant. Boucle lente et volontairement
+   discrète : l'idée est d'attirer l'œil sans gêner la lecture. */
+.ym-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.ym-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        105deg,
+        transparent 42%,
+        color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+        transparent 58%
+    );
+    transform: translateX(-120%);
+    animation: ymShimmer 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes ymShimmer {
+    0% {
+        transform: translateX(-120%);
+    }
+    45%,
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ym-shimmer::after {
+        animation: none !important;
+        opacity: 0;
+    }
+}
+
 /* Noise texture overlay */
 .noise-overlay {
     position: fixed;

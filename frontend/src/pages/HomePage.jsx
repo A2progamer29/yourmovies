@@ -409,7 +409,7 @@ export default function HomePage() {
                     <Link
                         to="/pricing"
                         data-testid="premium-banner"
-                        className="block p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] hover:border-[#E8D2A6]/60 transition-colors"
+                        className="ym-shimmer block p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] hover:border-[#E8D2A6]/60 transition-colors"
                     >
                         <div className="flex items-center justify-between gap-6 flex-wrap">
                             <div className="flex items-center gap-4">

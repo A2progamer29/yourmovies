@@ -152,7 +152,7 @@ export default function CoinsPage() {
                 )}
 
                 {!user && (
-                    <div className="mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] flex items-center justify-between gap-5 flex-wrap">
+                    <div className="ym-shimmer mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] flex items-center justify-between gap-5 flex-wrap">
                         <div>
                             <div className="font-display text-xl text-white">Gagne des Freemium gratuitement</div>
                             <div className="text-sm text-neutral-400 mt-1">Connecte-toi pour cumuler des Freemium et les échanger contre du Premium.</div>
@@ -217,7 +217,7 @@ export default function CoinsPage() {
                 <div>
                     <h2 className="font-display text-2xl mb-4">Échanger contre du Premium</h2>
                     {offer?.active && (
-                        <div className="mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-[#0c0c0c] flex items-center gap-3">
+                        <div className="ym-shimmer mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-[#0c0c0c] flex items-center gap-3">
                             <Gift size={20} className="text-[#E8D2A6] shrink-0" />
                             <div className="text-sm">
                                 <span className="text-white font-semibold">Offre de bienvenue : -{offer.pct}% en Freemium</span>

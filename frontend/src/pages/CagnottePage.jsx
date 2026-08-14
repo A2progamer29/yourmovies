@@ -98,7 +98,7 @@ export default function CagnottePage() {
                                 <div
                                     key={palier.amount}
                                     className={`relative overflow-hidden rounded-xl border p-4 ${atteint
-                                        ? "border-[#E8D2A6]/45 bg-[#0f0f0f]"
+                                        ? "ym-shimmer border-[#E8D2A6]/45 bg-[#0f0f0f]"
                                         : palier.highlight
                                             ? "border-[#E8D2A6]/25 bg-[#0c0c0c]"
                                             : "border-[#262626] bg-[#0a0a0a]"}`}

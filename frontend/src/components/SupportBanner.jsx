@@ -38,7 +38,7 @@ export default function SupportBanner() {
     };
 
     return (
-        <div className="border-b border-[#E8D2A6]/20 bg-[#0c0c0c]" data-testid="support-banner">
+        <div className="ym-shimmer border-b border-[#E8D2A6]/20 bg-[#0c0c0c]" data-testid="support-banner">
             <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 py-2.5">
                 <PiggyBank size={16} className="shrink-0 text-[#E8D2A6]" />
                 <p className="min-w-0 flex-1 text-xs leading-relaxed text-neutral-300 sm:text-sm">
