@@ -4330,7 +4330,7 @@ PALIERS_DEFAUT = [
         "highlight": False,
     },
     {
-        "amount": 100,
+        "amount": 75,
         "label": "Le mois Premium",
         "rewards": [
             "3 abonnements Premium d'un mois",
@@ -4339,19 +4339,10 @@ PALIERS_DEFAUT = [
         "highlight": False,
     },
     {
-        "amount": 200,
-        "label": "Grande distribution",
-        "rewards": [
-            "5 abonnements Premium d'un mois",
-            "10 abonnements Standard d'un mois",
-        ],
-        "highlight": False,
-    },
-    {
-        "amount": 350,
+        "amount": 100,
         "label": "Cashprize",
         "rewards": [
-            "50 € en cash à gagner sur le Discord",
+            "20 € en cash à gagner sur le Discord",
             "5 abonnements Premium d'un mois",
         ],
         "highlight": False,
