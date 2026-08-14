@@ -2140,10 +2140,12 @@ class TurnstileInput(BaseModel):
 
 
 @api_router.get("/playback/verification")
-async def playback_verification():
-    """Le client a besoin de savoir s'il doit afficher la verification, et avec
-    quelle cle publique. Sans configuration, la lecture reste ouverte."""
-    return {"required": TURNSTILE_CONFIGURED, "site_key": TURNSTILE_SITE_KEY}
+async def playback_verification(user: Optional[dict] = Depends(get_optional_user)):
+    """Un compte connecte n'est pas un robot : l'inscription est elle-meme
+    limitee, et la friction serait payee par les visiteurs les plus fideles.
+    La verification ne s'applique donc qu'aux visiteurs anonymes."""
+    requis = TURNSTILE_CONFIGURED and not user
+    return {"required": requis, "site_key": TURNSTILE_SITE_KEY if requis else ""}
 
 
 @api_router.post("/playback/verify")
@@ -2175,6 +2177,24 @@ async def playback_verify(inp: TurnstileInput, request: Request):
         JWT_SECRET, algorithm=JWT_ALGO,
     )
     return {"ok": True, "pass": laissez_passer, "expires_in": PLAYBACK_PASS_MINUTES * 60}
+
+
+@api_router.post("/playback/verify/skip")
+async def playback_verify_skip(request: Request):
+    """Filet de securite : un bloqueur ou un VPN empeche parfois Cloudflare de
+    repondre. Plutot que d'enfermer quelqu'un de legitime devant un ecran vide,
+    on delivre un laissez-passer court, fortement limite et journalise."""
+    if not TURNSTILE_CONFIGURED:
+        return {"ok": True, "pass": None}
+    await _enforce_rate_limit(request, "turnstile-skip", 3, 3600)
+    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
+    logger.info("Laissez-passer de secours delivre a %s", ip)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    return {
+        "ok": True,
+        "pass": pyjwt.encode({"typ": "playback", "exp": expire}, JWT_SECRET, algorithm=JWT_ALGO),
+        "expires_in": 900,
+    }
 
 
 def _laissez_passer_valide(valeur: Optional[str]) -> bool:
@@ -3744,13 +3764,14 @@ async def bunny_playback(
     season_number: Optional[str] = Query(None),
     episode_number: Optional[str] = Query(None),
     x_playback_pass: Optional[str] = Header(None),
+    viewer: Optional[dict] = Depends(get_optional_user),
 ):
     """Retourne l'URL temporaire du film ou de l'épisode demandé.
 
     C'est le seul point d'entrée vers la vidéo : exiger ici la preuve de
     vérification empêche un robot d'aspirer la bande passante en appelant
     directement l'API, sans jamais charger la page."""
-    if not _laissez_passer_valide(x_playback_pass):
+    if not viewer and not _laissez_passer_valide(x_playback_pass):
         raise HTTPException(status_code=403, detail="Vérification requise avant la lecture")
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc:

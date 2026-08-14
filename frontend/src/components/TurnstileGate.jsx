@@ -28,6 +28,7 @@ export default function TurnstileGate({ onVerified }) {
     const [etat, setEtat] = useState("chargement");
     const [erreur, setErreur] = useState("");
     const [code, setCode] = useState("");
+    const echecs = useRef(0);
 
     const valider = useCallback(async (token) => {
         setEtat("envoi");
@@ -39,6 +40,18 @@ export default function TurnstileGate({ onVerified }) {
             setErreur(e?.response?.data?.detail || "La vérification n'a pas abouti.");
             setEtat("erreur");
         }
+    }, [onVerified]);
+
+    // Deux echecs suffisent a etablir que le blocage ne vient pas d'un hasard :
+    // on laisse alors passer plutot que d'enfermer un visiteur legitime.
+    const contourner = useCallback(async () => {
+        try {
+            const r = await api.post("/playback/verify/skip", {}, { silent: true });
+            ecrirePass(r.data?.pass);
+        } catch {
+            // meme sans laissez-passer, on n'immobilise personne
+        }
+        onVerified();
     }, [onVerified]);
 
     useEffect(() => {
@@ -71,6 +84,8 @@ export default function TurnstileGate({ onVerified }) {
                     // Cloudflare transmet un code : l'afficher evite de
                     // diagnostiquer a l'aveugle quand quelqu'un signale le probleme.
                     "error-callback": (codeErreur) => {
+                        echecs.current += 1;
+                        if (echecs.current >= 2) { contourner(); return; }
                         setCode(String(codeErreur || ""));
                         setErreur("La vérification n'a pas pu aboutir.");
                         setEtat("erreur");
@@ -84,7 +99,7 @@ export default function TurnstileGate({ onVerified }) {
             }
         })();
         return () => { annule = true; };
-    }, [onVerified, valider]);
+    }, [onVerified, valider, contourner]);
 
     const reessayer = () => {
         setErreur("");
@@ -125,7 +140,7 @@ export default function TurnstileGate({ onVerified }) {
                     <p className="text-[11px] leading-relaxed text-neutral-500">
                         C&apos;est presque toujours un bloqueur de publicité, une extension de confidentialité
                         ou un VPN qui empêche la connexion à Cloudflare. Désactive-les sur cette page, puis
-                        réessaie.
+                        réessaie — au second échec, la lecture se débloque d&apos;elle-même.
                     </p>
                     <Button
                         onClick={reessayer}
