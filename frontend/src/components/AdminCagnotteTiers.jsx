@@ -54,7 +54,7 @@ export default function AdminCagnotteTiers() {
                     <div className="text-sm font-medium text-white">Paliers de récompenses</div>
                     <p className="mt-1 max-w-2xl text-sm leading-relaxed text-neutral-500">
                         Ce que débloque la cagnotte pour tout le monde une fois le montant atteint. L&apos;étoile
-                        marque le prochain objectif. N&apos;annonce que ce que tu pourras réellement tenir.
+                        met un palier en avant. N&apos;annonce que ce que tu pourras réellement tenir.
                     </p>
                 </div>
             </div>
@@ -81,7 +81,7 @@ export default function AdminCagnotteTiers() {
                             <button
                                 type="button"
                                 onClick={() => setPaliers((liste) => liste.map((p, i) => ({ ...p, highlight: i === index && !p.highlight })))}
-                                title="Marquer comme prochain objectif"
+                                title="Mettre ce palier en avant"
                                 className={`shrink-0 rounded-full border p-2 transition-colors ${palier.highlight
                                     ? "border-[#E8D2A6] text-[#E8D2A6]"
                                     : "border-[#262626] text-neutral-600 hover:text-neutral-300"}`}

@@ -4315,37 +4315,44 @@ def _refund_pct(total: float, goal: float) -> float:
 PALIERS_DEFAUT = [
     {
         "amount": 25,
-        "label": "Les lecteurs tiennent le mois",
-        "rewards": ["Un mois de lecture assurée pour tout le monde, sans coupure"],
+        "label": "Premiers abonnements offerts",
+        "rewards": ["3 abonnements Basic d'un mois tirés au sort sur le Discord"],
         "highlight": False,
     },
     {
         "amount": 50,
-        "label": "Une semaine sans publicité",
-        "rewards": ["Publicités désactivées pour tous les visiteurs pendant sept jours"],
-        "highlight": True,
+        "label": "Plus de gagnants",
+        "rewards": [
+            "3 abonnements Standard d'un mois",
+            "2 abonnements Basic d'un mois",
+            "Tirage au sort parmi tous les membres du Discord",
+        ],
+        "highlight": False,
     },
     {
         "amount": 100,
-        "label": "Le catalogue s'agrandit",
-        "rewards": ["Les cinq titres les plus votés du Wishboard ajoutés dans la foulée"],
+        "label": "Le mois Premium",
+        "rewards": [
+            "3 abonnements Premium d'un mois",
+            "5 abonnements Standard d'un mois",
+        ],
         "highlight": False,
     },
     {
         "amount": 200,
-        "label": "Tirage au sort",
+        "label": "Grande distribution",
         "rewards": [
-            "Une carte cadeau tirée au sort parmi les contributeurs",
-            "Trois mois de Premium à gagner sur le Discord",
+            "5 abonnements Premium d'un mois",
+            "10 abonnements Standard d'un mois",
         ],
         "highlight": False,
     },
     {
         "amount": 350,
-        "label": "La soirée YourMovie's",
+        "label": "Cashprize",
         "rewards": [
-            "Une Watch Party géante, le film choisi par vote",
-            "Giveaway pendant la séance",
+            "50 € en cash à gagner sur le Discord",
+            "5 abonnements Premium d'un mois",
         ],
         "highlight": False,
     },

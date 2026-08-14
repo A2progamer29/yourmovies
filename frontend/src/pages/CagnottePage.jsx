@@ -85,8 +85,8 @@ export default function CagnottePage() {
                         <h2 className="font-display text-2xl">Paliers de récompenses</h2>
                     </div>
                     <p className="mb-5 text-sm text-neutral-500">
-                        Chaque palier atteint débloque quelque chose pour <span className="text-neutral-300">tout le monde</span>,
-                        pas seulement pour ceux qui contribuent.
+                        Chaque palier atteint déclenche une distribution d&apos;abonnements
+                        <span className="text-neutral-300"> tirés au sort sur le Discord</span>, ouverte à tous les membres.
                     </p>
 
                     <div className="space-y-2.5">
@@ -120,15 +120,11 @@ export default function CagnottePage() {
                                                 <span className={`font-medium ${atteint ? "text-white" : "text-neutral-300"}`}>
                                                     {palier.label}
                                                 </span>
-                                                {atteint ? (
+                                                {atteint && (
                                                     <span className="rounded-full bg-[#E8D2A6] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">
                                                         Débloqué
                                                     </span>
-                                                ) : palier.highlight ? (
-                                                    <span className="rounded-full border border-[#E8D2A6]/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#E8D2A6]">
-                                                        Prochain objectif
-                                                    </span>
-                                                ) : null}
+                                                )}
                                             </div>
                                             <ul className="mt-1.5 space-y-1">
                                                 {(palier.rewards || []).map((recompense, i) => (
