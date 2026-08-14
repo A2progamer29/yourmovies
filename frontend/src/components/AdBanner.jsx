@@ -3,13 +3,15 @@ import { useAuth } from "@/context/AuthContext";
 import { loadAdsConfig, adsAllowed, injectScript } from "@/lib/ads";
 
 export default function AdBanner({ className = "" }) {
-    const { user } = useAuth();
+    const { user, loading } = useAuth();
     const slotRef = useRef(null);
     const [active, setActive] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
-        if (!adsAllowed(user)) { setActive(false); return undefined; }
+        // Même attente que le popunder : on ne montre rien avant de savoir si
+        // la personne est premium.
+        if (loading || !adsAllowed(user)) { setActive(false); return undefined; }
         (async () => {
             const cfg = await loadAdsConfig();
             if (cancelled) return;
@@ -31,7 +33,7 @@ export default function AdBanner({ className = "" }) {
             if (slotRef.current) injectScript(banner.script_url, slotRef.current);
         })();
         return () => { cancelled = true; };
-    }, [user]);
+    }, [user, loading]);
 
     if (!active) return null;
 

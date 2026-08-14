@@ -7,11 +7,14 @@ const FREQ_KEY = "ym_popunder_last";
 const EXCLUDED = ["/login", "/admin", "/settings", "/profile", "/messages"];
 
 export default function PopUnder() {
-    const { user } = useAuth();
+    const { user, loading } = useAuth();
     const location = useLocation();
 
     useEffect(() => {
-        if (!adsAllowed(user)) return undefined;
+        // Tant que le compte n'est pas chargé, « user » vaut null : sans cette
+        // attente, un membre premium serait traité comme un visiteur anonyme et
+        // verrait la publicité au premier clic.
+        if (loading || !adsAllowed(user)) return undefined;
         if (EXCLUDED.some((p) => location.pathname.startsWith(p))) return undefined;
 
         let cancelled = false;
@@ -38,7 +41,7 @@ export default function PopUnder() {
             cancelled = true;
             if (cleanup) cleanup();
         };
-    }, [user, location.pathname]);
+    }, [user, loading, location.pathname]);
 
     return null;
 }

@@ -298,7 +298,7 @@ function EpisodeSelectorOverlay({
 export default function WatchPage() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { user, activeProfile } = useAuth();
+    const { user, loading: authEnCours, activeProfile } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const [media, setMedia] = useState(null);
     const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
@@ -765,7 +765,9 @@ export default function WatchPage() {
 
     const qualities = fallbackQualities(playbackMedia);
     const userMaxQuality = "4k";
-    const runAds = !user?.premium;
+    // Sans attendre la fin du chargement, un membre premium verrait la porte
+    // publicitaire pendant la seconde qui précède l'arrivée de son compte.
+    const runAds = !authEnCours && !user?.premium;
     const hasVideo = !!(bunnySource || qualities.length > 0);
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
