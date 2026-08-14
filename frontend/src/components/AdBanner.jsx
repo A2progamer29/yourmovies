@@ -46,7 +46,6 @@ export default function AdBanner({ className = "" }) {
 
     return (
         <section className={`ym-pub mx-auto max-w-7xl px-6 ${className}`} aria-label="Publicité">
-            <div className="ym-pub-label mb-2 text-[10px] uppercase tracking-[0.18em] text-neutral-600">Publicité</div>
             <div
                 ref={slotRef}
                 data-testid="promo-slot"

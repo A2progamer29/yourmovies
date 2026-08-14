@@ -239,19 +239,11 @@ html[style*="--accent"] .bg-\[\#E8D2A6\]\/\[0\.08\] {
 }
 
 
-/* Emplacement publicitaire. Sans contenu réellement posé dans la page, ni
-   étiquette ni marge : un chargement qui échoue laisse une zone vide plutôt
+/* Emplacement publicitaire. Sans contenu réellement posé dans la page, aucune
+   marge n'est réservée : un chargement qui échoue laisse une zone vide plutôt
    qu'un cadre cassé. */
-.ym-pub-label {
-    display: none;
-}
-
 .ym-pub:has(.ym-pub-slot > *) {
     margin-top: 3rem;
-}
-
-.ym-pub:has(.ym-pub-slot > *) .ym-pub-label {
-    display: block;
 }
 
 /* Noise texture overlay */
