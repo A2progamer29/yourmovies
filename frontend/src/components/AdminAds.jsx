@@ -93,8 +93,20 @@ export default function AdminAds() {
                 <p className="text-xs text-neutral-500 mb-4">Affichée sur l'accueil et le catalogue, sous les carrousels.</p>
                 <Toggle checked={cfg.banner.enabled} onChange={(v) => setPart("banner", { enabled: v })} label="Activer la bannière" />
                 <label className="block text-xs text-neutral-400 mt-4">Script de la régie (https)
-                    <Input value={cfg.banner.script_url} onChange={(e) => setPart("banner", { script_url: e.target.value })} placeholder="https://…/banner.js" className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    <Input value={cfg.banner.script_url} onChange={(e) => setPart("banner", { script_url: e.target.value })} placeholder="https://…/invoke.js" className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                 </label>
+                <div className="grid sm:grid-cols-2 gap-3 mt-4">
+                    <label className="text-xs text-neutral-400">Largeur (px)
+                        <Input type="number" value={cfg.banner.width ?? 728} onChange={(e) => setPart("banner", { width: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                    <label className="text-xs text-neutral-400">Hauteur (px)
+                        <Input type="number" value={cfg.banner.height ?? 90} onChange={(e) => setPart("banner", { height: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                    </label>
+                </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-neutral-500">
+                    Reprends exactement la taille choisie chez la régie. Colle uniquement
+                    l&apos;adresse du script : le reste du code fourni est reconstitué à partir d&apos;elle.
+                </p>
             </section>
 
             <section className="p-6 rounded-2xl border border-amber-500/30 bg-[#0a0a0a]">

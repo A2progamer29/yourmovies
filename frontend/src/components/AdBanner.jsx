@@ -16,6 +16,18 @@ export default function AdBanner({ className = "" }) {
             const banner = cfg?.banner || {};
             if (!cfg?.enabled || !banner.enabled || !banner.script_url) return;
             setActive(true);
+            // Les bannières classiques attendent un réglage global posé avant le
+            // script : la clé se lit dans l'adresse, les dimensions viennent du panel.
+            const cle = (String(banner.script_url).match(/\/([a-f0-9]{16,})\/invoke\.js/i) || [])[1];
+            if (cle) {
+                window.atOptions = {
+                    key: cle,
+                    format: "iframe",
+                    height: Number(banner.height) || 90,
+                    width: Number(banner.width) || 728,
+                    params: {},
+                };
+            }
             if (slotRef.current) injectScript(banner.script_url, slotRef.current);
         })();
         return () => { cancelled = true; };

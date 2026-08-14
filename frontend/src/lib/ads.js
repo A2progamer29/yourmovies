@@ -8,7 +8,7 @@ let inFlight = null;
 export const EMPTY_ADS = {
     enabled: false,
     preroll: { enabled: false, vast_tag_url: "", duration: 15, skip_after: 5, frequency_minutes: 30 },
-    banner: { enabled: false, script_url: "" },
+    banner: { enabled: false, script_url: "", width: 728, height: 90 },
     popunder: { enabled: false, script_url: "", frequency_hours: 12 },
     campaigns: [],
 };
@@ -64,7 +64,9 @@ export function injectScript(url, target) {
     const script = document.createElement("script");
     script.src = url;
     script.async = true;
-    script.referrerPolicy = "no-referrer";
+    // Les régies vérifient le domaine par le référent. Sans lui, elles refusent
+    // de servir. On envoie l'origine seule — jamais la page consultée.
+    script.referrerPolicy = "strict-origin-when-cross-origin";
     host.appendChild(script);
     return script;
 }

@@ -766,7 +766,7 @@ async def _apply_referral(code: Optional[str], filleul: dict) -> None:
 ADS_DEFAULTS = {
     "enabled": False,
     "preroll": {"enabled": False, "vast_tag_url": "", "duration": 15, "skip_after": 5, "frequency_minutes": 30},
-    "banner": {"enabled": False, "script_url": ""},
+    "banner": {"enabled": False, "script_url": "", "width": 728, "height": 90},
     "popunder": {"enabled": False, "script_url": "", "frequency_hours": 12},
     "gate": {"enabled": False, "steps": 1, "seconds": 3, "frequency_minutes": 60, "direct_link": ""},
     "reward": {"enabled": False, "coins": 1, "watch_seconds": 20, "cooldown_minutes": 10, "daily_max": 10},
@@ -829,7 +829,12 @@ async def _effective_ads() -> dict:
             "skip_after": int(_clamp_num(pre.get("skip_after"), 0, duration, 5)),
             "frequency_minutes": int(_clamp_num(pre.get("frequency_minutes"), 0, 1440, 30)),
         },
-        "banner": {"enabled": bool(ban.get("enabled")), "script_url": _https_url(ban.get("script_url"))},
+        "banner": {
+            "enabled": bool(ban.get("enabled")),
+            "script_url": _https_url(ban.get("script_url")),
+            "width": int(_clamp_num(ban.get("width"), 100, 1200, 728)),
+            "height": int(_clamp_num(ban.get("height"), 40, 800, 90)),
+        },
         "popunder": {
             "enabled": bool(pop.get("enabled")),
             "script_url": _https_url(pop.get("script_url")),
