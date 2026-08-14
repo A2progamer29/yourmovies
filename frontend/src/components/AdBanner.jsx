@@ -5,37 +5,44 @@ import { loadAdsConfig, adsAllowed, injectScript } from "@/lib/ads";
 export default function AdBanner({ className = "" }) {
     const { user, loading } = useAuth();
     const slotRef = useRef(null);
-    const [active, setActive] = useState(false);
+    const [banner, setBanner] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
         // Même attente que le popunder : on ne montre rien avant de savoir si
         // la personne est premium.
-        if (loading || !adsAllowed(user)) { setActive(false); return undefined; }
+        if (loading || !adsAllowed(user)) { setBanner(null); return undefined; }
         (async () => {
             const cfg = await loadAdsConfig();
             if (cancelled) return;
-            const banner = cfg?.banner || {};
-            if (!cfg?.enabled || !banner.enabled || !banner.script_url) return;
-            setActive(true);
-            // Les bannières classiques attendent un réglage global posé avant le
-            // script : la clé se lit dans l'adresse, les dimensions viennent du panel.
-            const cle = (String(banner.script_url).match(/\/([a-f0-9]{16,})\/invoke\.js/i) || [])[1];
-            if (cle) {
-                window.atOptions = {
-                    key: cle,
-                    format: "iframe",
-                    height: Number(banner.height) || 90,
-                    width: Number(banner.width) || 728,
-                    params: {},
-                };
-            }
-            if (slotRef.current) injectScript(banner.script_url, slotRef.current);
+            const ban = cfg?.banner || {};
+            if (!cfg?.enabled || !ban.enabled || !ban.script_url) return;
+            setBanner(ban);
         })();
         return () => { cancelled = true; };
     }, [user, loading]);
 
-    if (!active) return null;
+    // L'emplacement n'apparaît dans la page qu'au rendu suivant. Injecter dans
+    // le même souffle viserait un conteneur encore absent — c'est exactement ce
+    // qui empêchait la bannière de s'afficher.
+    useEffect(() => {
+        if (!banner || !slotRef.current) return;
+        // Les bannières classiques attendent un réglage global posé avant le
+        // script : la clé se lit dans l'adresse, les dimensions viennent du panel.
+        const cle = (String(banner.script_url).match(/\/([a-f0-9]{16,})\/invoke\.js/i) || [])[1];
+        if (cle) {
+            window.atOptions = {
+                key: cle,
+                format: "iframe",
+                height: Number(banner.height) || 90,
+                width: Number(banner.width) || 728,
+                params: {},
+            };
+        }
+        injectScript(banner.script_url, slotRef.current);
+    }, [banner]);
+
+    if (!banner) return null;
 
     return (
         <section className={`max-w-7xl mx-auto px-6 mt-12 ${className}`} aria-label="Publicité">
