@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronsLeft, ChevronsRight, Play, Pause } from "lucide-react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 
 const SAUT = 10;
 const DELAI_DOUBLE_TAP = 300;
@@ -11,7 +11,6 @@ export default function PlayerGestures({ playerRef, disabled }) {
     const [signal, setSignal] = useState(null);
     const dernierTap = useRef({ moment: 0, cote: null });
     const minuterie = useRef(null);
-    const enPause = useRef(false);
 
     const montrer = useCallback((type) => {
         setSignal({ type, id: Date.now() });
@@ -31,27 +30,6 @@ export default function PlayerGestures({ playerRef, disabled }) {
         montrer(sens > 0 ? "avance" : "recule");
     }, [playerRef, montrer]);
 
-    const basculerLecture = useCallback(() => {
-        const p = playerRef?.current;
-        if (!p) return;
-        try {
-            if (enPause.current) { p.play(); montrer("lecture"); }
-            else { p.pause(); montrer("pause"); }
-        } catch { }
-    }, [playerRef, montrer]);
-
-    // Suivi de l'état pour que l'icône affichée corresponde à ce qui se passe.
-    useEffect(() => {
-        const p = playerRef?.current;
-        if (!p) return undefined;
-        const marquePause = () => { enPause.current = true; };
-        const marqueLecture = () => { enPause.current = false; };
-        try { p.on("pause", marquePause); p.on("play", marqueLecture); } catch { }
-        return () => {
-            try { p.off("pause", marquePause); p.off("play", marqueLecture); } catch { }
-        };
-    }, [playerRef]);
-
     useEffect(() => {
         if (disabled) return undefined;
         const auClavier = (evenement) => {
@@ -69,6 +47,8 @@ export default function PlayerGestures({ playerRef, disabled }) {
 
     if (disabled) return null;
 
+    // Seul le double appui agit : un appui simple ne fait rien, la lecture se
+    // met en pause avec le bouton du lecteur.
     const auTap = (cote) => {
         const maintenant = Date.now();
         const precedent = dernierTap.current;
@@ -78,13 +58,6 @@ export default function PlayerGestures({ playerRef, disabled }) {
             return;
         }
         dernierTap.current = { moment: maintenant, cote };
-        // Un appui simple garde le comportement attendu d'un lecteur.
-        window.setTimeout(() => {
-            if (dernierTap.current.moment === maintenant) {
-                dernierTap.current = { moment: 0, cote: null };
-                basculerLecture();
-            }
-        }, DELAI_DOUBLE_TAP);
     };
 
     return (
@@ -107,19 +80,14 @@ export default function PlayerGestures({ playerRef, disabled }) {
             {signal && (
                 <div
                     key={signal.id}
-                    className={`ym-seek-flash pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-1 ${signal.type === "avance" ? "right-[12%]"
-                        : signal.type === "recule" ? "left-[12%]"
-                            : "left-1/2 -translate-x-1/2"}`}
+                    className={`ym-seek-flash pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-1 ${signal.type === "avance" ? "right-[12%]" : "left-[12%]"}`}
                 >
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
-                        {signal.type === "avance" && <ChevronsRight size={28} className="text-white" />}
-                        {signal.type === "recule" && <ChevronsLeft size={28} className="text-white" />}
-                        {signal.type === "lecture" && <Play size={26} className="text-white" fill="currentColor" />}
-                        {signal.type === "pause" && <Pause size={26} className="text-white" fill="currentColor" />}
+                        {signal.type === "avance"
+                            ? <ChevronsRight size={28} className="text-white" />
+                            : <ChevronsLeft size={28} className="text-white" />}
                     </div>
-                    {(signal.type === "avance" || signal.type === "recule") && (
-                        <span className="text-xs font-semibold text-white drop-shadow">{SAUT} s</span>
-                    )}
+                    <span className="text-xs font-semibold text-white drop-shadow">{SAUT} s</span>
                 </div>
             )}
         </div>
