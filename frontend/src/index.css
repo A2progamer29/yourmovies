@@ -208,6 +208,36 @@ html[style*="--accent"] .bg-\[\#E8D2A6\]\/\[0\.08\] {
     }
 }
 
+
+/* Retour visuel des sauts de 10 secondes dans le lecteur. */
+@keyframes ymSeekFlash {
+    0% {
+        opacity: 0;
+        transform: translateY(-50%) scale(0.82);
+    }
+    18% {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+    }
+    70% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-50%) scale(1.06);
+    }
+}
+
+.ym-seek-flash {
+    animation: ymSeekFlash 600ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ym-seek-flash {
+        animation: none !important;
+    }
+}
+
 /* Noise texture overlay */
 .noise-overlay {
     position: fixed;

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
 import TurnstileGate from "@/components/TurnstileGate";
+import PlayerGestures from "@/components/PlayerGestures";
 import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
@@ -385,6 +386,24 @@ export default function WatchPage() {
         if (!isSameEpisode) setAdDone(false);
     };
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
+    // Sortie de plein écran : certains navigateurs laissent le document en
+    // plein écran alors que le lecteur en est sorti. On referme explicitement.
+    useEffect(() => {
+        const auChangement = () => {
+            const actif = document.fullscreenElement || document.webkitFullscreenElement;
+            if (actif) return;
+            if (document.exitFullscreen) {
+                document.exitFullscreen().catch(() => { });
+            }
+        };
+        document.addEventListener("fullscreenchange", auChangement);
+        document.addEventListener("webkitfullscreenchange", auChangement);
+        return () => {
+            document.removeEventListener("fullscreenchange", auChangement);
+            document.removeEventListener("webkitfullscreenchange", auChangement);
+        };
+    }, []);
+
     const bunnySource = resolveBunnySource(playbackMedia);
 
     useEffect(() => {
@@ -853,6 +872,11 @@ export default function WatchPage() {
                                 ) : (
                                     <div className="absolute inset-0 bg-black" aria-hidden="true" />
                                 )}
+                                <PlayerGestures
+                                    playerRef={bunnyPlayerRef}
+                                    disabled={partyOpen && !isPartyHost}
+                                />
+
                                 {partyOpen && partyStarted && !isPartyHost && (
                                     <div className="pointer-events-none absolute inset-0 z-30" data-testid="party-guest-shield">
                                         {/* Le lecteur est sur un autre domaine : impossible de
