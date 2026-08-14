@@ -5687,7 +5687,7 @@ app.add_middleware(
     allow_credentials=_cors_credentials,
     allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key", "X-Playback-Pass"],
 )
 
 @app.on_event("startup")
