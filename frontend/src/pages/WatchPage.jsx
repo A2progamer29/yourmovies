@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
+import TurnstileGate from "@/components/TurnstileGate";
+import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
@@ -326,6 +328,7 @@ export default function WatchPage() {
     const adsAlreadyCleared = useRef(readAdsMemory());
     const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
     const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
+    const [verifie, setVerifie] = useState(() => Boolean(lirePass()));
     const [playbackActive, setPlaybackActive] = useState(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
@@ -385,7 +388,9 @@ export default function WatchPage() {
     const bunnySource = resolveBunnySource(playbackMedia);
 
     useEffect(() => {
-        if (!bunnySource?.videoId) {
+        // Sans la preuve de vérification, le serveur refuserait l'URL : on
+        // n'appelle donc pas tant qu'elle n'a pas été franchie.
+        if (!bunnySource?.videoId || !verifie) {
             setBunnyPlaybackUrl(null);
             return;
         }
@@ -396,7 +401,11 @@ export default function WatchPage() {
             season_number: selectedEpisode?.season_number,
             episode_number: selectedEpisode?.ep_number,
         };
-        api.get(`/bunny/playback/${id}`, { params: playbackParams, silent: true })
+        api.get(`/bunny/playback/${id}`, {
+            params: playbackParams,
+            silent: true,
+            headers: lirePass() ? { "X-Playback-Pass": lirePass() } : undefined,
+        })
             .then((response) => {
                 if (!active) return;
                 const data = response.data || {};
@@ -428,6 +437,7 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
         bunnySource?.videoId,
         bunnySource?.libraryId,
+        verifie,
     ]);
 
     useEffect(() => {
@@ -813,6 +823,10 @@ export default function WatchPage() {
                         ) : showAd ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
+                            </div>
+                        ) : !verifie ? (
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
+                                <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>

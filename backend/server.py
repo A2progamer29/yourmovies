@@ -2128,6 +2128,67 @@ async def admin_set_referral(inp: ReferralConfigInput, user: dict = Depends(requ
     return await _effective_referral()
 
 
+# ---------- Verification anti-robots (Cloudflare Turnstile) ----------
+TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
+TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "").strip()
+TURNSTILE_CONFIGURED = bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY)
+PLAYBACK_PASS_MINUTES = 60
+
+
+class TurnstileInput(BaseModel):
+    token: str = Field(min_length=1, max_length=4096)
+
+
+@api_router.get("/playback/verification")
+async def playback_verification():
+    """Le client a besoin de savoir s'il doit afficher la verification, et avec
+    quelle cle publique. Sans configuration, la lecture reste ouverte."""
+    return {"required": TURNSTILE_CONFIGURED, "site_key": TURNSTILE_SITE_KEY}
+
+
+@api_router.post("/playback/verify")
+async def playback_verify(inp: TurnstileInput, request: Request):
+    if not TURNSTILE_CONFIGURED:
+        return {"ok": True, "pass": None, "required": False}
+    await _enforce_rate_limit(request, "turnstile", 30, 600)
+    donnees = {"secret": TURNSTILE_SECRET_KEY, "response": inp.token}
+    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else None)
+    if ip:
+        donnees["remoteip"] = ip
+    try:
+        r = await run_in_threadpool(lambda: requests.post(
+            "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+            data=donnees, timeout=15,
+        ))
+        resultat = r.json() if r.ok else {}
+    except Exception as exc:
+        logger.error("Verification anti-robots injoignable : %s", exc)
+        raise HTTPException(status_code=502, detail="Vérification indisponible, réessaie dans un instant")
+
+    if not resultat.get("success"):
+        logger.info("Verification anti-robots refusee : %s", resultat.get("error-codes"))
+        raise HTTPException(status_code=403, detail="Vérification échouée, réessaie")
+
+    expire = datetime.now(timezone.utc) + timedelta(minutes=PLAYBACK_PASS_MINUTES)
+    laissez_passer = pyjwt.encode(
+        {"typ": "playback", "exp": expire},
+        JWT_SECRET, algorithm=JWT_ALGO,
+    )
+    return {"ok": True, "pass": laissez_passer, "expires_in": PLAYBACK_PASS_MINUTES * 60}
+
+
+def _laissez_passer_valide(valeur: Optional[str]) -> bool:
+    if not TURNSTILE_CONFIGURED:
+        return True
+    if not valeur:
+        return False
+    try:
+        charge = pyjwt.decode(valeur, JWT_SECRET, algorithms=[JWT_ALGO])
+        return charge.get("typ") == "playback"
+    except Exception:
+        return False
+
+
 # ---------- Signalements ----------
 MOTIFS_SIGNALEMENT = {
     "player": "Le lecteur ne démarre pas",
@@ -3682,8 +3743,15 @@ async def bunny_playback(
     media_id: str,
     season_number: Optional[str] = Query(None),
     episode_number: Optional[str] = Query(None),
+    x_playback_pass: Optional[str] = Header(None),
 ):
-    """Retourne l'URL temporaire du film ou de l'épisode demandé."""
+    """Retourne l'URL temporaire du film ou de l'épisode demandé.
+
+    C'est le seul point d'entrée vers la vidéo : exiger ici la preuve de
+    vérification empêche un robot d'aspirer la bande passante en appelant
+    directement l'API, sans jamais charger la page."""
+    if not _laissez_passer_valide(x_playback_pass):
+        raise HTTPException(status_code=403, detail="Vérification requise avant la lecture")
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
