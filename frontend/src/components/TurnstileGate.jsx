@@ -27,6 +27,7 @@ export default function TurnstileGate({ onVerified }) {
     const widget = useRef(null);
     const [etat, setEtat] = useState("chargement");
     const [erreur, setErreur] = useState("");
+    const [code, setCode] = useState("");
 
     const valider = useCallback(async (token) => {
         setEtat("envoi");
@@ -67,8 +68,11 @@ export default function TurnstileGate({ onVerified }) {
                     sitekey: config.site_key,
                     theme: "dark",
                     callback: valider,
-                    "error-callback": () => {
-                        setErreur("La vérification a échoué.");
+                    // Cloudflare transmet un code : l'afficher evite de
+                    // diagnostiquer a l'aveugle quand quelqu'un signale le probleme.
+                    "error-callback": (codeErreur) => {
+                        setCode(String(codeErreur || ""));
+                        setErreur("La vérification n'a pas pu aboutir.");
                         setEtat("erreur");
                     },
                     "expired-callback": () => setEtat("pret"),
@@ -84,6 +88,7 @@ export default function TurnstileGate({ onVerified }) {
 
     const reessayer = () => {
         setErreur("");
+        setCode("");
         setEtat("pret");
         try { window.turnstile?.reset(widget.current); } catch { }
     };
@@ -115,8 +120,13 @@ export default function TurnstileGate({ onVerified }) {
                 </div>
             )}
             {etat === "erreur" && (
-                <div className="flex flex-col items-center gap-2.5">
+                <div className="flex max-w-sm flex-col items-center gap-2.5">
                     <p className="text-xs text-red-400">{erreur}</p>
+                    <p className="text-[11px] leading-relaxed text-neutral-500">
+                        C&apos;est presque toujours un bloqueur de publicité, une extension de confidentialité
+                        ou un VPN qui empêche la connexion à Cloudflare. Désactive-les sur cette page, puis
+                        réessaie.
+                    </p>
                     <Button
                         onClick={reessayer}
                         data-testid="turnstile-retry"
@@ -127,7 +137,9 @@ export default function TurnstileGate({ onVerified }) {
                 </div>
             )}
 
-            <p className="text-[11px] text-neutral-600">Une seule fois par session.</p>
+            <p className="text-[11px] text-neutral-600">
+                {code ? `Code ${code} · une seule fois par session.` : "Une seule fois par session."}
+            </p>
         </div>
     );
 }
