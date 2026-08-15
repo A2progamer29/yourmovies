@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PiggyBank, Heart, Info, Gift, Check, Trophy, Lock } from "lucide-react";
+import { PiggyBank, Heart, Info, Gift, Check, Trophy, Lock, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -12,6 +12,10 @@ import { PanneauSkeleton } from "@/components/Skeletons";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PRESETS = [5, 10, 20, 50];
+
+// Produit de soutien : une unité vaut un euro, la quantité fait le montant.
+// SellAuth ne propose pas de prix libre — cf. leur documentation Produits.
+const SELLAUTH_DON = "https://yourmovies.mysellauth.com/product/soutien-a-lhebergement";
 
 export default function CagnottePage() {
     const { user } = useAuth();
@@ -174,11 +178,27 @@ export default function CagnottePage() {
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500">€</span>
                         </div>
-                        <Button onClick={contribute} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
-                            <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
+                        <Button asChild className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
+                            <a href={SELLAUTH_DON} target="_blank" rel="noopener noreferrer">
+                                <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
+                            </a>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={contribute}
+                            className="h-11 rounded-full border-[#262626] bg-transparent px-6 text-white hover:bg-white/5"
+                        >
+                            <MessageCircle size={16} className="mr-2" /> Via Discord
                         </Button>
                     </div>
-                    <p className="text-xs text-neutral-500 mt-3">Paiement via notre Discord — carte bancaire, PayPal, Paysafecard et plus.</p>
+                    <p className="mt-3 text-xs leading-relaxed text-neutral-500">
+                        Paiement direct par carte, PayPal, Paysafecard et crypto. Sur la page de
+                        paiement, <span className="text-neutral-400">1 unité = 1 €</span> : choisis la
+                        quantité correspondant au montant que tu veux donner.
+                    </p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-neutral-600">
+                        Tu préfères passer par quelqu'un ? Le bouton Discord ouvre un ticket, on s'occupe du reste.
+                    </p>
                 </div>
 
                 <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] flex gap-3 text-sm text-neutral-400">
