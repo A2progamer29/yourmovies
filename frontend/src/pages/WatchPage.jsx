@@ -18,6 +18,7 @@ import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
 import AdGate from "@/components/AdGate";
+import SuiteAutomatique from "@/components/SuiteAutomatique";
 
 const PLAN_MAX_QUALITY = {
     null: "720p",
@@ -30,6 +31,7 @@ const PLAN_MAX_QUALITY = {
 const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
 const BUNNY_PLAYER_API_URL = "https://assets.mediadelivery.net/playerjs/player-0.1.0.min.js";
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
+const SEUIL_FIN = 0.95;
 let bunnyPlayerApiPromise;
 
 function loadBunnyPlayerApi() {
@@ -332,6 +334,10 @@ export default function WatchPage() {
     const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
     const [verifie, setVerifie] = useState(() => Boolean(lirePass()));
     const [playbackActive, setPlaybackActive] = useState(false);
+    const [chronologie, setChronologie] = useState({ titre: "", items: [] });
+    const saveProgressRef = useRef(() => { });
+    const [finAtteinte, setFinAtteinte] = useState(false);
+    const suiteRefusee = useRef(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
             ...episode,
@@ -363,6 +369,8 @@ export default function WatchPage() {
 
     useEffect(() => {
         setPlaybackActive(false);
+        setFinAtteinte(false);
+        suiteRefusee.current = false;
     }, [id, selectedEpisodeKey]);
 
     const selectEpisode = (episode) => {
@@ -386,6 +394,92 @@ export default function WatchPage() {
 
         if (!isSameEpisode) setAdDone(false);
     };
+    // La suite d'un film se trouve dans sa chronologie : on ne la charge donc que
+    // pour un film, et seulement si la lecture automatique est active.
+    useEffect(() => {
+        if (!media || media.type !== "movie" || user?.autoplay_next === false) {
+            setChronologie({ titre: "", items: [] });
+            return undefined;
+        }
+        let actif = true;
+        api.get(`/media/${id}/timeline`, { silent: true })
+            .then((r) => {
+                if (actif) setChronologie({ titre: r.data?.title || "", items: r.data?.items || [] });
+            })
+            .catch(() => { if (actif) setChronologie({ titre: "", items: [] }); });
+        return () => { actif = false; };
+    }, [id, media, user?.autoplay_next]);
+
+    // Ce qui sera lu ensuite : l'épisode suivant pour une série ou un animé, le
+    // titre suivant de la saga pour un film. Un maillon absent du catalogue est
+    // enjambé — proposer une fiche introuvable ne mènerait nulle part.
+    const suiteDisponible = React.useMemo(() => {
+        if (media?.type !== "movie") {
+            if (!nextEpisode) return null;
+            return {
+                cle: `episode:${nextEpisode._key}`,
+                genre: "episode",
+                titre: nextEpisode.title || `Épisode ${nextEpisode.ep_number}`,
+                detail: `Saison ${nextEpisode.season_number} · Épisode ${nextEpisode.ep_number}`,
+                poster: media?.poster_url,
+                episode: nextEpisode,
+            };
+        }
+        const position = chronologie.items.findIndex((item) => item.current);
+        if (position < 0) return null;
+        const suivant = chronologie.items
+            .slice(position + 1)
+            .find((item) => item.available && item.media_id);
+        if (!suivant) return null;
+        return {
+            cle: `film:${suivant.media_id}`,
+            genre: "film",
+            titre: suivant.title,
+            detail: [chronologie.titre, suivant.year].filter(Boolean).join(" · "),
+            poster: suivant.poster_url,
+            mediaId: suivant.media_id,
+        };
+    }, [media?.type, media?.poster_url, nextEpisode, chronologie]);
+
+    // Appelé à chaque remontée de position, sans passer par la limitation
+    // d'écriture de la progression : le seuil doit être vu dès qu'il est franchi.
+    const signalerAvancement = useCallback((position, duree) => {
+        if (suiteRefusee.current) return;
+        const p = Number(position);
+        const d = Number(duree);
+        if (!Number.isFinite(p) || !Number.isFinite(d) || d <= 0) return;
+        if (p / d >= SEUIL_FIN) setFinAtteinte(true);
+    }, []);
+
+    const suivreProgression = useCallback((position, duree) => {
+        saveProgressRef.current(position, duree);
+        signalerAvancement(position, duree);
+    }, [signalerAvancement]);
+
+    const lancerSuite = () => {
+        if (!suiteDisponible) return;
+        setFinAtteinte(false);
+        if (suiteDisponible.genre === "episode") {
+            selectEpisode(suiteDisponible.episode);
+            return;
+        }
+        navigate(`/watch/${suiteDisponible.mediaId}`);
+    };
+
+    // Un refus vaut pour tout le reste du titre : sans cela la carte
+    // reparaîtrait à la remontée de position suivante, toujours au-delà du seuil.
+    const refuserSuite = () => {
+        suiteRefusee.current = true;
+        setFinAtteinte(false);
+    };
+
+    // En salon, seul l'hôte fait avancer la séance : proposer la suite à un
+    // invité le sortirait de la vidéo commune.
+    const afficherSuite = finAtteinte
+        && user?.autoplay_next !== false
+        && Boolean(suiteDisponible)
+        && !(partyOpen && !isPartyHost);
+
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
@@ -528,6 +622,8 @@ export default function WatchPage() {
         } catch (e) { }
     }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
 
+    useEffect(() => { saveProgressRef.current = saveProgress; }, [saveProgress]);
+
     useEffect(() => {
         const iframe = bunnyIframeRef.current;
         if (!user || !bunnyPlaybackUrl || !iframe) return undefined;
@@ -549,7 +645,9 @@ export default function WatchPage() {
             if (!Number.isFinite(position) || position < 3) return;
             if (Number.isFinite(duration) && duration > 0) knownDuration = duration;
 
-            const completed = knownDuration > 0 && position / knownDuration >= 0.95;
+            signalerAvancement(position, knownDuration);
+
+            const completed = knownDuration > 0 && position / knownDuration >= SEUIL_FIN;
             const now = Date.now();
             if (!force && !completed && now - bunnyLastProgressSave.current < PROGRESS_SAVE_INTERVAL_MS) return;
             bunnyLastProgressSave.current = now;
@@ -574,6 +672,7 @@ export default function WatchPage() {
                 const position = base + (Date.now() - startedAt) / 1000;
                 if (estimatedDuration > 0 && position > estimatedDuration) return;
                 saveProgress(position, estimatedDuration || null);
+                signalerAvancement(position, estimatedDuration);
             }, PROGRESS_SAVE_INTERVAL_MS);
         };
 
@@ -595,6 +694,7 @@ export default function WatchPage() {
                 });
                 on("ended", () => {
                     if (knownDuration > 0) persistProgress(knownDuration, knownDuration, true);
+                    if (!suiteRefusee.current) setFinAtteinte(true);
                 });
                 // L'API répond mais n'émet aucun « timeupdate » : on bascule aussi.
                 window.setTimeout(() => {
@@ -904,12 +1004,20 @@ export default function WatchPage() {
                             <VideoPlayer
                                 qualitySources={qualities}
                                 poster={media.banner_url || media.poster_url}
-                                onProgress={saveProgress}
+                                onProgress={suivreProgression}
                                 startAt={resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
                                 videoRefOut={videoElRef}
                             />
+                            )}
+
+                            {afficherSuite && (
+                                <SuiteAutomatique
+                                    suite={suiteDisponible}
+                                    onLancer={lancerSuite}
+                                    onAnnuler={refuserSuite}
+                                />
                             )}
 
                             {media.type !== "movie" && episodes.length > 0 && (

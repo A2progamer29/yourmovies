@@ -138,6 +138,7 @@ class UserPublic(BaseModel):
     bio: Optional[str] = None
     preferred_quality: Optional[str] = None  # user's default choice ("4k","1080p","720p","auto")
     autoplay_hero: bool = True
+    autoplay_next: bool = True
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     has_pin: bool = False
@@ -648,6 +649,7 @@ def user_public_dict(user: dict) -> dict:
         "bio": user.get("bio"),
         "preferred_quality": user.get("preferred_quality"),
         "autoplay_hero": user.get("autoplay_hero", True),
+        "autoplay_next": user.get("autoplay_next", True),
         "accent_color": user.get("accent_color") if premium_active else None,
         "profile_background_color": user.get("profile_background_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
@@ -5511,6 +5513,7 @@ class SettingsInput(BaseModel):
     banner: Optional[str] = Field(default=None, max_length=2048)
     preferred_quality: Optional[str] = None
     autoplay_hero: Optional[bool] = None
+    autoplay_next: Optional[bool] = None
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     profile_public: Optional[bool] = None
@@ -5542,6 +5545,8 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Bande-annonce cinéma réservée aux abonnés Premium")
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
+    if inp.autoplay_next is not None:
+        upd["autoplay_next"] = bool(inp.autoplay_next)
     if inp.profile_public is not None:
         upd["profile_public"] = bool(inp.profile_public)
     if inp.reviews_public is not None:

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, MonitorSmartphone, History, ChartPie } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, MonitorSmartphone, History, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -39,6 +39,7 @@ const PROFILE_BACKGROUND_PRESETS = [
 const AUTOSAVE_FIELDS = [
     "name",
     "bio",
+    "autoplay_next",
     "profile_public",
     "reviews_public",
     "history_public",
@@ -53,6 +54,7 @@ const PREMIUM_AUTOSAVE_FIELDS = [
 const AUTOSAVE_SUCCESS_MESSAGES = {
     name: "Nom enregistré",
     bio: "Bio enregistrée",
+    autoplay_next: "Lecture automatique enregistrée",
     profile_public: "Visibilité du profil enregistrée",
     reviews_public: "Visibilité des avis enregistrée",
     history_public: "Visibilité de l’historique enregistrée",
@@ -97,6 +99,7 @@ export default function SettingsPage() {
             const nextForm = {
                 name: user.name || "",
                 bio: user.bio || "",
+                autoplay_next: user.autoplay_next !== false,
                 picture: user.picture || "",
                 banner: user.banner || "",
                 autoplay_hero: user.autoplay_hero !== false,
@@ -580,7 +583,32 @@ export default function SettingsPage() {
 
                 {tab === "preferences" && (
                     <div className="space-y-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5 border-y border-[#262626]">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
+                            <div className="min-w-0">
+                                <div className="text-white">Lecture automatique de la suite</div>
+                                <div className="text-xs text-neutral-500 mt-1">
+                                    Vers la fin d&apos;un épisode, enchaîne sur le suivant. Pour un film,
+                                    enchaîne sur le titre d&apos;après dans sa chronologie. Un compte à
+                                    rebours de dix secondes laisse le temps d&apos;annuler.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!!form.autoplay_next}
+                                data-testid="settings-autoplay-next"
+                                onClick={() => setForm((current) => ({ ...current, autoplay_next: !current.autoplay_next }))}
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white ${form.autoplay_next
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                    : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                    }`}
+                            >
+                                <SkipForward size={14} />
+                                {form.autoplay_next ? "Activée" : "Désactivée"}
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
                                     Bande-annonce cinéma sur l&apos;accueil
