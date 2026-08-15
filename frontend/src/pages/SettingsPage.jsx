@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, MonitorSmartphone, History, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -11,6 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
+import MesAppareils from "@/components/MesAppareils";
+import MonActivite from "@/components/MonActivite";
+import MesStatistiques from "@/components/MesStatistiques";
 import SupportWithAds from "@/components/SupportWithAds";
 import ReferralCard from "@/components/ReferralCard";
 
@@ -406,6 +409,9 @@ export default function SettingsPage() {
         { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
         { id: "activation", label: "Activation", icon: <KeyRound size={14} /> },
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
+        { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
+        { id: "activity", label: "Activité", icon: <History size={14} /> },
+        { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
         { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
 
@@ -752,6 +758,15 @@ export default function SettingsPage() {
                         </div>
                     </div>
                 )}
+
+                {tab === "devices" && <MesAppareils />}
+
+
+                {tab === "activity" && <MonActivite />}
+
+
+                {tab === "stats" && <MesStatistiques />}
+
 
                 {tab === "security" && (
                     <div className="space-y-6">

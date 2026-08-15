@@ -1114,7 +1114,11 @@ async def auth_google(inp: GoogleAuthInput, request: Request):
     return {"token": token, "user": user_public_dict(user)}
 
 @api_router.get("/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me(request: Request, user: dict = Depends(get_current_user)):
+    try:
+        await _noter_appareil(user.get("user_id"), request.headers.get("user-agent"))
+    except Exception as exc:
+        logger.warning("Appareil non enregistré : %s", exc)
     return user_public_dict(user)
 
 @api_router.post("/auth/logout")
@@ -2263,6 +2267,184 @@ def _laissez_passer_valide(valeur: Optional[str]) -> bool:
         return charge.get("typ") == "playback"
     except Exception:
         return False
+
+
+# ---------- Mon compte : appareils, activité et statistiques ----------
+def _decrire_appareil(agent: str) -> dict:
+    """Lecture volontairement grossière de l'agent utilisateur : on veut
+    « Windows · Chrome », pas une empreinte. Aucune adresse IP n'est conservée."""
+    brut = agent or ""
+    minuscules = brut.lower()
+
+    systeme = "Système inconnu"
+    for motif, nom in (
+        ("windows nt 10", "Windows"), ("windows", "Windows"),
+        ("android", "Android"), ("iphone", "iPhone"), ("ipad", "iPad"),
+        ("mac os x", "macOS"), ("cros", "ChromeOS"), ("linux", "Linux"),
+    ):
+        if motif in minuscules:
+            systeme = nom
+            break
+
+    navigateur = "Navigateur inconnu"
+    for motif, nom in (
+        ("edg/", "Edge"), ("opr/", "Opera"), ("samsungbrowser", "Samsung Internet"),
+        ("firefox", "Firefox"), ("chrome", "Chrome"), ("safari", "Safari"),
+    ):
+        if motif in minuscules:
+            navigateur = nom
+            break
+
+    mobile = any(x in minuscules for x in ("mobile", "android", "iphone"))
+    return {
+        "systeme": systeme,
+        "navigateur": navigateur,
+        "forme": "Téléphone" if mobile else ("Tablette" if "ipad" in minuscules else "Ordinateur"),
+    }
+
+
+async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
+    """Enregistre l'appareil au passage sur /auth/me, appelé à chaque
+    chargement du site. Pas de session à révoquer — les jetons sont autonomes —
+    c'est une trace de connexion, pas un gestionnaire de sessions."""
+    if not user_id or not agent:
+        return
+    description = _decrire_appareil(agent)
+    empreinte = hashlib.sha256(f"{user_id}|{agent}".encode("utf-8")).hexdigest()[:16]
+    maintenant = datetime.now(timezone.utc).isoformat()
+    await db.user_devices.update_one(
+        {"id": empreinte},
+        {
+            "$set": {**description, "user_id": user_id, "user_agent": agent[:300], "last_seen": maintenant},
+            "$setOnInsert": {"id": empreinte, "first_seen": maintenant},
+        },
+        upsert=True,
+    )
+
+
+@api_router.get("/me/devices")
+async def mes_appareils(user: dict = Depends(get_current_user)):
+    docs = await db.user_devices.find(
+        {"user_id": user["user_id"]}, {"_id": 0},
+    ).sort("last_seen", -1).to_list(50)
+    return {"items": docs}
+
+
+@api_router.delete("/me/devices/{device_id}")
+async def oublier_appareil(device_id: str, user: dict = Depends(get_current_user)):
+    resultat = await db.user_devices.delete_one({"id": device_id, "user_id": user["user_id"]})
+    if resultat.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Appareil introuvable")
+    return {"ok": True}
+
+
+async def _fiches_par_id(media_ids: List[str]) -> dict:
+    if not media_ids:
+        return {}
+    docs = await db.media.find(
+        {"id": {"$in": media_ids}},
+        {"_id": 0, "id": 1, "title": 1, "poster_url": 1, "type": 1},
+    ).to_list(len(media_ids))
+    return {d["id"]: d for d in docs}
+
+
+@api_router.get("/me/history")
+async def mon_historique(user: dict = Depends(get_current_user)):
+    lignes = await db.watch_progress.find(
+        {"user_id": user["user_id"]}, {"_id": 0},
+    ).sort("updated_at", -1).to_list(200)
+    fiches = await _fiches_par_id([l.get("media_id") for l in lignes if l.get("media_id")])
+    sortie = []
+    for ligne in lignes:
+        fiche = fiches.get(ligne.get("media_id"))
+        if not fiche:
+            continue
+        duree = ligne.get("duration_seconds") or 0
+        position = ligne.get("position_seconds") or 0
+        sortie.append({
+            "media_id": fiche["id"],
+            "title": fiche.get("title") or "",
+            "poster_url": fiche.get("poster_url"),
+            "type": fiche.get("type") or "movie",
+            "season_number": ligne.get("season_number"),
+            "episode_number": ligne.get("episode_number"),
+            "progress_pct": round(min(100, (position / duree) * 100)) if duree else 0,
+            "seconds_watched": int(ligne.get("seconds_watched") or 0),
+            "episodes_count": len(ligne.get("episodes_seen") or []),
+            "updated_at": ligne.get("updated_at"),
+        })
+    return {"items": sortie}
+
+
+@api_router.get("/me/wishes")
+async def mes_demandes(user: dict = Depends(get_current_user)):
+    docs = await db.wishboard.find(
+        {"created_by": user["user_id"]}, {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    for doc in docs:
+        doc["votes"] = len(doc.get("voters") or [])
+        doc.pop("voters", None)
+    return {"items": docs}
+
+
+@api_router.get("/me/comments")
+async def mes_commentaires(user: dict = Depends(get_current_user)):
+    docs = await db.reviews.find(
+        {"user_id": user["user_id"]}, {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    fiches = await _fiches_par_id([d.get("media_id") for d in docs if d.get("media_id")])
+    for doc in docs:
+        fiche = fiches.get(doc.get("media_id")) or {}
+        doc["media_title"] = fiche.get("title") or ""
+        doc["media_poster"] = fiche.get("poster_url")
+    return {"items": docs}
+
+
+@api_router.get("/me/stats")
+async def mes_statistiques(user: dict = Depends(get_current_user)):
+    """Le cumul démarre à la mise en place du comptage : les visionnages
+    antérieurs n'ont jamais été mesurés, seule la position dans le titre l'était.
+    Le champ « depuis » permet à l'interface de le dire honnêtement."""
+    lignes = await db.watch_progress.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
+    fiches = await _fiches_par_id([l.get("media_id") for l in lignes if l.get("media_id")])
+
+    par_type = {"movie": 0, "series": 0, "anime": 0}
+    films_termines = 0
+    episodes = 0
+    total = 0
+    premiere_trace = None
+
+    for ligne in lignes:
+        fiche = fiches.get(ligne.get("media_id"))
+        if not fiche:
+            continue
+        genre = fiche.get("type") or "movie"
+        secondes = int(ligne.get("seconds_watched") or 0)
+        total += secondes
+        par_type[genre if genre in par_type else "movie"] += secondes
+
+        duree = ligne.get("duration_seconds") or 0
+        position = ligne.get("position_seconds") or 0
+        if genre == "movie" and duree and position / duree >= 0.9:
+            films_termines += 1
+        episodes += len(ligne.get("episodes_seen") or [])
+
+        vu_le = ligne.get("updated_at")
+        if vu_le and (premiere_trace is None or vu_le < premiere_trace):
+            premiere_trace = vu_le
+
+    return {
+        "total_seconds": total,
+        "films_termines": films_termines,
+        "episodes_vus": episodes,
+        "titres_commences": len([l for l in lignes if fiches.get(l.get("media_id"))]),
+        "repartition": [
+            {"cle": "movie", "libelle": "Films", "secondes": par_type["movie"]},
+            {"cle": "series", "libelle": "Séries", "secondes": par_type["series"]},
+            {"cle": "anime", "libelle": "Animes", "secondes": par_type["anime"]},
+        ],
+        "depuis": premiere_trace,
+    }
 
 
 # ---------- Signalements ----------
@@ -4748,20 +4930,39 @@ async def heartbeat_watch_activity(inp: WatchProgressStartInput, user: dict = De
 
 @api_router.post("/watch-progress")
 async def save_progress(inp: WatchProgressInput, user: dict = Depends(get_current_user), profile_id: Optional[str] = Depends(current_profile_id)):
-    await db.watch_progress.update_one(
-        {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id},
-        {"$set": {
-            "user_id": user["user_id"],
-            "profile_id": profile_id,
-            "media_id": inp.media_id,
-            "position_seconds": inp.position_seconds,
-            "duration_seconds": inp.duration_seconds,
-            "season_number": inp.season_number,
-            "episode_number": inp.episode_number,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
-        upsert=True,
-    )
+    cle = {"user_id": user["user_id"], "media_id": inp.media_id, "profile_id": profile_id}
+    precedent = await db.watch_progress.find_one(cle, {"_id": 0, "position_seconds": 1})
+
+    # La ligne ne garde que la position courante : pour connaître le temps
+    # réellement passé, on cumule les avancées entre deux sauvegardes. Un saut
+    # en arrière ou un changement d'épisode ne compte pas, et un bond en avant
+    # est plafonné pour qu'une avance rapide ne gonfle pas le total.
+    avancee = 0
+    if precedent:
+        delta = (inp.position_seconds or 0) - (precedent.get("position_seconds") or 0)
+        if 0 < delta <= 600:
+            avancee = delta
+
+    increments = {"seconds_watched": avancee} if avancee else {}
+    ajouts = {}
+    if inp.season_number is not None and inp.episode_number is not None:
+        ajouts["episodes_seen"] = f"S{inp.season_number}E{inp.episode_number}"
+
+    operation = {"$set": {
+        "user_id": user["user_id"],
+        "profile_id": profile_id,
+        "media_id": inp.media_id,
+        "position_seconds": inp.position_seconds,
+        "duration_seconds": inp.duration_seconds,
+        "season_number": inp.season_number,
+        "episode_number": inp.episode_number,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }}
+    if increments:
+        operation["$inc"] = increments
+    if ajouts:
+        operation["$addToSet"] = ajouts
+    await db.watch_progress.update_one(cle, operation, upsert=True)
     await _touch_watch_activity(
         user["user_id"], profile_id, inp.media_id,
         inp.season_number, inp.episode_number,
