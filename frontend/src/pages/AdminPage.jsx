@@ -892,6 +892,11 @@ export default function AdminPage() {
                                                     {metaTendance(media)}
                                                 </div>
                                                 <h3 className="mt-1 truncate text-sm font-medium text-white">{media.title}</h3>
+                                                {media.original_title && media.original_title !== media.title && (
+                                                    <div className="truncate text-[11px] italic text-neutral-600" title={media.original_title}>
+                                                        {media.original_title}
+                                                    </div>
+                                                )}
                                                 {media.already_added ? (
                                                     <div className="mt-2 inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
                                                         Déjà ajouté

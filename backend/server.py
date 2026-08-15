@@ -1801,7 +1801,12 @@ async def _resolve_imdb_discovery_item(signal: dict) -> Optional[dict]:
         "tmdb_id": tmdb_id,
         "tmdb_kind": tmdb_kind,
         "imdb_url": f"https://www.imdb.com/title/{imdb_id}/",
-        "title": details.get("Title") or signal.get("title") or "",
+        # Le signal vient de TMDB interrogé en fr-FR : son titre est donc déjà
+        # français quand il existe, et retombe sur l'original sinon. OMDb, lui,
+        # ne renvoie que le titre original — on le garde en second, il sert à
+        # retrouver les fichiers, souvent nommés en version originale.
+        "title": signal.get("title") or details.get("Title") or "",
+        "original_title": details.get("Title") or "",
         "year": year,
         "type": media_type,
         "poster_url": poster if poster and poster != "N/A" else signal.get("poster_url"),
