@@ -54,6 +54,28 @@ function SectionHeader({ titre, description, children }) {
     );
 }
 
+/** Date de sortie lisible. Les sources renvoient « 12 Jul 2026 » ou
+ *  « 2026-07-12 » ; on retombe sur l'année quand la date précise manque. */
+function dateSortie(media) {
+    const brut = String(media.release_date || "").trim();
+    if (brut && brut !== "N/A") {
+        const d = new Date(brut);
+        if (!Number.isNaN(d.getTime())) {
+            return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+        }
+    }
+    return media.year ? String(media.year) : "";
+}
+
+function metaTendance(media) {
+    const genre = media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime";
+    return [
+        genre,
+        dateSortie(media),
+        media.rating ? `IMDb ${media.rating}/10` : "",
+    ].filter(Boolean).join(" · ");
+}
+
 export default function AdminPage() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
@@ -866,10 +888,8 @@ export default function AdminPage() {
                                                 </div>
                                             </a>
                                             <div className="pt-3">
-                                                <div className="text-[10px] uppercase tracking-widest text-neutral-600">
-                                                    {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"}
-                                                    {media.year ? ` · ${media.year}` : ""}
-                                                    {media.rating ? ` · IMDb ${media.rating}/10` : ""}
+                                                <div className="text-[10px] uppercase tracking-widest leading-relaxed text-neutral-600">
+                                                    {metaTendance(media)}
                                                 </div>
                                                 <h3 className="mt-1 truncate text-sm font-medium text-white">{media.title}</h3>
                                                 {media.already_added ? (
