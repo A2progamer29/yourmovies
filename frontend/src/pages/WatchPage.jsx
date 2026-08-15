@@ -20,14 +20,6 @@ import PreRollAd from "@/components/PreRollAd";
 import AdGate from "@/components/AdGate";
 import SuiteAutomatique from "@/components/SuiteAutomatique";
 
-const PLAN_MAX_QUALITY = {
-    null: "720p",
-    undefined: "720p",
-    basic: "1080p",
-    standard: "1080p",
-    premium: "4k",
-};
-
 const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
 const BUNNY_PLAYER_API_URL = "https://assets.mediadelivery.net/playerjs/player-0.1.0.min.js";
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;

@@ -39,13 +39,13 @@ const PROFILE_BACKGROUND_PRESETS = [
 const AUTOSAVE_FIELDS = [
     "name",
     "bio",
-    "autoplay_next",
     "profile_public",
     "reviews_public",
     "history_public",
 ];
 
 const PREMIUM_AUTOSAVE_FIELDS = [
+    "autoplay_next",
     "accent_color",
     "profile_background_color",
     "autoplay_hero",
@@ -585,11 +585,14 @@ export default function SettingsPage() {
                     <div className="space-y-6">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
-                                <div className="text-white">Lecture automatique de la suite</div>
+                                <div className="text-white flex items-center gap-2">
+                                    Lecture automatique de la suite
+                                    {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
+                                </div>
                                 <div className="text-xs text-neutral-500 mt-1">
-                                    Vers la fin d&apos;un épisode, enchaîne sur le suivant. Pour un film,
-                                    enchaîne sur le titre d&apos;après dans sa chronologie. Un compte à
-                                    rebours de dix secondes laisse le temps d&apos;annuler.
+                                    {user.premium
+                                        ? "Vers la fin d’un épisode, enchaîne sur le suivant. Pour un film, enchaîne sur le titre d’après dans sa chronologie. Un compte à rebours de dix secondes laisse le temps d’annuler."
+                                        : "Enchaîne sur l’épisode suivant, ou sur le titre d’après dans la chronologie d’un film. Cette préférence est réservée aux abonnés Premium."}
                                 </div>
                             </div>
                             <button
@@ -597,8 +600,9 @@ export default function SettingsPage() {
                                 role="switch"
                                 aria-checked={!!form.autoplay_next}
                                 data-testid="settings-autoplay-next"
+                                disabled={!user.premium}
                                 onClick={() => setForm((current) => ({ ...current, autoplay_next: !current.autoplay_next }))}
-                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white ${form.autoplay_next
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white disabled:cursor-not-allowed disabled:opacity-40 ${form.autoplay_next
                                     ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
                                     : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                     }`}
@@ -673,7 +677,7 @@ export default function SettingsPage() {
                             <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a] text-center">
                                 <Crown size={36} className="mx-auto text-[#E8D2A6] mb-4" />
                                 <div className="font-display text-2xl mb-2">Aucun abonnement actif</div>
-                                <p className="text-neutral-400 mb-6">Passez Premium pour du contenu sans pub, en 4K, avec multi-profils.</p>
+                                <p className="text-neutral-400 mb-6">Passez Premium pour regarder sans une seule publicité, avec jusqu’à 4 profils.</p>
                                 <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">Voir les plans</Button>
                             </div>
                         ) : (

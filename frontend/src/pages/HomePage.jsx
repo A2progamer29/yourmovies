@@ -418,7 +418,7 @@ export default function HomePage() {
                                 </div>
                                 <div>
                                     <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Passez Premium</div>
-                                    <div className="font-display text-xl mt-1">Regardez sans pub, en 4K, sur 4 écrans + multi-profils</div>
+                                    <div className="font-display text-xl mt-1">Sans une seule pub, jusqu&apos;à 4 profils, la suite qui s&apos;enchaîne toute seule</div>
                                 </div>
                             </div>
                             <div className="text-[#E8D2A6] font-semibold">Voir les plans →</div>

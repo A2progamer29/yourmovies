@@ -68,7 +68,7 @@ export default function SubscriptionPage() {
                 <div className="max-w-2xl mx-auto px-6 py-20 text-center">
                     <Crown size={40} className="mx-auto text-[#E8D2A6] mb-6" />
                     <h1 className="font-display text-4xl mb-3">Aucun abonnement actif</h1>
-                    <p className="text-neutral-400 mb-8">Rejoignez YourMovie&apos;s Premium pour du contenu sans publicité, en 4K.</p>
+                    <p className="text-neutral-400 mb-8">Rejoignez YourMovie&apos;s Premium pour regarder sans une seule publicité.</p>
                     <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
                         Voir les plans
                     </Button>
@@ -153,14 +153,14 @@ export default function SubscriptionPage() {
                 </div>
 
                 <div className="mt-10 p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
-                    <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Avantages Premium</div>
+                    <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Ce que ton abonnement débloque</div>
                     <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-neutral-300">
-                        <li>• 4 profils personnalisés</li>
-                        <li>• Streaming 4K UHD + HDR</li>
-                        <li>• Sans publicité</li>
+                        <li>• Aucune publicité, nulle part</li>
+                        <li>• Jusqu&apos;à 4 profils</li>
+                        <li>• Wishboard illimité</li>
+                        <li>• Lecture automatique de la suite</li>
                         <li>• Bande-annonce cinéma sur l&apos;accueil</li>
-                        <li>• 4 écrans simultanés</li>
-                        <li>• Nouveautés en accès anticipé</li>
+                        <li>• Couleur d&apos;accent et fond de profil</li>
                     </ul>
                     <Link to="/profiles" className="mt-4 inline-block text-[#E8D2A6] text-sm hover:underline">
                         → Gérer mes profils

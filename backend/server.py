@@ -649,7 +649,7 @@ def user_public_dict(user: dict) -> dict:
         "bio": user.get("bio"),
         "preferred_quality": user.get("preferred_quality"),
         "autoplay_hero": user.get("autoplay_hero", True),
-        "autoplay_next": user.get("autoplay_next", True),
+        "autoplay_next": bool(user.get("autoplay_next", True)) if premium_active else False,
         "accent_color": user.get("accent_color") if premium_active else None,
         "profile_background_color": user.get("profile_background_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
@@ -4123,11 +4123,14 @@ PLANS = [
     {
         "id": "basic",
         "name": "Basic",
-        "tagline": "Découvrez l'essentiel",
+        "tagline": "Le tarif d'entrée — tous les avantages",
         "features": [
-            "Accès complet au catalogue",
-            "1 écran simultané",
-            "Sans publicité",
+            "Aucune publicité, nulle part",
+            "Jusqu'à 4 profils",
+            "Wishboard illimité",
+            "Lecture automatique de la suite",
+            "Bande-annonce cinéma sur l'accueil",
+            "Couleur d'accent et fond de profil",
         ],
         "prices": {
             "monthly": {"lookup_key": "ym_basic_monthly", "amount": 2.99, "currency": "eur"},
@@ -4137,12 +4140,15 @@ PLANS = [
     {
         "id": "standard",
         "name": "Standard",
-        "tagline": "Le choix des cinéphiles",
+        "tagline": "Le même accès, un vrai coup de main",
         "features": [
-            "Accès complet au catalogue",
-            "2 écrans simultanés",
-            "Sans publicité",
-            "Téléchargements hors-ligne (à venir)",
+            "Aucune publicité, nulle part",
+            "Jusqu'à 4 profils",
+            "Wishboard illimité",
+            "Lecture automatique de la suite",
+            "Bande-annonce cinéma sur l'accueil",
+            "Couleur d'accent et fond de profil",
+            "Tu couvres une part réelle de l'hébergement",
         ],
         "prices": {
             "monthly": {"lookup_key": "ym_standard_monthly", "amount": 5.99, "currency": "eur"},
@@ -4152,13 +4158,15 @@ PLANS = [
     {
         "id": "premium",
         "name": "Premium",
-        "tagline": "L'expérience ultime",
+        "tagline": "Le même accès, pour ceux qui portent le site",
         "features": [
-            "Accès complet + accès anticipé",
-            "4 écrans simultanés",
-            "Sans publicité",
+            "Aucune publicité, nulle part",
+            "Jusqu'à 4 profils",
+            "Wishboard illimité",
+            "Lecture automatique de la suite",
             "Bande-annonce cinéma sur l'accueil",
-            "Téléchargements hors-ligne (à venir)",
+            "Couleur d'accent et fond de profil",
+            "Tu fais tourner le site à toi seul",
         ],
         "prices": {
             "monthly": {"lookup_key": "ym_premium_monthly", "amount": 12.99, "currency": "eur"},
@@ -5546,6 +5554,8 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
             raise HTTPException(status_code=403, detail="Bande-annonce cinéma réservée aux abonnés Premium")
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
     if inp.autoplay_next is not None:
+        if not user_public_dict(user)["premium"]:
+            raise HTTPException(status_code=403, detail="Lecture automatique réservée aux abonnés Premium")
         upd["autoplay_next"] = bool(inp.autoplay_next)
     if inp.profile_public is not None:
         upd["profile_public"] = bool(inp.profile_public)

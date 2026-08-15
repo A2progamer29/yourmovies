@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 import ReferralCard from "@/components/ReferralCard";
+import AvantagesAbonnement from "@/components/AvantagesAbonnement";
 
 const PLAN_ICON = {
   basic: <Star size={18} />,
@@ -92,8 +93,9 @@ export default function PricingPage() {
             Choisissez votre plan
           </h1>
           <p className="text-neutral-400 max-w-xl mx-auto">
-            Regardez films, séries et animes sans publicité. Annulez à tout
-            moment.
+            Films, séries et animes sans une seule publicité. Les trois plans
+            donnent les mêmes avantages — le prix, c&apos;est ce que tu choisis
+            de mettre dans l&apos;hébergement. Sans engagement.
           </p>
         </div>
 
@@ -249,7 +251,9 @@ export default function PricingPage() {
           Paiement au choix via SellAuth ou notre Discord. Sans engagement.
         </div>
 
-        <div className="mt-14">
+        <AvantagesAbonnement />
+
+        <div className="mt-16">
           <div className="mb-4 text-center">
             <div className="text-[10px] uppercase tracking-widest text-neutral-500">Sans sortir un centime</div>
             <h2 className="mt-1 font-display text-2xl tracking-tight text-white">Le Premium se gagne aussi</h2>
