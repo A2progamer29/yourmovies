@@ -1170,6 +1170,10 @@ def serialize_media(doc) -> dict:
         "in_theaters": doc.get("in_theaters", False),
         "player_broken": doc.get("player_broken", False),
         "player_notice": doc.get("player_notice") or "",
+        # Au-delà du seuil, les signalements des visiteurs valent avertissement,
+        # sans qu'un administrateur ait eu à intervenir.
+        "reports_open": int(doc.get("reports_open") or 0),
+        "reports_flagged": int(doc.get("reports_open") or 0) >= SEUIL_SIGNALEMENTS,
         "created_at": doc.get("created_at", ""),
     }
 
@@ -2255,32 +2259,79 @@ async def create_report(inp: ReportCreate, request: Request, user: Optional[dict
         "handled": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    return {"ok": True}
+    ouverts = await _recompter_signalements(media["id"])
+    return {"ok": True, "reports_open": ouverts}
+
+
+SEUIL_SIGNALEMENTS = 3
+
+
+async def _recompter_signalements(media_id: str) -> int:
+    """Recompte les signalements ouverts d'un contenu et l'inscrit sur sa fiche.
+
+    Le compte est recalculé à chaque écriture plutôt qu'incrémenté : un
+    compteur qui dérive après une suppression afficherait un avertissement
+    que plus rien ne justifie."""
+    if not media_id:
+        return 0
+    total = await db.reports.count_documents({"media_id": media_id, "handled": {"$ne": True}})
+    await db.media.update_one({"id": media_id}, {"$set": {"reports_open": total}})
+    return total
 
 
 @api_router.get("/admin/reports")
 async def admin_list_reports(user: dict = Depends(require_perm("content.edit"))):
     docs = await db.reports.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    ouverts_par_media = {}
     for doc in docs:
         doc["reason_label"] = MOTIFS_SIGNALEMENT.get(doc.get("reason"), "Autre")
-    return {"items": docs, "open": sum(1 for d in docs if not d.get("handled"))}
+        if not doc.get("handled"):
+            cle = doc.get("media_id")
+            ouverts_par_media[cle] = ouverts_par_media.get(cle, 0) + 1
+    # Un même titre signalé plusieurs fois n'est plus un avis isolé : on le
+    # remonte pour que le problème saute aux yeux.
+    for doc in docs:
+        doc["media_open_count"] = ouverts_par_media.get(doc.get("media_id"), 0)
+    signales = []
+    for mid, nombre in sorted(ouverts_par_media.items(), key=lambda kv: -kv[1]):
+        if nombre < SEUIL_SIGNALEMENTS:
+            continue
+        fiche = await db.media.find_one(
+            {"id": mid}, {"_id": 0, "title": 1, "poster_url": 1, "player_broken": 1},
+        ) or {}
+        signales.append({
+            "media_id": mid,
+            "count": nombre,
+            "title": fiche.get("title") or "",
+            "poster_url": fiche.get("poster_url"),
+            "player_broken": bool(fiche.get("player_broken")),
+        })
+    return {
+        "items": docs,
+        "open": sum(1 for d in docs if not d.get("handled")),
+        "threshold": SEUIL_SIGNALEMENTS,
+        "flagged": signales,
+    }
 
 
 @api_router.patch("/admin/reports/{report_id}")
 async def admin_handle_report(report_id: str, user: dict = Depends(require_perm("content.edit"))):
-    doc = await db.reports.find_one({"id": report_id}, {"_id": 0, "handled": 1})
+    doc = await db.reports.find_one({"id": report_id}, {"_id": 0, "handled": 1, "media_id": 1})
     if not doc:
         raise HTTPException(status_code=404, detail="Signalement introuvable")
     nouveau = not bool(doc.get("handled"))
     await db.reports.update_one({"id": report_id}, {"$set": {"handled": nouveau}})
+    await _recompter_signalements(doc.get("media_id"))
     return {"ok": True, "handled": nouveau}
 
 
 @api_router.delete("/admin/reports/{report_id}")
 async def admin_delete_report(report_id: str, user: dict = Depends(require_perm("content.edit"))):
+    doc = await db.reports.find_one({"id": report_id}, {"_id": 0, "media_id": 1})
     result = await db.reports.delete_one({"id": report_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Signalement introuvable")
+    await _recompter_signalements((doc or {}).get("media_id"))
     return {"ok": True}
 
 

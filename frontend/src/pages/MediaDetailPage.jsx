@@ -15,6 +15,7 @@ import ReportDialog from "@/components/ReportDialog";
 import { FicheSkeleton } from "@/components/Skeletons";
 import MediaCard from "@/components/MediaCard";
 import HScroller from "@/components/HScroller";
+import AvertissementContenu from "@/components/AvertissementContenu";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const BANNER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
@@ -239,10 +240,14 @@ export default function MediaDetailPage() {
                                 </div>
                             )}
                             <p className="mt-5 text-sm sm:text-base text-neutral-300 leading-relaxed max-w-3xl line-clamp-4 sm:line-clamp-none">{media.description}</p>
-                            {media.player_broken && (
+                            {(media.player_broken || media.reports_flagged) && (
                                 <div className="mt-6 flex max-w-2xl items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-4 text-sm leading-relaxed text-amber-100/90" data-testid="player-notice">
                                     <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-400" />
-                                    <span>{media.player_notice || "Le lecteur de ce contenu est momentanément indisponible. Nous travaillons à le rétablir."}</span>
+                                    <span>
+                                        {media.player_broken
+                                            ? (media.player_notice || "Le lecteur de ce contenu est momentanément indisponible. Nous travaillons à le rétablir.")
+                                            : "Plusieurs personnes ont signalé un problème sur ce titre. La lecture risque de ne pas fonctionner correctement."}
+                                    </span>
                                 </div>
                             )}
                             <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -254,6 +259,7 @@ export default function MediaDetailPage() {
                                     <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
                                 </Button>
                                 <ReportDialog mediaId={media.id} />
+                                <AvertissementContenu media={media} />
                                 <Button
                                     onClick={() => toggle("favorite")}
                                     data-testid="toggle-favorite-btn"

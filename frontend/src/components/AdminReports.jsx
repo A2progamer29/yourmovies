@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Flag, Check, Trash2, RotateCcw, Inbox } from "lucide-react";
+import { Flag, Check, Trash2, RotateCcw, Inbox, AlertTriangle, EyeOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,15 @@ export default function AdminReports({ onCount }) {
     const navigate = useNavigate();
     const [items, setItems] = useState([]);
     const [voirTraites, setVoirTraites] = useState(false);
+    const [signales, setSignales] = useState([]);
+    const [seuil, setSeuil] = useState(3);
 
     const charger = useCallback(async () => {
         try {
             const r = await api.get("/admin/reports");
             setItems(r.data.items || []);
+            setSignales(r.data.flagged || []);
+            setSeuil(r.data.threshold || 3);
             onCount?.(r.data.open || 0);
         } catch (e) { showError(toast, e, "Chargement des signalements impossible"); }
     }, [onCount]);
@@ -42,6 +46,18 @@ export default function AdminReports({ onCount }) {
             await api.delete(`/admin/reports/${report.id}`);
             await charger();
         } catch (e) { showError(toast, e, "Suppression impossible"); }
+    };
+
+    const declarer = async (media, enPanne) => {
+        try {
+            await api.patch(`/admin/media/${media.media_id}/flags`, { player_broken: enPanne });
+            setSignales((liste) => liste.map((x) => (
+                x.media_id === media.media_id ? { ...x, player_broken: enPanne } : x
+            )));
+            toast.success(enPanne
+                ? "Lecteur déclaré en panne — les visiteurs sont prévenus"
+                : "Avertissement retiré");
+        } catch (e) { showError(toast, e, "Déclaration impossible"); }
     };
 
     const liste = items.filter((r) => voirTraites || !r.handled);
@@ -65,6 +81,48 @@ export default function AdminReports({ onCount }) {
                     </button>
                 )}
             </div>
+
+            {signales.length > 0 && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/[0.05] p-4" data-testid="reports-flagged">
+                    <div className="flex items-start gap-2.5">
+                        <AlertTriangle size={17} className="mt-0.5 shrink-0 text-red-400" />
+                        <div className="min-w-0">
+                            <div className="text-sm font-medium text-white">
+                                {signales.length} titre{signales.length > 1 ? "s" : ""} signalé
+                                {signales.length > 1 ? "s" : ""} au moins {seuil} fois
+                            </div>
+                            <p className="mt-1 text-xs leading-relaxed text-neutral-400">
+                                Au-delà de ce seuil, les visiteurs voient déjà un avertissement sur la fiche.
+                                Déclarer le lecteur en panne remplace ce message automatique par le tien.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                        {signales.map((m) => (
+                            <div key={m.media_id} className="flex flex-wrap items-center gap-3 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+                                {m.poster_url
+                                    ? <img src={m.poster_url} alt="" className="h-12 w-8 shrink-0 rounded object-cover" />
+                                    : <div className="h-12 w-8 shrink-0 rounded bg-[#111]" />}
+                                <div className="min-w-0 flex-1">
+                                    <div className="truncate text-sm text-white">{m.title || m.media_id}</div>
+                                    <div className="mt-0.5 text-xs text-red-300">{m.count} signalements ouverts</div>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => declarer(m, !m.player_broken)}
+                                    data-testid="declare-broken"
+                                    className={`shrink-0 rounded-full border-[#262626] bg-transparent text-xs ${m.player_broken ? "text-neutral-400 hover:bg-white/5" : "text-white hover:bg-white/5"}`}
+                                >
+                                    {m.player_broken
+                                        ? <><RotateCcw size={13} className="mr-1.5" /> Rétablir</>
+                                        : <><EyeOff size={13} className="mr-1.5" /> Déclarer en panne</>}
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {liste.length === 0 ? (
                 <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-10 text-center">
@@ -93,7 +151,12 @@ export default function AdminReports({ onCount }) {
                                 >
                                     {report.media_title}
                                 </button>
-                                <div className="mt-0.5 text-xs text-amber-300">
+                                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-amber-300">
+                                    {report.media_open_count >= seuil && !report.handled && (
+                                        <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-300">
+                                            ×{report.media_open_count}
+                                        </span>
+                                    )}
                                     {report.reason_label}
                                     {report.season_number ? ` · S${report.season_number}E${report.episode_number}` : ""}
                                 </div>

@@ -142,6 +142,13 @@ export default function AdminPage() {
         } catch { setPendingCount(0); }
     };
 
+    const loadReportCount = async () => {
+        try {
+            const r = await api.get("/admin/reports", { silent: true });
+            setReportCount(r.data?.open || 0);
+        } catch { setReportCount(0); }
+    };
+
     const loadAiDiscovery = async () => {
         setAiDiscoveryLoading(true);
         setAiDiscoveryError("");
@@ -187,11 +194,12 @@ export default function AdminPage() {
             licenseKeys: { run: loadLicenseKeys, perm: "keys.manage" },
             discovery: { run: loadAiDiscovery, perm: "content.add" },
             pending: { run: loadPendingCount, perm: "content.add" },
+            reports: { run: loadReportCount, perm: "content.edit" },
         };
         const parSection = {
-            overview: ["media", "users", "wishes", "reviews", "pending"],
+            overview: ["media", "users", "wishes", "reviews", "pending", "reports"],
             media: ["media"],
-            players: ["media"],
+            players: ["media", "reports"],
             discovery: ["discovery"],
             users: ["users"],
             comments: ["reviews"],

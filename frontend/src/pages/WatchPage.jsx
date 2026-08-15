@@ -12,6 +12,7 @@ import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
 import TurnstileGate from "@/components/TurnstileGate";
 import PlayerGestures from "@/components/PlayerGestures";
+import AvertissementContenu from "@/components/AvertissementContenu";
 import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
@@ -994,6 +995,7 @@ export default function WatchPage() {
                         </div>
 
                         <div className="mt-3 flex justify-end">
+                            <AvertissementContenu media={media} />
                             <ReportDialog
                                 mediaId={media.id}
                                 variant="discret"
