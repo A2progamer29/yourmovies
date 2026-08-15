@@ -92,3 +92,6 @@ frontend/build/
 
 # Fichiers infra Emergent (inutiles hors plateforme)
 .emergent/
+
+# Cache local de Wrangler (identifiant de compte Cloudflare)
+.wrangler/
