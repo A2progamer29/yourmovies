@@ -42,6 +42,7 @@ import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
 import DiscordInvitePopup from "@/components/DiscordInvitePopup";
+import AideChargement from "@/components/AideChargement";
 import PopUnder from "@/components/PopUnder";
 import VisitTracker from "@/components/VisitTracker";
 
@@ -126,6 +127,7 @@ function App() {
                                 <VersionChecker />
                                 <BetaNoticeDialog />
                                 <DiscordInvitePopup />
+                                <AideChargement />
                                 <Toaster theme="dark" richColors position="top-right" />
                             </FavoritesProvider>
                         </UploadProvider>
