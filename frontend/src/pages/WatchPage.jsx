@@ -908,7 +908,6 @@ export default function WatchPage() {
                                 startAt={resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
-                                preferredQuality={user?.preferred_quality}
                                 videoRefOut={videoElRef}
                             />
                             )}

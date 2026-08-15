@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
 import MesAppareils from "@/components/MesAppareils";
 import MonActivite from "@/components/MonActivite";
@@ -40,7 +39,6 @@ const PROFILE_BACKGROUND_PRESETS = [
 const AUTOSAVE_FIELDS = [
     "name",
     "bio",
-    "preferred_quality",
     "profile_public",
     "reviews_public",
     "history_public",
@@ -55,7 +53,6 @@ const PREMIUM_AUTOSAVE_FIELDS = [
 const AUTOSAVE_SUCCESS_MESSAGES = {
     name: "Nom enregistré",
     bio: "Bio enregistrée",
-    preferred_quality: "Qualité préférée enregistrée",
     profile_public: "Visibilité du profil enregistrée",
     reviews_public: "Visibilité des avis enregistrée",
     history_public: "Visibilité de l’historique enregistrée",
@@ -102,7 +99,6 @@ export default function SettingsPage() {
                 bio: user.bio || "",
                 picture: user.picture || "",
                 banner: user.banner || "",
-                preferred_quality: user.preferred_quality || "auto",
                 autoplay_hero: user.autoplay_hero !== false,
                 accent_color: user.accent_color || "#E8D2A6",
                 profile_background_color: user.profile_background_color || "#050505",
@@ -584,20 +580,6 @@ export default function SettingsPage() {
 
                 {tab === "preferences" && (
                     <div className="space-y-6">
-                        <div>
-                            <Label className="text-neutral-300 flex items-center gap-2">Qualité préférée par défaut</Label>
-                            <Select value={form.preferred_quality || "auto"} onValueChange={(v) => setForm({ ...form, preferred_quality: v })}>
-                                <SelectTrigger data-testid="settings-quality" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent className="bg-[#111] border-[#262626] text-white">
-                                    <SelectItem value="auto">Auto (max autorisé par l&apos;abonnement)</SelectItem>
-                                    <SelectItem value="4k">4K UHD{!user.premium ? " (Premium)" : ""}</SelectItem>
-                                    <SelectItem value="1080p">Full HD 1080p</SelectItem>
-                                    <SelectItem value="720p">HD 720p</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <div className="text-xs text-neutral-500 mt-1">La qualité de départ dans le lecteur. Vous pouvez la changer à tout moment.</div>
-                        </div>
-
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5 border-y border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
