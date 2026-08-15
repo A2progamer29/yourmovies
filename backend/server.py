@@ -1874,15 +1874,57 @@ async def _decorate_imdb_discovery(items: List[dict], limit: int) -> List[dict]:
     return decorated[:limit]
 
 
+def _date_sortie_discovery(item: dict):
+    """Date exploitable pour classer une sortie.
+
+    OMDb renvoie « 12 Jul 2026 », TMDB « 2026-07-12 » : on accepte les deux, et
+    on retombe sur l'année quand la date précise manque."""
+    brut = str(item.get("release_date") or "").strip()
+    for gabarit in ("%d %b %Y", "%Y-%m-%d", "%b %Y", "%Y"):
+        try:
+            return datetime.strptime(brut, gabarit).date()
+        except ValueError:
+            continue
+    annee = item.get("year")
+    if annee:
+        try:
+            return datetime(int(annee), 1, 1).date()
+        except (TypeError, ValueError):
+            pass
+    return datetime(1900, 1, 1).date()
+
+
+def _trier_discovery(items: List[dict], tri: str) -> List[dict]:
+    """« sorties » remonte ce qui vient d'arriver en salle, indépendamment de la
+    popularité — un film sorti hier n'a pas encore de votes IMDb et resterait
+    invisible dans le classement par pertinence.
+
+    Les copies évitent de réordonner la liste gardée en cache, qui sert aussi au
+    classement par pertinence."""
+    if tri != "sorties":
+        return items
+    films = [dict(item) for item in items if item.get("type") == "movie"]
+    films.sort(key=_date_sortie_discovery, reverse=True)
+    for position, item in enumerate(films, start=1):
+        item["ai_rank"] = position
+    return films
+
+
 @api_router.get("/discovery/imdb")
-async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_perm("content.add"))):
+async def imdb_discovery(
+    limit: int = 15,
+    sort: str = "pertinence",
+    admin: dict = Depends(require_perm("content.add")),
+):
     """Veille externe basée sur les fiches, notes et volumes de votes IMDb."""
     if not OMDB_API_KEY:
         raise HTTPException(status_code=503, detail="Veille IMDb non configurée (clé OMDb manquante).")
     limit = max(1, min(limit, 30))
     now_tick = time.monotonic()
     if _imdb_discovery_cache["items_expires_at"] > now_tick and _imdb_discovery_cache["items"]:
-        return await _decorate_imdb_discovery(_imdb_discovery_cache["items"], limit)
+        return await _decorate_imdb_discovery(
+            _trier_discovery(_imdb_discovery_cache["items"], sort), limit,
+        )
 
     signals = await _get_imdb_discovery_signals()
     candidate_limit = min(36, max(24, limit + 12))
@@ -1907,7 +1949,7 @@ async def imdb_discovery(limit: int = 15, admin: dict = Depends(require_perm("co
         "items_expires_at": now_tick + IMDB_DISCOVERY_CACHE_TTL_SECONDS,
         "items": ranked[:30],
     })
-    return await _decorate_imdb_discovery(ranked, limit)
+    return await _decorate_imdb_discovery(_trier_discovery(ranked, sort), limit)
 
 
 @api_router.delete("/admin/discovery/imdb/{imdb_id}")

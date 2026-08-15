@@ -76,6 +76,7 @@ export default function AdminPage() {
     const [mediaFilter, setMediaFilter] = useState("all");
     const [pendingCount, setPendingCount] = useState(0);
     const [reportCount, setReportCount] = useState(0);
+    const [triTendances, setTriTendances] = useState("pertinence");
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
     const [licenseKeys, setLicenseKeys] = useState([]);
@@ -149,11 +150,11 @@ export default function AdminPage() {
         } catch { setReportCount(0); }
     };
 
-    const loadAiDiscovery = async () => {
+    const loadAiDiscovery = async (tri = triTendances) => {
         setAiDiscoveryLoading(true);
         setAiDiscoveryError("");
         try {
-            const r = await api.get("/discovery/imdb?limit=24", { silent: true });
+            const r = await api.get(`/discovery/imdb?limit=24&sort=${tri}`, { silent: true });
             setAiDiscovery(Array.isArray(r.data) ? r.data : []);
             setAiDiscoveryLoadedAt(new Date());
         } catch (e) {
@@ -789,8 +790,25 @@ export default function AdminPage() {
                                     </p>
                                 </div>
                                 <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                                    <div className="flex rounded-full border border-[#262626] p-0.5" data-testid="tri-tendances">
+                                        {[
+                                            { cle: "pertinence", libelle: "Pertinence" },
+                                            { cle: "sorties", libelle: "Dernières sorties ciné" },
+                                        ].map((choix) => (
+                                            <button
+                                                key={choix.cle}
+                                                type="button"
+                                                onClick={() => { setTriTendances(choix.cle); loadAiDiscovery(choix.cle); }}
+                                                className={`rounded-full px-3 py-1.5 text-xs transition-colors ${triTendances === choix.cle
+                                                    ? "bg-[#E8D2A6] font-semibold text-black"
+                                                    : "text-neutral-400 hover:text-white"}`}
+                                            >
+                                                {choix.libelle}
+                                            </button>
+                                        ))}
+                                    </div>
                                     <Button
-                                        onClick={loadAiDiscovery}
+                                        onClick={() => loadAiDiscovery()}
                                         disabled={aiDiscoveryLoading}
                                         data-testid="refresh-ai-discovery"
                                         variant="outline"
