@@ -430,12 +430,13 @@ a[role="button"]:active {
     }
 }
 
-/* Bouton de lecture central : apparition franche mais douce. Sans transition il
-   surgissait d'un coup au moindre changement d'etat, ce qui se lisait comme un
-   clignotement. */
+/* Bouton de lecture central : apparition douce. Sans transition il surgissait
+   d'un coup au moindre changement d'etat, ce qui se lisait comme un clignotement.
+   L'animation ne porte que sur l'opacite : toucher au transform ecraserait le
+   centrage du bouton, qui repose lui aussi dessus. */
 @keyframes ymPlaySurgit {
-    from { opacity: 0; transform: scale(0.9); }
-    to { opacity: 1; transform: scale(1); }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .ym-play-surgit {

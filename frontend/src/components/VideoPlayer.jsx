@@ -93,7 +93,6 @@ export default function VideoPlayer({
     const [niveaux, setNiveaux] = useState([]);
     const [niveauChoisi, setNiveauChoisi] = useState(-1);
     const [vitesse, setVitesse] = useState(1);
-    const [niveauActif, setNiveauActif] = useState(0);
     const hlsRef = useRef(null);
     const chaineAudio = useRef({ contexte: null, gain: null });
     const hideTimer = useRef(null);
@@ -124,9 +123,6 @@ export default function VideoPlayer({
                 instance.on(Hls.Events.MANIFEST_PARSED, () => {
                     if (annule) return;
                     setNiveaux(instance.levels.map((n, index) => ({ index, height: n.height })));
-                });
-                instance.on(Hls.Events.LEVEL_SWITCHED, (_e, donnees) => {
-                    if (!annule) setNiveauActif(instance.levels[donnees.level]?.height || 0);
                 });
                 // Le CDN peut refuser le flux selon le domaine d'où la page est
                 // servie, ce que le serveur ne peut pas deviner. Plutôt qu'un
@@ -534,9 +530,7 @@ export default function VideoPlayer({
                                     <Settings size={18} />
                                     <span className="text-xs uppercase tracking-widest">
                                         {niveaux.length > 0
-                                            ? (niveauChoisi === -1
-                                                ? (niveauActif ? `Auto ${niveauActif}p` : "Auto")
-                                                : `${niveaux[niveauChoisi]?.height}p`)
+                                            ? (niveauChoisi === -1 ? "Auto" : `${niveaux[niveauChoisi]?.height}p`)
                                             : currentQuality}
                                     </span>
                                 </button>
@@ -555,7 +549,6 @@ export default function VideoPlayer({
                                                     className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === -1 ? "text-[#E8D2A6]" : "text-white"}`}
                                                 >
                                                     Automatique
-                                                    {niveauChoisi === -1 && niveauActif ? ` · ${niveauActif}p` : ""}
                                                 </button>
                                                 {[...niveaux].reverse().map((n) => (
                                                     <button
@@ -683,7 +676,7 @@ export default function VideoPlayer({
                     onClick={togglePlay}
                     aria-label="Lancer la lecture"
                     data-testid="player-center-play"
-                    className="ym-play-surgit absolute bottom-24 right-6 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#E8D2A6]/95 shadow-2xl transition-transform duration-150 hover:scale-105 hover:bg-[#E8D2A6] sm:h-16 sm:w-16"
+                    className="ym-play-surgit absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#E8D2A6]/95 shadow-2xl transition-transform duration-150 hover:scale-105 hover:bg-[#E8D2A6] sm:h-16 sm:w-16"
                 >
                     <Play size={22} className="ml-1 text-black" fill="currentColor" />
                 </button>
