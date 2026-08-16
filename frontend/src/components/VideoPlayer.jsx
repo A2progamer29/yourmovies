@@ -53,6 +53,7 @@ export default function VideoPlayer({
     videoRefOut = null,
     manifestUrl = null,
     onFluxImpossible = null,
+    fiche = null,
 }) {
     const wrapRef = useRef(null);
     const videoRef = useRef(null);
@@ -93,6 +94,7 @@ export default function VideoPlayer({
     const hlsRef = useRef(null);
     const chaineAudio = useRef({ contexte: null, gain: null });
     const hideTimer = useRef(null);
+    const demarrageAuto = useRef(false);
     const progressTimer = useRef(null);
 
     // Flux adaptatif : Safari lit le HLS nativement, les autres passent par
@@ -291,12 +293,14 @@ export default function VideoPlayer({
         }
     };
 
-    // When ads finish, start main video
+    // Lancement de la vidéo une fois les publicités passées. Une seule fois :
+    // l'effet dépendait de « playing », si bien que chaque pause déclenchait une
+    // relecture immédiate et rendait la mise en pause impossible.
     useEffect(() => {
-        if (adsFinished && videoRef.current && !playing) {
-            videoRef.current.play().then(() => setPlaying(true)).catch(() => { });
-        }
-    }, [adsFinished, playing]);
+        if (!adsFinished || demarrageAuto.current || !videoRef.current) return;
+        demarrageAuto.current = true;
+        videoRef.current.play().then(() => setPlaying(true)).catch(() => { });
+    }, [adsFinished]);
 
     // Change quality preserves position
     const changeQuality = (q) => {
@@ -581,6 +585,37 @@ export default function VideoPlayer({
                                 {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* À l'arrêt, la fiche du titre prend la place de l'image figée.
+                Sans capture de clic : un clic n'importe où relance la lecture. */}
+            {!playing && !adsRunning && fiche && (
+                <div
+                    data-testid="fiche-pause"
+                    className="pointer-events-none absolute inset-0 z-[5] flex items-center gap-5 bg-gradient-to-r from-black/90 via-black/60 to-transparent p-6 sm:p-10"
+                >
+                    {fiche.affiche && (
+                        <img
+                            src={fiche.affiche}
+                            alt=""
+                            className="hidden h-40 w-[112px] shrink-0 rounded-lg object-cover shadow-2xl ring-1 ring-white/10 sm:block"
+                        />
+                    )}
+                    <div className="min-w-0 max-w-xl">
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-[#E8D2A6]">En pause</div>
+                        <h2 className="mt-1.5 font-display text-2xl leading-tight text-white sm:text-4xl">
+                            {fiche.titre}
+                        </h2>
+                        {fiche.sousTitre && (
+                            <div className="mt-1.5 text-sm text-neutral-400">{fiche.sousTitre}</div>
+                        )}
+                        {fiche.description && (
+                            <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-neutral-300 sm:line-clamp-4">
+                                {fiche.description}
+                            </p>
+                        )}
                     </div>
                 </div>
             )}

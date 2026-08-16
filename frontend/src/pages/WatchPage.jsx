@@ -477,6 +477,23 @@ export default function WatchPage() {
     // alors définitivement sur le lecteur intégré pour ce titre.
     const revenirAuLecteurIntegre = useCallback(() => setManifestUrl(null), []);
 
+    // Ce que le lecteur affiche à l'arrêt : pour une série, l'épisode en cours
+    // prime sur la fiche du titre, sinon on annoncerait le mauvais résumé.
+    const ficheLecteur = React.useMemo(() => {
+        if (!media) return null;
+        const episode = media.type === "movie" ? null : selectedEpisode;
+        return {
+            titre: media.title,
+            affiche: media.poster_url,
+            sousTitre: episode
+                ? `Saison ${episode.season_number} · Épisode ${episode.ep_number}${episode.title ? ` — ${episode.title}` : ""}`
+                : [media.year, media.duration_minutes ? `${media.duration_minutes} min` : null].filter(Boolean).join(" · "),
+            description: episode?.description || media.description,
+        };
+    }, [media, selectedEpisode]);
+
+    const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
+
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
@@ -888,7 +905,12 @@ export default function WatchPage() {
                     <ChevronLeft size={16} /> Retour
                 </button>
                 <div className="flex items-baseline justify-between gap-4 mb-6 flex-wrap">
-                    <h1 className="font-display text-3xl sm:text-4xl">{media.title}</h1>
+                    {/* Le titre passe dans le lecteur, où il s'affiche à l'arrêt avec
+                        l'affiche et le résumé. Il reste ici quand le lecteur intégré
+                        prend le relais, faute de pouvoir y incruster quoi que ce soit. */}
+                    <h1 className={`font-display text-3xl sm:text-4xl ${lecteurDirectActif ? "sr-only" : ""}`}>
+                        {media.title}
+                    </h1>
                     <div className="flex items-center gap-2">
                         {!partyOpen ? (
                             <>
@@ -964,6 +986,7 @@ export default function WatchPage() {
                                 runAds={false}
                                 videoRefOut={videoElRef}
                                 onFluxImpossible={revenirAuLecteurIntegre}
+                                fiche={ficheLecteur}
                             />
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
