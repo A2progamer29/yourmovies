@@ -41,6 +41,10 @@ export default function PlayerGestures({ playerRef, disabled }) {
             p.on("play", enMarche);
             p.on("pause", arrete);
             p.on("ended", arrete);
+            // Si le navigateur a refusé le démarrage automatique, la vidéo est déjà
+            // en pause : sans cette lecture initiale, le premier appui la mettrait
+            // en pause une seconde fois et paraîtrait sans effet.
+            p.getPaused((enPause) => { enLecture.current = !enPause; });
         } catch { }
         return () => {
             try { p.off("play", enMarche); p.off("pause", arrete); p.off("ended", arrete); } catch { }
