@@ -311,7 +311,6 @@ export default function WatchPage() {
     const bunnyPlayerRef = useRef(null);
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
-    const [manifestUrl, setManifestUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     // En salon, la fin des publicités change la mise en page et reconstruit
     // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
@@ -473,25 +472,6 @@ export default function WatchPage() {
         && Boolean(suiteDisponible)
         && !(partyOpen && !isPartyHost);
 
-    // Le flux direct peut être refusé une fois dans le navigateur ; on repasse
-    // alors définitivement sur le lecteur intégré pour ce titre.
-    const revenirAuLecteurIntegre = useCallback(() => setManifestUrl(null), []);
-
-    // Ce que le lecteur affiche à l'arrêt : pour une série, l'épisode en cours
-    // prime sur la fiche du titre, sinon on annoncerait le mauvais résumé.
-    const ficheLecteur = React.useMemo(() => {
-        if (!media) return null;
-        const episode = media.type === "movie" ? null : selectedEpisode;
-        return {
-            titre: media.title,
-            affiche: media.poster_url,
-            sousTitre: episode
-                ? `Saison ${episode.season_number} · Épisode ${episode.ep_number}${episode.title ? ` — ${episode.title}` : ""}`
-                : [media.year, media.duration_minutes ? `${media.duration_minutes} min` : null].filter(Boolean).join(" · "),
-            description: episode?.description || media.description,
-        };
-    }, [media, selectedEpisode]);
-
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
@@ -513,9 +493,6 @@ export default function WatchPage() {
 
     const bunnySource = resolveBunnySource(playbackMedia);
 
-    // Déclaré après bunnySource, dont il dépend.
-    const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
-
     useEffect(() => {
         // Sans la preuve de vérification, le serveur refuserait l'URL : on
         // n'appelle donc pas tant qu'elle n'a pas été franchie.
@@ -525,7 +502,6 @@ export default function WatchPage() {
         }
         let active = true;
         setBunnyPlaybackUrl(null);
-        setManifestUrl(null);
         setBunnyPlaybackError(null);
         const playbackParams = media?.type === "movie" ? undefined : {
             season_number: selectedEpisode?.season_number,
@@ -543,9 +519,6 @@ export default function WatchPage() {
                     setBunnyPlaybackError("Le backend n’a renvoyé aucune URL de lecture.");
                     return;
                 }
-                // Le flux servi en direct autorise nos propres contrôles, dont
-                // l’amplification du son. À défaut, le lecteur intégré prend le relais.
-                setManifestUrl(data.playback_type === "direct" ? data.manifest_url : null);
                 if (data.libraryMatchesUploadConfig === false) {
                     setBunnyPlaybackError(
                         `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
@@ -906,12 +879,7 @@ export default function WatchPage() {
                     <ChevronLeft size={16} /> Retour
                 </button>
                 <div className="flex items-baseline justify-between gap-4 mb-6 flex-wrap">
-                    {/* Le titre passe dans le lecteur, où il s'affiche à l'arrêt avec
-                        l'affiche et le résumé. Il reste ici quand le lecteur intégré
-                        prend le relais, faute de pouvoir y incruster quoi que ce soit. */}
-                    <h1 className={`font-display text-3xl sm:text-4xl ${lecteurDirectActif ? "sr-only" : ""}`}>
-                        {media.title}
-                    </h1>
+                    <h1 className="font-display text-3xl sm:text-4xl">{media.title}</h1>
                     <div className="flex items-center gap-2">
                         {!partyOpen ? (
                             <>
@@ -974,21 +942,6 @@ export default function WatchPage() {
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
-                        ) : bunnySource && manifestUrl && !partyOpen ? (
-                            /* En salon, le lecteur intégré reste seul : c'est lui que le
-                               masque de l'invité neutralise pour laisser l'hôte diriger. */
-                            <VideoPlayer
-                                key={manifestUrl}
-                                manifestUrl={manifestUrl}
-                                poster={media.banner_url || media.poster_url}
-                                onProgress={suivreProgression}
-                                startAt={resumeAt}
-                                userMaxQuality={userMaxQuality}
-                                runAds={false}
-                                videoRefOut={videoElRef}
-                                onFluxImpossible={revenirAuLecteurIntegre}
-                                fiche={ficheLecteur}
-                            />
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 {bunnyPlaybackError ? (
