@@ -16,6 +16,7 @@ const SAMPLE_VAST_TAG =
 const AD_TAG_URL = process.env.REACT_APP_AD_TAG_URL || SAMPLE_VAST_TAG;
 
 const QUALITY_ORDER = ["4k", "1080p", "720p", "480p"];
+const VITESSES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function loadIma() {
     return new Promise((resolve, reject) => {
@@ -91,6 +92,8 @@ export default function VideoPlayer({
     const [boost, setBoost] = useState(1);
     const [niveaux, setNiveaux] = useState([]);
     const [niveauChoisi, setNiveauChoisi] = useState(-1);
+    const [vitesse, setVitesse] = useState(1);
+    const [niveauActif, setNiveauActif] = useState(0);
     const hlsRef = useRef(null);
     const chaineAudio = useRef({ contexte: null, gain: null });
     const hideTimer = useRef(null);
@@ -121,6 +124,9 @@ export default function VideoPlayer({
                 instance.on(Hls.Events.MANIFEST_PARSED, () => {
                     if (annule) return;
                     setNiveaux(instance.levels.map((n, index) => ({ index, height: n.height })));
+                });
+                instance.on(Hls.Events.LEVEL_SWITCHED, (_e, donnees) => {
+                    if (!annule) setNiveauActif(instance.levels[donnees.level]?.height || 0);
                 });
                 // Le CDN peut refuser le flux selon le domaine d'où la page est
                 // servie, ce que le serveur ne peut pas deviner. Plutôt qu'un
@@ -181,9 +187,23 @@ export default function VideoPlayer({
         if (contexte && contexte.state !== "closed") contexte.close().catch(() => { });
     }, []);
 
+    // En automatique, la qualité est bridée à la taille réelle du lecteur : inutile
+    // de charger du 1080p dans une fenêtre de 700 px, et la bande passante coûte.
+    // Un choix manuel doit passer outre, sinon la sélection reste sans effet.
     const choisirNiveau = (index) => {
         setNiveauChoisi(index);
-        if (hlsRef.current) hlsRef.current.currentLevel = index;
+        const hls = hlsRef.current;
+        if (hls) {
+            hls.capLevelToPlayerSize = index === -1;
+            hls.autoLevelCapping = -1;
+            hls.currentLevel = index;
+        }
+        setShowSettings(false);
+    };
+
+    const changerVitesse = (valeur) => {
+        setVitesse(valeur);
+        if (videoRef.current) videoRef.current.playbackRate = valeur;
         setShowSettings(false);
     };
 
@@ -512,37 +532,30 @@ export default function VideoPlayer({
                                     className="flex items-center gap-1.5 hover:text-[#E8D2A6] text-sm"
                                 >
                                     <Settings size={18} />
-                                    <span className="uppercase text-xs tracking-widest">{currentQuality}</span>
+                                    <span className="text-xs uppercase tracking-widest">
+                                        {niveaux.length > 0
+                                            ? (niveauChoisi === -1
+                                                ? (niveauActif ? `Auto ${niveauActif}p` : "Auto")
+                                                : `${niveaux[niveauChoisi]?.height}p`)
+                                            : currentQuality}
+                                    </span>
                                 </button>
                                 {showSettings && (
-                                    <div data-testid="quality-menu" className="absolute right-0 bottom-full mb-2 bg-[#0a0a0a] border border-[#262626] rounded-lg overflow-hidden shadow-2xl min-w-[210px]">
-                                        <div className="border-b border-[#262626] px-3 py-2.5">
-                                            <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-neutral-500">
-                                                <span>Amplification</span>
-                                                <span className="tabular-nums text-[#E8D2A6]">{Math.round(boost * 100)} %</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="1"
-                                                max="2.5"
-                                                step="0.1"
-                                                value={boost}
-                                                data-testid="player-boost"
-                                                onChange={(e) => appliquerBoost(Number(e.target.value))}
-                                                className="mt-2 w-full accent-[#E8D2A6] cursor-pointer"
-                                            />
-                                            <p className="mt-1.5 text-[10px] leading-snug text-neutral-600">
-                                                Au-delà de 100 %, le son peut saturer selon la piste.
-                                            </p>
+                                    <div
+                                        data-testid="quality-menu"
+                                        className="absolute bottom-full right-0 z-30 mb-2 max-h-[min(60vh,300px)] min-w-[220px] overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] shadow-2xl"
+                                    >
+                                        <div className="sticky top-0 border-b border-[#262626] bg-[#0a0a0a] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                            Qualité
                                         </div>
-                                        {niveaux.length > 0 && (
+                                        {niveaux.length > 0 ? (
                                             <>
-                                                <div className="border-b border-[#262626] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">Qualité</div>
                                                 <button
                                                     onClick={() => choisirNiveau(-1)}
                                                     className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === -1 ? "text-[#E8D2A6]" : "text-white"}`}
                                                 >
                                                     Automatique
+                                                    {niveauChoisi === -1 && niveauActif ? ` · ${niveauActif}p` : ""}
                                                 </button>
                                                 {[...niveaux].reverse().map((n) => (
                                                     <button
@@ -555,38 +568,73 @@ export default function VideoPlayer({
                                                     </button>
                                                 ))}
                                             </>
+                                        ) : (
+                                            <>
+                                                {availableQualities.length === 0 && (
+                                                    <div className="px-3 py-2 text-xs text-neutral-500">Aucune option</div>
+                                                )}
+                                                {availableQualities.map((q) => (
+                                                    <button
+                                                        key={q.quality}
+                                                        data-testid={`quality-${q.quality}`}
+                                                        onClick={() => changeQuality(q.quality)}
+                                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${currentQuality === q.quality ? "text-[#E8D2A6]" : "text-white"}`}
+                                                    >
+                                                        {q.quality.toUpperCase()}
+                                                    </button>
+                                                ))}
+                                                {qualitySources
+                                                    .filter((source) => !availableQualities.find((a) => a.quality === source.quality))
+                                                    .map((q) => (
+                                                        <Link
+                                                            key={q.quality}
+                                                            to="/pricing"
+                                                            className="flex items-center justify-between border-t border-[#262626] px-3 py-2 text-sm text-neutral-500 hover:bg-white/5"
+                                                        >
+                                                            <span>{q.quality.toUpperCase()}</span>
+                                                            <Zap size={12} className="text-[#E8D2A6]" />
+                                                        </Link>
+                                                    ))}
+                                            </>
                                         )}
-                                        {niveaux.length === 0 && (
-                                          <>
-                                        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-[#262626]">Qualité</div>
-                                        {availableQualities.length === 0 && (
-                                            <div className="px-3 py-2 text-xs text-neutral-500">Aucune option</div>
-                                        )}
-                                        {availableQualities.map((q) => (
-                                            <button
-                                                key={q.quality}
-                                                data-testid={`quality-${q.quality}`}
-                                                onClick={() => changeQuality(q.quality)}
-                                                className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${currentQuality === q.quality ? "text-[#E8D2A6]" : "text-white"}`}
-                                            >
-                                                {q.quality.toUpperCase()}
-                                            </button>
-                                        ))}
-                                        {/* Show locked qualities */}
-                                        {qualitySources
-                                            .filter((s) => !availableQualities.find((a) => a.quality === s.quality))
-                                            .map((q) => (
-                                                <Link
-                                                    key={q.quality}
-                                                    to="/pricing"
-                                                    className="block px-3 py-2 text-sm text-neutral-500 hover:bg-white/5 border-t border-[#262626] flex items-center justify-between"
+
+                                        <div className="border-y border-[#262626] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                            Vitesse
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-1 p-2">
+                                            {VITESSES.map((v) => (
+                                                <button
+                                                    key={v}
+                                                    data-testid={`vitesse-${v}`}
+                                                    onClick={() => changerVitesse(v)}
+                                                    className={`rounded px-2 py-1.5 text-xs tabular-nums transition-colors ${vitesse === v
+                                                        ? "bg-[#E8D2A6] font-semibold text-black"
+                                                        : "bg-white/5 text-neutral-300 hover:bg-white/10"}`}
                                                 >
-                                                    <span>{q.quality.toUpperCase()}</span>
-                                                    <Zap size={12} className="text-[#E8D2A6]" />
-                                                </Link>
+                                                    {v === 1 ? "Normal" : `${v}x`}
+                                                </button>
                                             ))}
-                                          </>
-                                        )}
+                                        </div>
+
+                                        <div className="border-t border-[#262626] px-3 py-2.5">
+                                            <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-neutral-500">
+                                                <span>Amplification</span>
+                                                <span className="tabular-nums text-[#E8D2A6]">{Math.round(boost * 100)} %</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="2.5"
+                                                step="0.1"
+                                                value={boost}
+                                                data-testid="player-boost"
+                                                onChange={(e) => appliquerBoost(Number(e.target.value))}
+                                                className="mt-2 w-full cursor-pointer accent-[#E8D2A6]"
+                                            />
+                                            <p className="mt-1.5 text-[10px] leading-snug text-neutral-600">
+                                                Au-delà de 100 %, le son peut saturer selon la piste.
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -603,7 +651,7 @@ export default function VideoPlayer({
             {!playing && !adsRunning && fiche && (
                 <div
                     data-testid="fiche-pause"
-                    className="pointer-events-none absolute inset-0 z-[5] flex items-center gap-5 bg-gradient-to-r from-black/90 via-black/60 to-transparent p-6 sm:p-10"
+                    className="pointer-events-none absolute inset-0 z-20 flex items-center gap-5 bg-gradient-to-r from-black/90 via-black/60 to-transparent p-6 sm:p-10"
                 >
                     {fiche.affiche && (
                         <img
@@ -633,9 +681,11 @@ export default function VideoPlayer({
             {!playing && !adsRunning && (
                 <button
                     onClick={togglePlay}
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-16 h-16 rounded-full bg-[#E8D2A6]/95 flex items-center justify-center hover:bg-[#E8D2A6]"
+                    aria-label="Lancer la lecture"
+                    data-testid="player-center-play"
+                    className="ym-play-surgit absolute bottom-24 right-6 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#E8D2A6]/95 shadow-2xl transition-transform duration-150 hover:scale-105 hover:bg-[#E8D2A6] sm:h-16 sm:w-16"
                 >
-                    <Play size={22} className="text-black ml-1" fill="currentColor" />
+                    <Play size={22} className="ml-1 text-black" fill="currentColor" />
                 </button>
             )}
         </div>
