@@ -96,6 +96,33 @@ class MediaEventAckInput(BaseModel):
     guild_id: str = Field(pattern=r"^\d{15,22}$")
 
 
+SiteStatusValue = Literal[
+    "operational",
+    "readers",
+    "site",
+    "slowdowns",
+    "maintenance",
+    "incident",
+]
+
+
+class SiteStatusConfigInput(BaseModel):
+    guild_id: str = Field(pattern=r"^\d{15,22}$")
+    channel_id: str = Field(pattern=r"^\d{15,22}$")
+    message_id: str = Field(pattern=r"^\d{15,22}$")
+    updated_by_id: str = Field(pattern=r"^\d{15,22}$")
+    updated_by_name: str = Field(min_length=1, max_length=100)
+
+
+class SiteStatusUpdateInput(BaseModel):
+    guild_id: str = Field(pattern=r"^\d{15,22}$")
+    message_id: str = Field(pattern=r"^\d{15,22}$")
+    status: SiteStatusValue
+    message: Optional[str] = Field(default=None, max_length=1000)
+    updated_by_id: str = Field(pattern=r"^\d{15,22}$")
+    updated_by_name: str = Field(min_length=1, max_length=100)
+
+
 def create_discord_router(
     *,
     db,
@@ -657,6 +684,103 @@ def create_discord_router(
             "guild_id": inp.guild_id,
             "channel_id": inp.channel_id,
             "cursor": cursor,
+        }
+
+    @router.post("/internal/discord/site-status/config", dependencies=[Depends(require_service_key)])
+    async def configure_site_status(inp: SiteStatusConfigInput):
+        """Enregistre le message unique utilisé pour afficher l'état public du site."""
+        await ensure_indexes()
+        existing = await db.discord_bot_config.find_one(
+            {"guild_id": inp.guild_id},
+            {
+                "_id": 0,
+                "site_status_channel_id": 1,
+                "site_status_message_id": 1,
+            },
+        )
+        now = datetime.now(timezone.utc)
+        await db.discord_bot_config.update_one(
+            {"guild_id": inp.guild_id},
+            {"$set": {
+                "guild_id": inp.guild_id,
+                "site_status_channel_id": inp.channel_id,
+                "site_status_message_id": inp.message_id,
+                "site_status": "operational",
+                "site_status_message": None,
+                "site_status_updated_at": now,
+                "site_status_updated_by_id": inp.updated_by_id,
+                "site_status_updated_by_name": inp.updated_by_name,
+            }},
+            upsert=True,
+        )
+        return {
+            "ok": True,
+            "configured": True,
+            "guild_id": inp.guild_id,
+            "channel_id": inp.channel_id,
+            "message_id": inp.message_id,
+            "status": "operational",
+            "message": None,
+            "updated_at": now.isoformat(),
+            "updated_by_id": inp.updated_by_id,
+            "updated_by_name": inp.updated_by_name,
+            "previous_channel_id": (existing or {}).get("site_status_channel_id"),
+            "previous_message_id": (existing or {}).get("site_status_message_id"),
+        }
+
+    @router.get("/internal/discord/site-status/{guild_id}", dependencies=[Depends(require_service_key)])
+    async def get_site_status(guild_id: str):
+        await ensure_indexes()
+        if not guild_id.isdigit() or not 15 <= len(guild_id) <= 22:
+            raise api_error(422, "YM-SITE-STATUS-GUILD", "L'identifiant du serveur est invalide.", "Relance la commande depuis le serveur Discord.")
+        config = await db.discord_bot_config.find_one({"guild_id": guild_id}, {"_id": 0})
+        if not config or not config.get("site_status_channel_id") or not config.get("site_status_message_id"):
+            return {"configured": False, "guild_id": guild_id}
+        updated_at = config.get("site_status_updated_at")
+        return {
+            "configured": True,
+            "guild_id": guild_id,
+            "channel_id": config.get("site_status_channel_id"),
+            "message_id": config.get("site_status_message_id"),
+            "status": config.get("site_status") or "operational",
+            "message": config.get("site_status_message"),
+            "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else updated_at,
+            "updated_by_id": config.get("site_status_updated_by_id"),
+            "updated_by_name": config.get("site_status_updated_by_name"),
+        }
+
+    @router.post("/internal/discord/site-status/update", dependencies=[Depends(require_service_key)])
+    async def update_site_status(inp: SiteStatusUpdateInput):
+        """Met à jour l'état après que le bot a modifié le message Discord."""
+        await ensure_indexes()
+        now = datetime.now(timezone.utc)
+        message = (inp.message or "").strip() or None
+        result = await db.discord_bot_config.update_one(
+            {
+                "guild_id": inp.guild_id,
+                "site_status_channel_id": {"$ne": None},
+            },
+            {"$set": {
+                "site_status_message_id": inp.message_id,
+                "site_status": inp.status,
+                "site_status_message": message,
+                "site_status_updated_at": now,
+                "site_status_updated_by_id": inp.updated_by_id,
+                "site_status_updated_by_name": inp.updated_by_name,
+            }},
+        )
+        if result.matched_count == 0:
+            raise api_error(404, "YM-SITE-STATUS-NOT-CONFIGURED", "Aucun salon d'état du site n'est configuré.", "Utilise /setup_etat avant de signaler un problème.")
+        return {
+            "ok": True,
+            "configured": True,
+            "guild_id": inp.guild_id,
+            "message_id": inp.message_id,
+            "status": inp.status,
+            "message": message,
+            "updated_at": now.isoformat(),
+            "updated_by_id": inp.updated_by_id,
+            "updated_by_name": inp.updated_by_name,
         }
 
     @router.get("/internal/discord/media-events/{guild_id}", dependencies=[Depends(require_service_key)])
