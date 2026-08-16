@@ -17,6 +17,7 @@ import AdminAds from "@/components/AdminAds";
 import AdminTraffic from "@/components/AdminTraffic";
 import AdminGuide from "@/components/AdminGuide";
 import AdminStorage from "@/components/AdminStorage";
+import AdminInventaire from "@/components/AdminInventaire";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
@@ -466,7 +467,7 @@ export default function AdminPage() {
                 { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
                 { value: "players", label: "Signalements", icon: <Flag size={14} />, perm: "content.edit", badge: alertes },
                 { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
-                { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
+                { value: "storage", label: "Coûts et stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
         },
         {
@@ -1459,10 +1460,13 @@ export default function AdminPage() {
                     {can(user, "content.delete") && (
                         <TabsContent value="storage" className="mt-0">
                             <SectionHeader
-                                titre="Stockage"
-                                description="L'espace occupé par les vidéos et les fichiers restés en ligne sans contenu associé."
+                                titre="Coûts et stockage"
+                                description="Ce que chaque titre occupe et coûte chaque mois, ses vues, et les fichiers restés en ligne sans contenu associé."
                             />
-                            <AdminStorage />
+                            <AdminInventaire />
+                            <div className="mt-8 border-t border-[#1a1a1a] pt-8">
+                                <AdminStorage />
+                            </div>
                         </TabsContent>
                     )}
 

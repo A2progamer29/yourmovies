@@ -1491,6 +1491,159 @@ async def admin_bunny_views(
     }
 
 
+# Tarif de stockage de l'hébergeur, en dollars par gigaoctet et par mois. La
+# facture minimale mensuelle est indépendante de ce calcul.
+PRIX_STOCKAGE_GO_MOIS = 0.01
+FACTURE_MINIMALE_MOIS = 1.0
+
+
+async def _bande_passante_30j(library_id: str) -> Optional[int]:
+    """Octets diffusés sur trente jours, pour situer la diffusion face au stockage.
+
+    Renvoie None si la statistique est indisponible : elle éclaire le tableau
+    mais ne doit jamais empêcher l'inventaire de s'afficher."""
+    debut = (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
+    fin = datetime.now(timezone.utc).date().isoformat()
+    try:
+        r = await run_in_threadpool(lambda: requests.get(
+            f"https://video.bunnycdn.com/library/{library_id}/statistics",
+            headers={"AccessKey": BUNNY_API_KEY},
+            params={"dateFrom": debut, "dateTo": fin},
+            timeout=20,
+        ))
+        if not r.ok:
+            return None
+        return int(sum((r.json().get("bandwidthUsedChart") or {}).values()))
+    except Exception as exc:
+        logger.warning("Bande passante indisponible : %s", exc)
+        return None
+
+
+@api_router.get("/admin/storage/inventory")
+async def admin_storage_inventory(
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.delete")),
+):
+    """Ce que chaque titre occupe et coûte, avec ses vues.
+
+    Le poids se lit chez l'hébergeur et les vues aussi : un compteur maison ne
+    verrait pas les lectures faites avant sa mise en place."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
+    library = _validated_bunny_library_id(library_id)
+    videos = await _bunny_library_videos(library)
+    par_guid = {str(v.get("guid")): v for v in videos if v.get("guid")}
+
+    docs = await db.media.find(
+        {}, {"_id": 0, "id": 1, "title": 1, "type": 1, "poster_url": 1,
+             "bunny_video_id": 1, "bunny_library_id": 1, "seasons": 1, "player_broken": 1},
+    ).to_list(100000)
+
+    items = []
+    rattachees = set()
+    for doc in docs:
+        octets = 0
+        secondes = 0
+        vues = 0
+        nombre = 0
+        for video_id, _ in _bunny_references_of(doc):
+            video = par_guid.get(video_id)
+            if not video:
+                continue
+            rattachees.add(video_id)
+            nombre += 1
+            octets += int(video.get("storageSize") or 0)
+            secondes += int(video.get("length") or 0)
+            vues += int(video.get("views") or 0)
+        if nombre == 0:
+            continue
+        items.append({
+            "id": doc["id"],
+            "title": doc.get("title", ""),
+            "type": doc.get("type", "movie"),
+            "poster_url": doc.get("poster_url"),
+            "videos": nombre,
+            "seconds": secondes,
+            "bytes": octets,
+            "views": vues,
+            "player_broken": bool(doc.get("player_broken")),
+        })
+
+    items.sort(key=lambda e: e["bytes"], reverse=True)
+    octets_total = sum(e["bytes"] for e in items)
+    orphelines = sum(
+        int(v.get("storageSize") or 0)
+        for v in videos
+        if str(v.get("guid") or "") not in rattachees
+    )
+    dormants = [e for e in items if e["views"] == 0]
+
+    return {
+        "library_id": library,
+        "items": items,
+        "price_per_gb": PRIX_STOCKAGE_GO_MOIS,
+        "minimum_monthly": FACTURE_MINIMALE_MOIS,
+        "total_bytes": octets_total + orphelines,
+        "attached_bytes": octets_total,
+        "orphan_bytes": orphelines,
+        "cold_bytes": sum(e["bytes"] for e in dormants),
+        "cold_count": len(dormants),
+        "titles": len(items),
+        "video_count": len(videos),
+        "bandwidth_30d_bytes": await _bande_passante_30j(library),
+    }
+
+
+class LiberationInput(BaseModel):
+    media_id: str
+    notice: Optional[str] = Field(default=None, max_length=300)
+
+
+@api_router.post("/admin/storage/release")
+async def admin_storage_release(
+    inp: LiberationInput,
+    user: dict = Depends(require_perm("content.delete")),
+):
+    """Supprime les vidéos d'un titre en gardant sa fiche.
+
+    Le contenu reste au catalogue, visible et demandable, mais cesse d'être
+    facturé. Supprimer la fiche entière ferait perdre l'affiche, le résumé, les
+    avis et les votes — alors que seul le fichier coûte."""
+    doc = await db.media.find_one({"id": inp.media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+
+    references = _bunny_references_of(doc)
+    if not references:
+        raise HTTPException(status_code=400, detail="Ce contenu n'a aucune vidéo hébergée")
+
+    supprimees = 0
+    for depart in range(0, len(references), 8):
+        lot = references[depart:depart + 8]
+        resultats = await asyncio.gather(
+            *(_delete_bunny_video(video_id, library_id) for video_id, library_id in lot),
+            return_exceptions=True,
+        )
+        supprimees += sum(1 for r in resultats if r is True)
+
+    saisons = doc.get("seasons") or []
+    for saison in saisons:
+        for episode in (saison.get("episodes") or []):
+            episode["bunny_video_id"] = None
+            episode["video_url"] = None
+
+    await db.media.update_one({"id": inp.media_id}, {"$set": {
+        "bunny_video_id": None,
+        "video_url": None,
+        "seasons": saisons,
+        "player_broken": True,
+        "player_notice": inp.notice or "Ce titre a été retiré de la lecture pour libérer de l'espace. Demande-le sur le Wishboard pour qu'il revienne.",
+        "storage_released_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    logger.info("Stockage libéré pour %s par %s : %d vidéos", inp.media_id, user.get("user_id"), supprimees)
+    return {"ok": True, "deleted": supprimees, "requested": len(references)}
+
+
 @api_router.get("/admin/bunny/orphans")
 async def admin_bunny_orphans(
     library_id: Optional[str] = Query(None),
