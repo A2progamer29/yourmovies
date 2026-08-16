@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag, ScrollText, PlayCircle } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -19,7 +19,6 @@ import AdminGuide from "@/components/AdminGuide";
 import AdminStorage from "@/components/AdminStorage";
 import AdminInventaire from "@/components/AdminInventaire";
 import AdminJournal from "@/components/AdminJournal";
-import AdminApercuVideo from "@/components/AdminApercuVideo";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
@@ -95,7 +94,6 @@ export default function AdminPage() {
     const [cagnotte, setCagnotte] = useState({ total: 0, goal: 1000 });
     const [cagnotteInput, setCagnotteInput] = useState("");
     const [premiumUser, setPremiumUser] = useState(null);
-    const [apercu, setApercu] = useState(null);
     const [roleUser, setRoleUser] = useState(null);
     const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
@@ -798,7 +796,6 @@ export default function AdminPage() {
                                         </div>
                                     </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
-                                        <Button variant="ghost" size="icon" onClick={() => setApercu(m)} title="Vérifier la vidéo" data-testid={`verifier-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><PlayCircle size={14} /></Button>
                                         {can(user, "content.edit") && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
                                         {can(user, "content.delete") && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
 
@@ -1512,7 +1509,6 @@ export default function AdminPage() {
                 </Tabs>
             </div>
 
-            <AdminApercuVideo media={apercu} open={!!apercu} onOpenChange={(ouvert) => !ouvert && setApercu(null)} />
             <GivePremiumDialog user={premiumUser} open={!!premiumUser} onOpenChange={(v) => !v && setPremiumUser(null)} onDone={loadUsers} />
             <AdminRoleDialog user={roleUser} open={!!roleUser} onOpenChange={(v) => !v && setRoleUser(null)} onDone={loadUsers} />
         </div>

@@ -16,6 +16,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import BulkEpisodeUpload from "@/components/BulkEpisodeUpload";
 import { showError } from "@/lib/errors";
+import VerifierVideo from "@/components/VerifierVideo";
 
 const EMPTY = {
     title: "",
@@ -1062,7 +1063,10 @@ export default function AdminMediaForm() {
                                     )}
                                 </label>
                                 {form.bunny_video_id && (
-                                    <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
+                                    <>
+                                        <VerifierVideo videoId={form.bunny_video_id} libraryId={form.bunny_library_id} />
+                                        <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
+                                    </>
                                 )}
                                 <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présente, cette vidéo est utilisée en priorité.</div>
                             </div>
@@ -1168,6 +1172,9 @@ export default function AdminMediaForm() {
                                                                     </span>
                                                                 </label>
                                                             </div>
+                                                            {ep.bunny_video_id && (
+                                                                <VerifierVideo videoId={ep.bunny_video_id} libraryId={ep.bunny_library_id} compact />
+                                                            )}
                                                             {ep.air_date && <div className="text-[11px] text-neutral-600">Diffusé le {ep.air_date}</div>}
                                                         </div>
                                                     );

@@ -35,6 +35,11 @@ export default function GivePremiumDialog({ user, open, onOpenChange, onDone }) 
     };
 
     const remove = async () => {
+        if (!window.confirm(
+            `Retirer le Premium de ${user?.name} ?\n\n`
+            + "Toutes les sources sont coupées : attribution directe, liaison Discord "
+            + "et clés d'activation. Une seule laissée en place suffirait à le maintenir actif."
+        )) return;
         setBusy(true);
         try {
             await api.post(`/admin/users/${user.user_id}/premium`, { remove: true });

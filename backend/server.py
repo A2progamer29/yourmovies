@@ -4224,6 +4224,30 @@ async def bunny_video_status(
     }
 
 
+@api_router.get("/admin/bunny/preview/{video_id}")
+async def admin_bunny_preview(
+    video_id: str,
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.add")),
+):
+    """URL de lecture d'une video par son seul identifiant.
+
+    La lecture publique part d'une fiche du catalogue ; ici le fichier vient
+    d'etre depose et n'est encore rattache a rien, il faut donc pouvoir le
+    verifier avant meme d'enregistrer."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Hebergeur video non configure")
+    bibliotheque = _validated_bunny_library_id(library_id)
+    if not re.fullmatch(r"[A-Za-z0-9-]{8,64}", video_id or ""):
+        raise HTTPException(status_code=400, detail="Identifiant de video invalide")
+    expires = int(time.time()) + 2 * 60 * 60
+    params = "autoplay=false&preload=true&responsive=true"
+    if BUNNY_TOKEN_AUTH_KEY:
+        jeton = hashlib.sha256(f"{BUNNY_TOKEN_AUTH_KEY}{video_id}{expires}".encode()).hexdigest()
+        params = f"token={jeton}&expires={expires}&{params}"
+    return {"url": f"https://iframe.mediadelivery.net/embed/{bibliotheque}/{video_id}?{params}"}
+
+
 @api_router.delete("/bunny/videos/{video_id}")
 async def bunny_delete_video(
     video_id: str,
@@ -5799,6 +5823,32 @@ async def admin_set_role(user_id: str, inp: AdminRoleInput, admin: dict = Depend
         "is_admin": bool(_admin_perms(fresh)),
     }
 
+async def _retirer_tout_premium(user_id: str) -> dict:
+    """Coupe le Premium quelle que soit sa provenance.
+
+    Un compte peut le tenir de trois sources : une attribution directe, une
+    liaison Discord, ou une cle SellAuth. N'effacer que la premiere laissait le
+    Premium actif tout en affichant un retrait reussi — le bouton semblait sans
+    effet alors qu'il avait bien agi, mais sur la mauvaise source."""
+    avant = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    retirees = []
+    if avant.get("premium_plan") or avant.get("premium_until"):
+        retirees.append("compte")
+    if avant.get("discord_premium_plan") or avant.get("discord_premium_until"):
+        retirees.append("discord")
+    if avant.get("license_entitlements"):
+        retirees.append("licence")
+
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "premium_until": None,
+        "premium_plan": None,
+        "discord_premium_until": None,
+        "discord_premium_plan": None,
+        "license_entitlements": [],
+    }})
+    return {"premium": False, "sources_retirees": retirees}
+
+
 @api_router.post("/admin/users/{user_id}/toggle-premium")
 async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_perm("users.premium"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -5815,8 +5865,7 @@ async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_perm(
         except Exception:
             active = False
     if active:
-        await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": None, "premium_plan": None}})
-        return {"premium": False}
+        return await _retirer_tout_premium(user_id)
     until = (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat()
     await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": "admin"}})
     return {"premium": True}
@@ -5827,9 +5876,9 @@ async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = 
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
     if inp.remove or not inp.plan:
-        await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": None, "premium_plan": None}})
-        return {"premium": False}
+        return await _retirer_tout_premium(user_id)
     until = (datetime.now(timezone.utc) + timedelta(days=max(1, inp.days))).isoformat()
+    await _retirer_tout_premium(user_id)
     await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": inp.plan}})
     return {"premium": True, "plan": inp.plan, "premium_until": until}
 
