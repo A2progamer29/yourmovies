@@ -52,6 +52,7 @@ export default function VideoPlayer({
     preferredQuality = null,
     videoRefOut = null,
     manifestUrl = null,
+    onFluxImpossible = null,
 }) {
     const wrapRef = useRef(null);
     const videoRef = useRef(null);
@@ -116,6 +117,13 @@ export default function VideoPlayer({
                     if (annule) return;
                     setNiveaux(instance.levels.map((n, index) => ({ index, height: n.height })));
                 });
+                // Le CDN peut refuser le flux selon le domaine d'où la page est
+                // servie, ce que le serveur ne peut pas deviner. Plutôt qu'un
+                // écran noir, on rend la main au lecteur intégré.
+                instance.on(Hls.Events.ERROR, (_evenement, donnees) => {
+                    if (annule || !donnees?.fatal) return;
+                    if (onFluxImpossible) onFluxImpossible();
+                });
                 instance.loadSource(manifestUrl);
                 instance.attachMedia(video);
             } catch {
@@ -128,7 +136,7 @@ export default function VideoPlayer({
             if (instance) instance.destroy();
             hlsRef.current = null;
         };
-    }, [manifestUrl]);
+    }, [manifestUrl, onFluxImpossible]);
 
     // Amplification au-delà de 100 %. Le graphe audio n'est construit qu'au
     // premier usage : tant que personne n'y touche, le son suit son chemin

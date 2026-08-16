@@ -473,6 +473,10 @@ export default function WatchPage() {
         && Boolean(suiteDisponible)
         && !(partyOpen && !isPartyHost);
 
+    // Le flux direct peut être refusé une fois dans le navigateur ; on repasse
+    // alors définitivement sur le lecteur intégré pour ce titre.
+    const revenirAuLecteurIntegre = useCallback(() => setManifestUrl(null), []);
+
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
@@ -959,6 +963,7 @@ export default function WatchPage() {
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
                                 videoRefOut={videoElRef}
+                                onFluxImpossible={revenirAuLecteurIntegre}
                             />
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>

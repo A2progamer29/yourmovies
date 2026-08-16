@@ -4232,10 +4232,29 @@ def _signer_dossier_cdn(video_id: str, expires: int, encoder_chemin: bool) -> st
     )
 
 
+def _url_nue(video_id: str, _expires: int) -> str:
+    return f"https://{BUNNY_CDN_HOST}/{video_id}/playlist.m3u8"
+
+
+# Le CDN filtre sur le domaine référent, pas sur un jeton : une page servie
+# depuis le site est acceptée telle quelle. Les variantes signées restent
+# essayées ensuite, au cas où l'authentification par jeton serait activée un jour.
+FORMULES_DIRECTES = (
+    ("referent", _url_nue),
+    ("jeton-encode", lambda v, e: _signer_dossier_cdn(v, e, True)),
+    ("jeton-brut", lambda v, e: _signer_dossier_cdn(v, e, False)),
+)
+
+
 async def _manifeste_lisible(url: str) -> bool:
+    """Le référent est envoyé par le navigateur du spectateur : le test doit
+    l'imiter, sinon il conclurait à tort que la lecture directe est fermée."""
     try:
         r = await run_in_threadpool(lambda: requests.get(
-            url, timeout=12, stream=True, headers={"Origin": "https://yourmovies.space"},
+            url, timeout=12, stream=True, headers={
+                "Referer": "https://yourmovies.space/",
+                "Origin": "https://yourmovies.space",
+            },
         ))
         r.close()
         return r.status_code == 200
@@ -4246,22 +4265,24 @@ async def _manifeste_lisible(url: str) -> bool:
 async def _url_directe(video_id: str) -> Optional[str]:
     """URL du manifeste si la lecture directe fonctionne, sinon None.
 
-    L'écriture retenue est vérifiée une fois puis mémorisée : se tromper de
-    format ferait échouer toutes les lectures, alors qu'un retour à l'iframe est
-    invisible pour le spectateur."""
-    if not (BUNNY_TOKEN_AUTH_KEY and BUNNY_CDN_HOST):
+    La formule retenue est vérifiée une fois puis mémorisée. Si aucune ne passe,
+    l'URL d'intégration est renvoyée comme avant : la fonction devient
+    indisponible, jamais la lecture."""
+    if not BUNNY_CDN_HOST:
         return None
     expires = int(time.time()) + 4 * 60 * 60
 
     if _format_jeton_cdn["teste"] and time.time() < _format_jeton_cdn["expire"]:
         choisi = _format_jeton_cdn["choisi"]
-        return _signer_dossier_cdn(video_id, expires, choisi) if choisi is not None else None
+        return choisi(video_id, expires) if choisi is not None else None
 
-    for encoder in (True, False):
-        url = _signer_dossier_cdn(video_id, expires, encoder)
+    for nom, formule in FORMULES_DIRECTES:
+        if nom != "referent" and not BUNNY_TOKEN_AUTH_KEY:
+            continue
+        url = formule(video_id, expires)
         if await _manifeste_lisible(url):
-            _format_jeton_cdn.update({"choisi": encoder, "teste": True, "expire": time.time() + 3600})
-            logger.info("Lecture directe active (chemin encodé : %s)", encoder)
+            _format_jeton_cdn.update({"choisi": formule, "teste": True, "expire": time.time() + 3600})
+            logger.info("Lecture directe active (%s)", nom)
             return url
 
     _format_jeton_cdn.update({"choisi": None, "teste": True, "expire": time.time() + 900})
