@@ -94,7 +94,9 @@ export function AuthProvider({ children }) {
         } catch (e) {
             // Discard expired/revoked credentials so subsequent page loads stay
             // anonymous instead of repeatedly sending an invalid token.
-            if (e?.response?.status === 401) {
+            // 403 : appareil bloqué depuis le compte. Le jeton ne servira plus,
+            // autant le jeter comme un jeton expiré.
+            if (e?.response?.status === 401 || e?.response?.status === 403) {
                 localStorage.removeItem("ym_token");
                 ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
                 setActiveProfileState(null);

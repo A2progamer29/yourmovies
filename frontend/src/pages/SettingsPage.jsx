@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Info, MonitorSmartphone, History, ChartPie } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Info, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -406,15 +406,17 @@ export default function SettingsPage() {
     };
 
     const TABS = [
+        // Trois familles, dans cet ordre : qui je suis, ce que je fais,
+        // ce qui gère mon compte.
         { id: "profile", label: "Profil", icon: <UserIcon size={14} /> },
-        { id: "preferences", label: "Préférences", icon: <Play size={14} /> },
+        { id: "preferences", label: "Préférences", icon: <Sliders size={14} /> },
+        { id: "activity", label: "Activité", icon: <History size={14} /> },
+        { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
+        { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
+        { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
         { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
         { id: "activation", label: "Activation", icon: <KeyRound size={14} /> },
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
-        { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
-        { id: "activity", label: "Activité", icon: <History size={14} /> },
-        { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
-        { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
 
     return (
@@ -586,6 +588,10 @@ export default function SettingsPage() {
 
                 {tab === "preferences" && (
                     <div className="space-y-6">
+                        <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+                            Lecture
+                        </div>
+
                         <div className="pb-5 border-b border-[#262626]">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="text-white flex items-center gap-2">
@@ -631,6 +637,7 @@ export default function SettingsPage() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
+                                    <SkipForward size={14} className="text-[#E8D2A6]" />
                                     Lecture automatique de la suite
                                     {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </div>
@@ -652,14 +659,19 @@ export default function SettingsPage() {
                                     : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                     }`}
                             >
-                                <SkipForward size={14} />
+                                {form.autoplay_next ? <Check size={14} /> : <X size={14} />}
                                 {form.autoplay_next ? "Activée" : "Désactivée"}
                             </button>
+                        </div>
+
+                        <div className="pt-1 text-[10px] uppercase tracking-widest text-neutral-500">
+                            Apparence
                         </div>
 
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
+                                    <Clapperboard size={14} className="text-[#E8D2A6]" />
                                     Bande-annonce cinéma sur l&apos;accueil
                                     {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </div>
@@ -681,7 +693,7 @@ export default function SettingsPage() {
                                     : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                     }`}
                             >
-                                <Play size={14} fill={form.autoplay_hero ? "currentColor" : "none"} />
+                                {form.autoplay_hero ? <Check size={14} /> : <X size={14} />}
                                 {form.autoplay_hero ? "Activée" : "Désactivée"}
                             </button>
                         </div>

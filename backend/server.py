@@ -1123,6 +1123,8 @@ async def auth_google(inp: GoogleAuthInput, request: Request):
 async def me(request: Request, user: dict = Depends(get_current_user)):
     try:
         await _noter_appareil(user.get("user_id"), request.headers.get("user-agent"))
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.warning("Appareil non enregistré : %s", exc)
     return user_public_dict(user)
@@ -2462,14 +2464,31 @@ def _decrire_appareil(agent: str) -> dict:
     }
 
 
-async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
-    """Enregistre l'appareil au passage sur /auth/me, appelé à chaque
-    chargement du site. Pas de session à révoquer — les jetons sont autonomes —
-    c'est une trace de connexion, pas un gestionnaire de sessions."""
+def _empreinte_appareil(user_id: str, agent: Optional[str]) -> Optional[str]:
+    """Identifiant stable d'un appareil pour un compte donné. Ni adresse IP ni
+    position : le système et le navigateur suffisent à s'y reconnaître."""
     if not user_id or not agent:
+        return None
+    return hashlib.sha256(f"{user_id}|{agent}".encode("utf-8")).hexdigest()[:16]
+
+
+async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
+    """Enregistre l'appareil au passage sur /auth/me, appelé à chaque chargement
+    du site, et refuse l'accès si le compte l'a bloqué.
+
+    C'est le seul endroit où le blocage peut mordre : les jetons sont autonomes,
+    aucune session n'existe à révoquer. Le contrôle se fait donc au moment où le
+    navigateur vient valider sa connexion."""
+    empreinte = _empreinte_appareil(user_id, agent)
+    if not empreinte:
         return
+    connu = await db.user_devices.find_one({"id": empreinte}, {"_id": 0, "blocked": 1})
+    if connu and connu.get("blocked"):
+        raise HTTPException(
+            status_code=403,
+            detail="Cet appareil a été bloqué depuis les paramètres de ce compte.",
+        )
     description = _decrire_appareil(agent)
-    empreinte = hashlib.sha256(f"{user_id}|{agent}".encode("utf-8")).hexdigest()[:16]
     maintenant = datetime.now(timezone.utc).isoformat()
     await db.user_devices.update_one(
         {"id": empreinte},
@@ -2482,11 +2501,44 @@ async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
 
 
 @api_router.get("/me/devices")
-async def mes_appareils(user: dict = Depends(get_current_user)):
+async def mes_appareils(request: Request, user: dict = Depends(get_current_user)):
     docs = await db.user_devices.find(
         {"user_id": user["user_id"]}, {"_id": 0},
     ).sort("last_seen", -1).to_list(50)
+    # Marquer l'appareil courant évite qu'on se bloque soi-même sans le voir.
+    actuel = _empreinte_appareil(user["user_id"], request.headers.get("user-agent"))
+    for doc in docs:
+        doc["current"] = doc.get("id") == actuel
+        doc["blocked"] = bool(doc.get("blocked"))
     return {"items": docs}
+
+
+class BlocageAppareilInput(BaseModel):
+    blocked: bool
+
+
+@api_router.patch("/me/devices/{device_id}")
+async def bloquer_appareil(
+    device_id: str,
+    inp: BlocageAppareilInput,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Bloque ou débloque un appareil. Un appareil bloqué ne peut plus valider sa
+    connexion : son jeton devient inutile tant que le blocage tient."""
+    actuel = _empreinte_appareil(user["user_id"], request.headers.get("user-agent"))
+    if inp.blocked and device_id == actuel:
+        raise HTTPException(
+            status_code=400,
+            detail="Impossible de bloquer l'appareil que tu utilises en ce moment.",
+        )
+    resultat = await db.user_devices.update_one(
+        {"id": device_id, "user_id": user["user_id"]},
+        {"$set": {"blocked": bool(inp.blocked)}},
+    )
+    if resultat.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Appareil introuvable")
+    return {"ok": True, "blocked": bool(inp.blocked)}
 
 
 @api_router.delete("/me/devices/{device_id}")
