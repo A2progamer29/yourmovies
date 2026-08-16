@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag, ScrollText } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -21,7 +21,6 @@ import AdminInventaire from "@/components/AdminInventaire";
 import AdminJournal from "@/components/AdminJournal";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
-import AdminContributors from "@/components/AdminContributors";
 import AdminReferral from "@/components/AdminReferral";
 import AdminViews from "@/components/AdminViews";
 import AdminReports from "@/components/AdminReports";
@@ -476,7 +475,6 @@ export default function AdminPage() {
                 { value: "users", label: "Utilisateurs", icon: <Users size={14} /> },
                 { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
-                { value: "contributors", label: "Contributeurs", icon: <Trophy size={14} />, perm: "content.add" },
                 { value: "journal", label: "Journal", icon: <ScrollText size={14} />, perm: "content.add" },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
@@ -1449,14 +1447,6 @@ export default function AdminPage() {
                             description="Les contenus ajoutés par un compte sans droit de publication. Vérifie la fiche, puis publie ou refuse."
                         />
                         <AdminPending onCount={setPendingCount} />
-                    </TabsContent>
-
-                    <TabsContent value="contributors" className="mt-0">
-                        <SectionHeader
-                            titre="Contributeurs"
-                            description="Qui alimente le catalogue, et depuis combien de temps."
-                        />
-                        <AdminContributors />
                     </TabsContent>
 
                     {can(user, "content.add") && (

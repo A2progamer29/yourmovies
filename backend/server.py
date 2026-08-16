@@ -1828,51 +1828,6 @@ async def admin_journal(
     return {"items": sortie}
 
 
-@api_router.get("/admin/contributors")
-async def admin_contributors(user: dict = Depends(require_perm("content.add"))):
-    """Qui a ajoute quoi : reconstruit depuis le journal deja tenu a chaque ajout."""
-    evenements = await db.media_events.find(
-        {"action": "added", "created_by": {"$ne": None}},
-        {"_id": 0, "created_by": 1, "created_at": 1, "media": 1},
-    ).to_list(100000)
-    par_personne = {}
-    for evenement in evenements:
-        identifiant = evenement.get("created_by")
-        entree = par_personne.setdefault(identifiant, {"user_id": identifiant, "total": 0, "dernier": None, "derniers_titres": []})
-        entree["total"] += 1
-        quand = evenement.get("created_at")
-        horodatage = quand.isoformat() if hasattr(quand, "isoformat") else str(quand or "")
-        if not entree["dernier"] or horodatage > entree["dernier"]:
-            entree["dernier"] = horodatage
-        if len(entree["derniers_titres"]) < 5:
-            entree["derniers_titres"].append((evenement.get("media") or {}).get("title", ""))
-
-    en_attente = await db.media_pending.find({}, {"_id": 0, "created_by": 1}).to_list(1000)
-    for proposition in en_attente:
-        identifiant = proposition.get("created_by")
-        if identifiant:
-            entree = par_personne.setdefault(identifiant, {"user_id": identifiant, "total": 0, "dernier": None, "derniers_titres": []})
-            entree["en_attente"] = entree.get("en_attente", 0) + 1
-
-    comptes = await db.users.find(
-        {"user_id": {"$in": [i for i in par_personne if i]}},
-        {"_id": 0, "user_id": 1, "name": 1, "avatar_url": 1},
-    ).to_list(1000)
-    noms = {c["user_id"]: c for c in comptes}
-    sortie = []
-    for identifiant, entree in par_personne.items():
-        compte = noms.get(identifiant) or {}
-        sortie.append({
-            **entree,
-            "en_attente": entree.get("en_attente", 0),
-            "name": compte.get("name") or "Compte supprimé",
-            "avatar_url": compte.get("avatar_url"),
-        })
-    sortie.sort(key=lambda e: e["total"], reverse=True)
-    return sortie
-
-
-# ---------- Trending / Genres ----------
 @api_router.get("/trending")
 async def trending(limit: int = 10):
     limit = max(1, min(limit, 30))
