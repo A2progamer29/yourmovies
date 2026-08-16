@@ -25,6 +25,20 @@ export function enregistrerRef(code) {
     return propre;
 }
 
+/** Code applicable maintenant : celui de l'URL s'il y en a un, sinon celui deja
+ *  memorise. La capture se fait apres le premier rendu, si bien qu'une page lue
+ *  au chargement ne verrait pas encore le code de l'adresse. */
+export function refCodeCourant() {
+    try {
+        const url = new URLSearchParams(window.location.search).get("ref");
+        const propre = (url || "").replace(/[^A-Za-z0-9-]/g, "").toUpperCase();
+        if (propre) return propre;
+    } catch {
+        // on retombe sur ce qui est memorise
+    }
+    return refCode() || "";
+}
+
 export function refCode() {
     try {
         return window.localStorage.getItem(CLE) || null;

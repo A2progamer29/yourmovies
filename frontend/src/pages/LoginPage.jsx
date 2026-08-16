@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/context/AuthContext";
 import { describeError, showError } from "@/lib/errors";
 import { api } from "@/lib/api";
-import { refCode, enregistrerRef } from "@/lib/referral";
+import { refCodeCourant, enregistrerRef } from "@/lib/referral";
 import { Gift } from "lucide-react";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
@@ -21,10 +21,10 @@ export default function LoginPage() {
     const [name, setName] = useState("");
     const [loading, setLoading] = useState(false);
     const [parrainage, setParrainage] = useState(null);
-    const [codeParrain, setCodeParrain] = useState(() => refCode() || "");
+    const [codeParrain, setCodeParrain] = useState(() => refCodeCourant());
     // Un code arrivé par lien vaut invitation : on le dit plutôt que de le
     // laisser agir en silence.
-    const [invite] = useState(() => Boolean(refCode()));
+    const [invite] = useState(() => Boolean(refCodeCourant()));
 
     useEffect(() => {
         api.get("/referral/config", { silent: true })
