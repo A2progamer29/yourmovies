@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Info, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -624,18 +624,6 @@ export default function SettingsPage() {
                                 Pour les films dont la piste sonore est trop basse, même à fond.
                                 Au-delà de 100 %, le son peut saturer selon la piste.
                             </div>
-                            {(form.audio_boost || 1) > 1 && (
-                                <div className="mt-3 flex gap-2.5 rounded-lg border border-[#262626] bg-[#0a0a0a] p-3 text-xs leading-relaxed text-neutral-400">
-                                    <Info size={14} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
-                                    <span>
-                                        Amplifier exige un autre lecteur : celui d&apos;origine appartient à
-                                        l&apos;hébergeur et son volume est hors d&apos;atteinte. Tant que le curseur
-                                        reste sur Normal, rien ne change ; au-delà, la lecture bascule sur le
-                                        lecteur du site. S&apos;il ne parvient pas à lire un titre, le lecteur
-                                        habituel reprend la main tout seul.
-                                    </span>
-                                </div>
-                            )}
                         </div>
 
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
