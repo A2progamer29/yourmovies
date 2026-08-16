@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Search, User, Users, LogOut, Settings, Heart, Crown, Sliders, Coins, X } from "lucide-react";
+import { Search, User, Users, LogOut, Settings, Heart, Crown, Sliders, Coins, X, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import NotificationsBell from "@/components/NotificationsBell";
 import MessagesButton from "@/components/MessagesButton";
@@ -31,6 +31,7 @@ export default function Header() {
     const location = useLocation();
     const navigate = useNavigate();
     const [searchOpen, setSearchOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
     const [searchQ, setSearchQ] = useState("");
     const [searchResults, setSearchResults] = useState([]);
     const [userResults, setUserResults] = useState([]);
@@ -61,6 +62,17 @@ export default function Header() {
         return () => window.removeEventListener("keydown", onKey);
     }, [searchOpen]);
 
+    // Le menu se referme sur la navigation : sans cela il resterait ouvert
+    // par-dessus la page qu'on vient d'atteindre.
+    useEffect(() => { setMenuOpen(false); }, [location.pathname, location.search]);
+
+    useEffect(() => {
+        if (!menuOpen) return undefined;
+        const auClavier = (e) => { if (e.key === "Escape") setMenuOpen(false); };
+        window.addEventListener("keydown", auClavier);
+        return () => window.removeEventListener("keydown", auClavier);
+    }, [menuOpen]);
+
     const openSearch = () => { setSearchQ(""); setSearchResults([]); setUserResults([]); setSearchOpen(true); };
 
     const isActive = (to) => {
@@ -77,7 +89,7 @@ export default function Header() {
 
     return (
         <header className="sticky top-0 z-40 backdrop-blur-2xl bg-[#050505]/70 border-b border-white/5">
-            <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-6">
+            <div className="relative z-20 max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-6">
                 <Link to="/" data-testid="header-logo" className="flex items-center gap-2 group">
                     <img src="/logo.png" alt="YourMovie's" className="w-9 h-9 rounded-full object-cover" />
                     <span className="font-display text-xl tracking-tight text-white">
@@ -115,6 +127,18 @@ export default function Header() {
 
                     {user && <MessagesButton />}
                     {user && <NotificationsBell />}
+
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-neutral-300 hover:text-[#E8D2A6] hover:bg-white/5 md:hidden"
+                        onClick={() => setMenuOpen((ouvert) => !ouvert)}
+                        data-testid="header-menu-btn"
+                        aria-label={menuOpen ? "Fermer le menu" : "Ouvrir le menu"}
+                        aria-expanded={menuOpen}
+                    >
+                        {menuOpen ? <X size={18} /> : <Menu size={18} />}
+                    </Button>
 
                     {user ? (
                         <DropdownMenu>
@@ -230,6 +254,34 @@ export default function Header() {
                     )}
                 </div>
             </div>
+
+            {menuOpen && (
+                <>
+                    <div
+                        onClick={() => setMenuOpen(false)}
+                        className="fixed inset-0 z-0 bg-black/60 md:hidden"
+                        aria-hidden="true"
+                    />
+                    <nav
+                        data-testid="mobile-nav"
+                        className="absolute inset-x-0 top-full z-10 max-h-[70vh] overflow-y-auto border-b border-white/5 bg-[#050505]/95 backdrop-blur-2xl md:hidden"
+                    >
+                        {links.map((l) => (
+                            <Link
+                                key={l.to}
+                                to={l.to}
+                                data-testid={`mobile-nav-${l.label.toLowerCase()}`}
+                                className={`flex items-center border-b border-white/5 px-6 py-4 text-sm transition-colors last:border-b-0 ${isActive(l.to)
+                                    ? "text-[#E8D2A6] bg-white/5"
+                                    : "text-neutral-300 active:bg-white/5"
+                                    }`}
+                            >
+                                {l.label}
+                            </Link>
+                        ))}
+                    </nav>
+                </>
+            )}
 
             {searchOpen && (
                 <div
