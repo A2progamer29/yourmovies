@@ -166,7 +166,7 @@ export default function AdminAds() {
                         <Input type="number" step="0.5" value={cfg.reward?.coins ?? 1} onChange={(e) => setPart("reward", { coins: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                     </label>
                     <label className="text-xs text-neutral-400">Durée à patienter (s)
-                        <Input type="number" value={cfg.reward?.watch_seconds ?? 20} onChange={(e) => setPart("reward", { watch_seconds: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
+                        <Input type="number" min={1} max={120} value={cfg.reward?.watch_seconds ?? 20} onChange={(e) => setPart("reward", { watch_seconds: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />
                     </label>
                     <label className="text-xs text-neutral-400">Délai entre 2 pubs (min)
                         <Input type="number" value={cfg.reward?.cooldown_minutes ?? 10} onChange={(e) => setPart("reward", { cooldown_minutes: e.target.value })} className="mt-1 bg-[#111] border-[#262626] text-white h-9" />

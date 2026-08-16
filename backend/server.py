@@ -858,7 +858,7 @@ async def _effective_ads() -> dict:
         "reward": {
             "enabled": bool(reward.get("enabled")),
             "coins": round(_clamp_num(reward.get("coins"), 0.5, 50, 1), 1),
-            "watch_seconds": int(_clamp_num(reward.get("watch_seconds"), 5, 120, 20)),
+            "watch_seconds": int(_clamp_num(reward.get("watch_seconds"), 1, 120, 20)),
             "cooldown_minutes": int(_clamp_num(reward.get("cooldown_minutes"), 0, 1440, 10)),
             "daily_max": int(_clamp_num(reward.get("daily_max"), 1, 100, 10)),
         },
@@ -4774,7 +4774,7 @@ async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_perm("ads.m
         update["reward"] = {
             "enabled": bool(r.get("enabled")),
             "coins": round(_clamp_num(r.get("coins"), 0.5, 50, 1), 1),
-            "watch_seconds": int(_clamp_num(r.get("watch_seconds"), 5, 120, 20)),
+            "watch_seconds": int(_clamp_num(r.get("watch_seconds"), 1, 120, 20)),
             "cooldown_minutes": int(_clamp_num(r.get("cooldown_minutes"), 0, 1440, 10)),
             "daily_max": int(_clamp_num(r.get("daily_max"), 1, 100, 10)),
         }
