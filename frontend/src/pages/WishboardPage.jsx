@@ -8,6 +8,7 @@ import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
+import { ListeSkeleton } from "@/components/Skeletons";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 
@@ -29,11 +30,17 @@ export default function WishboardPage() {
     const [adding, setAdding] = useState(false);
     const timer = useRef(null);
 
+    const [chargement, setChargement] = useState(true);
+
     const load = async () => {
         try {
             const r = await api.get("/wishboard");
             setItems(r.data);
-        } catch (e) { showError(toast, e, "Chargement impossible"); }
+        } catch (e) {
+            showError(toast, e, "Chargement impossible");
+        } finally {
+            setChargement(false);
+        }
     };
 
     useEffect(() => { load(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -113,7 +120,9 @@ export default function WishboardPage() {
                     </Button>
                 </div>
 
-                {items.length === 0 ? (
+                {chargement ? (
+                    <ListeSkeleton nombre={5} />
+                ) : items.length === 0 ? (
                     <div className="p-10 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500">
                         Aucune proposition pour l'instant. Soyez le premier à en ajouter une.
                     </div>

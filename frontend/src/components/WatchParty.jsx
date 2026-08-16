@@ -16,8 +16,8 @@ import { toast } from "sonner";
  */
 export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, bunnyPlayerRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token, adsDone, onStartedChange }) {
     // Contrôleur unifié : la lecture se fait soit dans un <video>, soit dans
-    // l'iframe Bunny piloté par playerjs. Sans cette abstraction, rien n'était
-    // synchronisé en lecture Bunny (videoRef restait vide).
+    // l'iframe du lecteur piloté par playerjs. Sans cette abstraction, rien n'était
+    // synchronisé en lecture par iframe (videoRef restait vide).
     const ctl = () => {
         const v = videoRef?.current;
         if (v) return {
@@ -163,7 +163,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         if (state.playing) c.play(); else c.pause();
     };
 
-    // Le lecteur (surtout l'iframe Bunny) n'est pas prêt au montage : sans cette
+    // Le lecteur (surtout l'iframe) n'est pas prêt au montage : sans cette
     // détection, l'hôte ne publiait jamais rien et il fallait recharger la page.
     useEffect(() => {
         const probe = setInterval(() => setPlayerReady(Boolean(ctl())), 500);
@@ -286,7 +286,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         setText("");
     };
 
-    // Le bouton de pause de l'hôte passait par videoRef, vide en lecture Bunny :
+    // Le bouton de pause de l'hôte passait par videoRef, vide en lecture par iframe :
     // il ne mettait donc jamais rien en pause.
     const hostPause = () => {
         const c = ctl();
@@ -343,7 +343,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             <div className="border-b border-[#262626] p-4">
                 {isHost ? (
                     pauseRequest ? (
-                        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[#E8D2A6]/40 bg-[#171208] px-3 py-2.5 text-xs text-neutral-200">
+                        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[#E8D2A6]/40 bg-[#111] px-3 py-2.5 text-xs text-neutral-200">
                             <Hand size={14} className="shrink-0 text-[#E8D2A6]" />
                             <span className="min-w-0 flex-1">
                                 <span className="text-white">{pauseRequest.name}</span> demande une pause.

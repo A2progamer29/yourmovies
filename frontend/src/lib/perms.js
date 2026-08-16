@@ -4,6 +4,7 @@ export const PERM_GROUPS = [
         perms: [
             { id: "content.add", label: "Ajouter du contenu", hint: "Films, séries, animes, téléversements et veille IMDb" },
             { id: "content.edit", label: "Modifier le contenu", hint: "Éditer les fiches et l'affichage à la une" },
+            { id: "content.publish", label: "Publier sans validation", hint: "Sinon, les ajouts passent par la file de validation" },
             { id: "content.delete", label: "Supprimer du contenu", hint: "Action irréversible" },
         ],
     },
@@ -31,6 +32,7 @@ export const PERM_GROUPS = [
         perms: [
             { id: "reviews.moderate", label: "Modérer les commentaires" },
             { id: "announcements.manage", label: "Publier des annonces" },
+            { id: "polls.manage", label: "Gérer les sondages" },
         ],
     },
     {

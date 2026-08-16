@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, MonitorSmartphone, History, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -9,9 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Header from "@/components/Header";
+import MesAppareils from "@/components/MesAppareils";
+import MonActivite from "@/components/MonActivite";
+import MesStatistiques from "@/components/MesStatistiques";
 import SupportWithAds from "@/components/SupportWithAds";
+import ReferralCard from "@/components/ReferralCard";
 
 const ACCENT_PRESETS = [
     { name: "Or pâle (défaut)", value: "#E8D2A6" },
@@ -36,13 +39,13 @@ const PROFILE_BACKGROUND_PRESETS = [
 const AUTOSAVE_FIELDS = [
     "name",
     "bio",
-    "preferred_quality",
     "profile_public",
     "reviews_public",
     "history_public",
 ];
 
 const PREMIUM_AUTOSAVE_FIELDS = [
+    "autoplay_next",
     "accent_color",
     "profile_background_color",
     "autoplay_hero",
@@ -51,7 +54,7 @@ const PREMIUM_AUTOSAVE_FIELDS = [
 const AUTOSAVE_SUCCESS_MESSAGES = {
     name: "Nom enregistré",
     bio: "Bio enregistrée",
-    preferred_quality: "Qualité préférée enregistrée",
+    autoplay_next: "Lecture automatique enregistrée",
     profile_public: "Visibilité du profil enregistrée",
     reviews_public: "Visibilité des avis enregistrée",
     history_public: "Visibilité de l’historique enregistrée",
@@ -96,9 +99,9 @@ export default function SettingsPage() {
             const nextForm = {
                 name: user.name || "",
                 bio: user.bio || "",
+                autoplay_next: user.autoplay_next !== false,
                 picture: user.picture || "",
                 banner: user.banner || "",
-                preferred_quality: user.preferred_quality || "auto",
                 autoplay_hero: user.autoplay_hero !== false,
                 accent_color: user.accent_color || "#E8D2A6",
                 profile_background_color: user.profile_background_color || "#050505",
@@ -405,6 +408,9 @@ export default function SettingsPage() {
         { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
         { id: "activation", label: "Activation", icon: <KeyRound size={14} /> },
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
+        { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
+        { id: "activity", label: "Activité", icon: <History size={14} /> },
+        { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
         { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
 
@@ -577,21 +583,36 @@ export default function SettingsPage() {
 
                 {tab === "preferences" && (
                     <div className="space-y-6">
-                        <div>
-                            <Label className="text-neutral-300 flex items-center gap-2">Qualité préférée par défaut</Label>
-                            <Select value={form.preferred_quality || "auto"} onValueChange={(v) => setForm({ ...form, preferred_quality: v })}>
-                                <SelectTrigger data-testid="settings-quality" className="bg-[#111] border-[#262626] text-white mt-1.5 max-w-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent className="bg-[#111] border-[#262626] text-white">
-                                    <SelectItem value="auto">Auto (max autorisé par l&apos;abonnement)</SelectItem>
-                                    <SelectItem value="4k">4K UHD{!user.premium ? " (Premium)" : ""}</SelectItem>
-                                    <SelectItem value="1080p">Full HD 1080p</SelectItem>
-                                    <SelectItem value="720p">HD 720p</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <div className="text-xs text-neutral-500 mt-1">La qualité de départ dans le lecteur. Vous pouvez la changer à tout moment.</div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
+                            <div className="min-w-0">
+                                <div className="text-white flex items-center gap-2">
+                                    Lecture automatique de la suite
+                                    {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
+                                </div>
+                                <div className="text-xs text-neutral-500 mt-1">
+                                    {user.premium
+                                        ? "Vers la fin d’un épisode, enchaîne sur le suivant. Pour un film, enchaîne sur le titre d’après dans sa chronologie. Un compte à rebours de dix secondes laisse le temps d’annuler."
+                                        : "Enchaîne sur l’épisode suivant, ou sur le titre d’après dans la chronologie d’un film. Cette préférence est réservée aux abonnés Premium."}
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!!form.autoplay_next}
+                                data-testid="settings-autoplay-next"
+                                disabled={!user.premium}
+                                onClick={() => setForm((current) => ({ ...current, autoplay_next: !current.autoplay_next }))}
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white disabled:cursor-not-allowed disabled:opacity-40 ${form.autoplay_next
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                    : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                    }`}
+                            >
+                                <SkipForward size={14} />
+                                {form.autoplay_next ? "Activée" : "Désactivée"}
+                            </button>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5 border-y border-[#262626]">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
                                     Bande-annonce cinéma sur l&apos;accueil
@@ -651,11 +672,12 @@ export default function SettingsPage() {
                 {tab === "subscription" && (
                     <div className="space-y-6">
                         {!user.premium && <SupportWithAds />}
+                        <ReferralCard />
                         {!user.premium ? (
                             <div className="p-8 rounded-2xl border border-[#262626] bg-[#0a0a0a] text-center">
                                 <Crown size={36} className="mx-auto text-[#E8D2A6] mb-4" />
                                 <div className="font-display text-2xl mb-2">Aucun abonnement actif</div>
-                                <p className="text-neutral-400 mb-6">Passez Premium pour du contenu sans pub, en 4K, avec multi-profils.</p>
+                                <p className="text-neutral-400 mb-6">Passez Premium pour regarder sans une seule publicité, avec jusqu’à 4 profils.</p>
                                 <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">Voir les plans</Button>
                             </div>
                         ) : (
@@ -697,7 +719,7 @@ export default function SettingsPage() {
 
                 {tab === "activation" && (
                     <div className="space-y-6">
-                        <div className="relative overflow-hidden rounded-2xl border border-[#E8D2A6]/35 bg-gradient-to-br from-[#151107] via-[#0a0a0a] to-[#080808] p-6 sm:p-8">
+                        <div className="ym-shimmer relative overflow-hidden rounded-2xl border border-[#E8D2A6]/35 bg-[#0c0c0c] p-6 sm:p-8">
                             <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
                             <div className="relative max-w-2xl">
                                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-[#E8D2A6]/30 bg-[#E8D2A6]/10 text-[#E8D2A6]">
@@ -750,6 +772,15 @@ export default function SettingsPage() {
                         </div>
                     </div>
                 )}
+
+                {tab === "devices" && <MesAppareils />}
+
+
+                {tab === "activity" && <MonActivite />}
+
+
+                {tab === "stats" && <MesStatistiques />}
+
 
                 {tab === "security" && (
                     <div className="space-y-6">

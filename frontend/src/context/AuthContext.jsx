@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { refCode, clearRef } from "@/lib/referral";
 
 const AuthContext = createContext(null);
 
@@ -138,14 +139,16 @@ export function AuthProvider({ children }) {
     };
 
     const register = async (email, password, name) => {
-        const res = await api.post("/auth/register", { email, password, name });
+        const res = await api.post("/auth/register", { email, password, name, ref: refCode() });
+        clearRef();
         localStorage.setItem("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
 
     const loginWithGoogle = async (credential) => {
-        const res = await api.post("/auth/google", { credential });
+        const res = await api.post("/auth/google", { credential, ref: refCode() });
+        clearRef();
         localStorage.setItem("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;

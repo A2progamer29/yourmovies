@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
+import HomeSkeleton from "@/components/HomeSkeleton";
 import MediaCarousel from "@/components/MediaCarousel";
 import TopTenCarousel from "@/components/TopTenCarousel";
 import HScroller from "@/components/HScroller";
@@ -45,59 +46,54 @@ export default function HomePage() {
     const [removingProgressId, setRemovingProgressId] = useState(null);
     const [progressRemovalError, setProgressRemovalError] = useState("");
     const [progressLoaded, setProgressLoaded] = useState(false);
+    const [chargement, setChargement] = useState(true);
     const rotateTimer = useRef(null);
     const [heroArrowSide, setHeroArrowSide] = useState(null);
 
     useEffect(() => {
+        let annule = false;
         (async () => {
-            // 1re vague — haut de page : hero ET progression partent ensemble, car les
-            // deux s'affichent avant les carrousels. Sinon « Continuer à regarder »
-            // s'insère dans une page déjà en place et décale tout le contenu.
-            let heroLoaded = false;
-            const heroCall = api.get("/media?featured=true&limit=10").catch(() => null);
-            const progressCall = user
-                ? api.get("/watch-progress", { silent: true }).catch(() => null)
-                : Promise.resolve(null);
-            const [feat, watchResult] = await Promise.all([heroCall, progressCall]);
+            // Tout part en même temps. Le chargement était découpé en vagues, dont
+            // les trois dernières s'enchaînaient en série : chaque section
+            // apparaissait l'une après l'autre, et la page semblait ramer alors
+            // qu'elle attendait simplement des allers-retours successifs.
+            const rien = () => null;
+            const anonyme = Promise.resolve(null);
+            const [feat, watchResult, all, mv, sr, an, tend, gen, reco] = await Promise.all([
+                api.get("/media?featured=true&limit=10").catch(rien),
+                user ? api.get("/watch-progress", { silent: true }).catch(rien) : anonyme,
+                api.get("/media?limit=40").catch(rien),
+                api.get("/media?type=movie&limit=20").catch(rien),
+                api.get("/media?type=series&limit=20").catch(rien),
+                api.get("/media?type=anime&limit=20").catch(rien),
+                api.get("/trending?limit=10").catch(rien),
+                api.get("/genres?limit=16").catch(rien),
+                user ? api.get("/recommendations?limit=20", { silent: true }).catch(rien) : anonyme,
+            ]);
+            if (annule) return;
 
-            if (feat?.data?.length > 0) {
-                const feats = [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
-                setFeatured(feats);
-                heroLoaded = true;
-            }
-
-            const watchedItems = (Array.isArray(watchResult?.data) ? watchResult.data : [])
+            const catalogue = Array.isArray(all?.data) ? all.data : [];
+            const vedettes = Array.isArray(feat?.data) && feat.data.length > 0
+                ? [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999))
+                : catalogue.slice(0, 1);
+            const enCours = (Array.isArray(watchResult?.data) ? watchResult.data : [])
                 .filter((item) => progressPercent(item) < CONTINUE_WATCHING_LIMIT);
-            setContinueWatching(watchedItems);
-            setProgressLoaded(true);
 
-            // 2e vague — bas de page : carrousels, tendances et genres.
-            try {
-                const [all, mv, sr, an] = await Promise.all([
-                    api.get("/media?limit=40"),
-                    api.get("/media?type=movie&limit=20"),
-                    api.get("/media?type=series&limit=20"),
-                    api.get("/media?type=anime&limit=20"),
-                ]);
-                setLatest(all.data);
-                setMovies(mv.data);
-                setSeries(sr.data);
-                setAnimes(an.data);
-                if (!heroLoaded && all.data.length > 0) setFeatured(all.data.slice(0, 1));
-            } catch (e) { }
-            try { const t = await api.get("/trending?limit=10"); setTrending(t.data); } catch (e) { }
-            try { const g = await api.get("/genres?limit=16"); setGenres(g.data); } catch (e) { }
-            if (user && watchedItems.length > 0) {
-                try {
-                    const recommendationResult = await api.get("/recommendations?limit=20", { silent: true });
-                    setRecommendations(Array.isArray(recommendationResult.data) ? recommendationResult.data : []);
-                } catch (e) {
-                    setRecommendations([]);
-                }
-            } else {
-                setRecommendations([]);
-            }
+            // React regroupe ces mises à jour en un seul rendu : la page se
+            // remplit d'un bloc au lieu de s'assembler morceau par morceau.
+            setFeatured(vedettes);
+            setContinueWatching(enCours);
+            setLatest(catalogue);
+            setMovies(Array.isArray(mv?.data) ? mv.data : []);
+            setSeries(Array.isArray(sr?.data) ? sr.data : []);
+            setAnimes(Array.isArray(an?.data) ? an.data : []);
+            setTrending(Array.isArray(tend?.data) ? tend.data : []);
+            setGenres(Array.isArray(gen?.data) ? gen.data : []);
+            setRecommendations(enCours.length > 0 && Array.isArray(reco?.data) ? reco.data : []);
+            setProgressLoaded(true);
+            setChargement(false);
         })();
+        return () => { annule = true; };
     }, [user, activeProfile?.id]);
 
     const removeFromContinueWatching = async (event, mediaId) => {
@@ -170,6 +166,16 @@ export default function HomePage() {
             && items.findIndex((candidate) => candidate?.id === item.id) === index
         )
         .slice(0, 20);
+
+    if (chargement) {
+        return (
+            <div className="min-h-screen bg-[#050505] relative">
+                <div className="noise-overlay" />
+                <Header />
+                <HomeSkeleton />
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-[#050505] relative">
@@ -403,7 +409,7 @@ export default function HomePage() {
                     <Link
                         to="/pricing"
                         data-testid="premium-banner"
-                        className="block p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a] hover:border-[#E8D2A6]/60 transition-colors"
+                        className="ym-shimmer block p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] hover:border-[#E8D2A6]/60 transition-colors"
                     >
                         <div className="flex items-center justify-between gap-6 flex-wrap">
                             <div className="flex items-center gap-4">
@@ -412,7 +418,7 @@ export default function HomePage() {
                                 </div>
                                 <div>
                                     <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Passez Premium</div>
-                                    <div className="font-display text-xl mt-1">Regardez sans pub, en 4K, sur 4 écrans + multi-profils</div>
+                                    <div className="font-display text-xl mt-1">Sans une seule pub, jusqu&apos;à 4 profils, la suite qui s&apos;enchaîne toute seule</div>
                                 </div>
                             </div>
                             <div className="text-[#E8D2A6] font-semibold">Voir les plans →</div>
@@ -430,7 +436,7 @@ export default function HomePage() {
                         <Link
                             to="/wishboard"
                             data-testid="wishboard-cta"
-                            className="group relative block overflow-hidden rounded-3xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#1c1509] via-[#120d05] to-[#0a0a0a] hover:border-[#E8D2A6]/70 transition-colors p-8 sm:p-12"
+                            className="group relative block overflow-hidden rounded-3xl border border-[#E8D2A6]/30 bg-[#0c0c0c] hover:border-[#E8D2A6]/70 transition-colors p-8 sm:p-12"
                         >
                             <div className="pointer-events-none absolute -right-16 -top-16 w-56 h-56 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
                             <div className="relative flex items-center justify-between gap-6 flex-wrap">

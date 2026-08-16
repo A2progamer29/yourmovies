@@ -21,7 +21,7 @@ const links = [
     { to: "/browse?type=series", label: "Séries" },
     { to: "/browse?type=anime", label: "Animes" },
     { to: "/wishboard", label: "Wishboard" },
-    { to: "/coins", label: "Freemium" },
+    { to: "/sondages", label: "Sondages" },
     { to: "/cagnotte", label: "Cagnotte" },
     { to: "/pricing", label: "Premium" },
 ];

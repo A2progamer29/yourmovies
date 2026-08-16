@@ -8,6 +8,8 @@ import { useAuth } from "@/context/AuthContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
+import { PanneauSkeleton } from "@/components/Skeletons";
+import ReferralCard from "@/components/ReferralCard";
 
 function DiscordIcon({ size = 18 }) {
     return (
@@ -87,6 +89,7 @@ export default function CoinsPage() {
     const navigate = useNavigate();
     const [balance, setBalance] = useState(0);
     const [plans, setPlans] = useState([]);
+    const [chargement, setChargement] = useState(true);
     const [offer, setOffer] = useState(null);
     const [busy, setBusy] = useState("");
 
@@ -95,8 +98,9 @@ export default function CoinsPage() {
             const r = await api.get("/coins/plans");
             setBalance(r.data.balance);
             setPlans(r.data.plans);
+            setChargement(false);
             setOffer(r.data.offer || null);
-        } catch (e) { showError(toast, e, "Chargement impossible"); }
+        } catch (e) { setChargement(false); showError(toast, e, "Chargement impossible"); }
     };
 
     useEffect(() => {
@@ -125,6 +129,7 @@ export default function CoinsPage() {
         { icon: <Flame size={16} />, label: "Connexion quotidienne", value: "+3 → +50 selon la série" },
         { icon: <MessageSquare size={16} />, label: "Publier un avis / une réponse", value: "+1 à +3" },
         { icon: <Coins size={16} />, label: "Proposer un titre au Wishboard", value: "+0.5 à +5" },
+        { icon: <Gift size={16} />, label: "Parrainer un nouveau membre", value: "+50" },
     ];
 
     return (
@@ -137,7 +142,7 @@ export default function CoinsPage() {
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">Ta monnaie YourMovie's</h1>
 
                 {offer?.active && (
-                    <div className="mb-8 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-gradient-to-r from-[#E8D2A6]/15 to-[#0a0a0a] flex items-center gap-4">
+                    <div className="mb-8 p-5 rounded-2xl border border-[#E8D2A6]/50 bg-[#111] flex items-center gap-4">
                         <Gift size={28} className="text-[#E8D2A6] shrink-0" />
                         <div>
                             <div className="font-display text-xl text-white">Offre de bienvenue : -{offer.pct}% 🎉</div>
@@ -147,7 +152,7 @@ export default function CoinsPage() {
                 )}
 
                 {!user && (
-                    <div className="mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center justify-between gap-5 flex-wrap">
+                    <div className="ym-shimmer mb-12 p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] flex items-center justify-between gap-5 flex-wrap">
                         <div>
                             <div className="font-display text-xl text-white">Gagne des Freemium gratuitement</div>
                             <div className="text-sm text-neutral-400 mt-1">Connecte-toi pour cumuler des Freemium et les échanger contre du Premium.</div>
@@ -160,7 +165,7 @@ export default function CoinsPage() {
 
                 {user && (
                 <div className="grid sm:grid-cols-2 gap-4 mb-12">
-                    <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a]">
+                    <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c]">
                         <div className="flex items-center gap-2">
                             <Coins size={28} className="text-[#E8D2A6]" />
                             <span className="font-display text-5xl text-white" data-testid="coins-balance">{balance}</span>
@@ -176,6 +181,10 @@ export default function CoinsPage() {
                     </div>
                 </div>
                 )}
+
+                <div className="mb-12">
+                    <ReferralCard />
+                </div>
 
                 <div className="mb-12">
                     <h2 className="font-display text-2xl mb-4">Comment en gagner</h2>
@@ -208,7 +217,7 @@ export default function CoinsPage() {
                 <div>
                     <h2 className="font-display text-2xl mb-4">Échanger contre du Premium</h2>
                     {offer?.active && (
-                        <div className="mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-gradient-to-r from-[#171208] to-[#0a0a0a] flex items-center gap-3">
+                        <div className="ym-shimmer mb-6 p-4 rounded-xl border border-[#E8D2A6]/40 bg-[#0c0c0c] flex items-center gap-3">
                             <Gift size={20} className="text-[#E8D2A6] shrink-0" />
                             <div className="text-sm">
                                 <span className="text-white font-semibold">Offre de bienvenue : -{offer.pct}% en Freemium</span>
@@ -217,6 +226,7 @@ export default function CoinsPage() {
                         </div>
                     )}
                     <div className="grid sm:grid-cols-3 gap-4">
+                        {chargement && plans.length === 0 && <PanneauSkeleton colonnes={3} nombre={3} />}
                         {plans.map((plan) => (
                             <PlanCard key={plan.id} plan={plan} balance={balance} busy={busy} onRedeem={redeem} />
                         ))}

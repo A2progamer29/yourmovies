@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
@@ -9,22 +9,21 @@ import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
+import ReportDialog from "@/components/ReportDialog";
+import TurnstileGate from "@/components/TurnstileGate";
+import PlayerGestures from "@/components/PlayerGestures";
+import AvertissementContenu from "@/components/AvertissementContenu";
+import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
 import AdGate from "@/components/AdGate";
-
-const PLAN_MAX_QUALITY = {
-    null: "720p",
-    undefined: "720p",
-    basic: "1080p",
-    standard: "1080p",
-    premium: "4k",
-};
+import SuiteAutomatique from "@/components/SuiteAutomatique";
 
 const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
 const BUNNY_PLAYER_API_URL = "https://assets.mediadelivery.net/playerjs/player-0.1.0.min.js";
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
+const SEUIL_FIN = 0.95;
 let bunnyPlayerApiPromise;
 
 function loadBunnyPlayerApi() {
@@ -35,7 +34,7 @@ function loadBunnyPlayerApi() {
     bunnyPlayerApiPromise = new Promise((resolve, reject) => {
         const finish = () => window.playerjs?.Player
             ? resolve(window.playerjs)
-            : reject(new Error("Bunny Player API unavailable"));
+            : reject(new Error("Player API unavailable"));
         const existing = document.querySelector(`script[src="${BUNNY_PLAYER_API_URL}"]`);
         if (existing) {
             existing.addEventListener("load", finish, { once: true });
@@ -74,7 +73,7 @@ function resolveBunnySource(media) {
                 };
             }
         } catch {
-            // A raw Bunny GUID is the preferred stored format.
+            // A raw GUID is the preferred stored format.
         }
 
         if (/^[a-zA-Z0-9-]{12,}$/.test(raw) && !raw.includes("/")) {
@@ -294,7 +293,7 @@ function EpisodeSelectorOverlay({
 export default function WatchPage() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { user, activeProfile } = useAuth();
+    const { user, loading: authEnCours, activeProfile } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const [media, setMedia] = useState(null);
     const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
@@ -314,7 +313,7 @@ export default function WatchPage() {
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     // En salon, la fin des publicités change la mise en page et reconstruit
-    // l'iframe Bunny : on recharge la page pour repartir sur un lecteur propre.
+    // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
     // L'état est donc mémorisé le temps de la session, sinon le rechargement
     // rejouerait les publicités et bouclerait indéfiniment.
     const adsMemoryKey = searchParams.get("party") ? `ym_party_ads:${searchParams.get("party")}:${id}` : null;
@@ -325,7 +324,12 @@ export default function WatchPage() {
     const adsAlreadyCleared = useRef(readAdsMemory());
     const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
     const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
+    const [verifie, setVerifie] = useState(() => Boolean(lirePass()));
     const [playbackActive, setPlaybackActive] = useState(false);
+    const [chronologie, setChronologie] = useState({ titre: "", items: [] });
+    const saveProgressRef = useRef(() => { });
+    const [finAtteinte, setFinAtteinte] = useState(false);
+    const suiteRefusee = useRef(false);
     const episodes = React.useMemo(() => (media?.seasons || []).flatMap((season) =>
         (season.episodes || []).map((episode) => ({
             ...episode,
@@ -357,6 +361,8 @@ export default function WatchPage() {
 
     useEffect(() => {
         setPlaybackActive(false);
+        setFinAtteinte(false);
+        suiteRefusee.current = false;
     }, [id, selectedEpisodeKey]);
 
     const selectEpisode = (episode) => {
@@ -380,11 +386,117 @@ export default function WatchPage() {
 
         if (!isSameEpisode) setAdDone(false);
     };
+    // La suite d'un film se trouve dans sa chronologie : on ne la charge donc que
+    // pour un film, et seulement si la lecture automatique est active.
+    useEffect(() => {
+        if (!media || media.type !== "movie" || user?.autoplay_next === false) {
+            setChronologie({ titre: "", items: [] });
+            return undefined;
+        }
+        let actif = true;
+        api.get(`/media/${id}/timeline`, { silent: true })
+            .then((r) => {
+                if (actif) setChronologie({ titre: r.data?.title || "", items: r.data?.items || [] });
+            })
+            .catch(() => { if (actif) setChronologie({ titre: "", items: [] }); });
+        return () => { actif = false; };
+    }, [id, media, user?.autoplay_next]);
+
+    // Ce qui sera lu ensuite : l'épisode suivant pour une série ou un animé, le
+    // titre suivant de la saga pour un film. Un maillon absent du catalogue est
+    // enjambé — proposer une fiche introuvable ne mènerait nulle part.
+    const suiteDisponible = React.useMemo(() => {
+        if (media?.type !== "movie") {
+            if (!nextEpisode) return null;
+            return {
+                cle: `episode:${nextEpisode._key}`,
+                genre: "episode",
+                titre: nextEpisode.title || `Épisode ${nextEpisode.ep_number}`,
+                detail: `Saison ${nextEpisode.season_number} · Épisode ${nextEpisode.ep_number}`,
+                poster: media?.poster_url,
+                episode: nextEpisode,
+            };
+        }
+        const position = chronologie.items.findIndex((item) => item.current);
+        if (position < 0) return null;
+        const suivant = chronologie.items
+            .slice(position + 1)
+            .find((item) => item.available && item.media_id);
+        if (!suivant) return null;
+        return {
+            cle: `film:${suivant.media_id}`,
+            genre: "film",
+            titre: suivant.title,
+            detail: [chronologie.titre, suivant.year].filter(Boolean).join(" · "),
+            poster: suivant.poster_url,
+            mediaId: suivant.media_id,
+        };
+    }, [media?.type, media?.poster_url, nextEpisode, chronologie]);
+
+    // Appelé à chaque remontée de position, sans passer par la limitation
+    // d'écriture de la progression : le seuil doit être vu dès qu'il est franchi.
+    const signalerAvancement = useCallback((position, duree) => {
+        if (suiteRefusee.current) return;
+        const p = Number(position);
+        const d = Number(duree);
+        if (!Number.isFinite(p) || !Number.isFinite(d) || d <= 0) return;
+        if (p / d >= SEUIL_FIN) setFinAtteinte(true);
+    }, []);
+
+    const suivreProgression = useCallback((position, duree) => {
+        saveProgressRef.current(position, duree);
+        signalerAvancement(position, duree);
+    }, [signalerAvancement]);
+
+    const lancerSuite = () => {
+        if (!suiteDisponible) return;
+        setFinAtteinte(false);
+        if (suiteDisponible.genre === "episode") {
+            selectEpisode(suiteDisponible.episode);
+            return;
+        }
+        navigate(`/watch/${suiteDisponible.mediaId}`);
+    };
+
+    // Un refus vaut pour tout le reste du titre : sans cela la carte
+    // reparaîtrait à la remontée de position suivante, toujours au-delà du seuil.
+    const refuserSuite = () => {
+        suiteRefusee.current = true;
+        setFinAtteinte(false);
+    };
+
+    // En salon, seul l'hôte fait avancer la séance : proposer la suite à un
+    // invité le sortirait de la vidéo commune.
+    const afficherSuite = finAtteinte
+        && user?.autoplay_next !== false
+        && Boolean(suiteDisponible)
+        && !(partyOpen && !isPartyHost);
+
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
+    // Sortie de plein écran : certains navigateurs laissent le document en
+    // plein écran alors que le lecteur en est sorti. On referme explicitement.
+    useEffect(() => {
+        const auChangement = () => {
+            const actif = document.fullscreenElement || document.webkitFullscreenElement;
+            if (actif) return;
+            if (document.exitFullscreen) {
+                document.exitFullscreen().catch(() => { });
+            }
+        };
+        document.addEventListener("fullscreenchange", auChangement);
+        document.addEventListener("webkitfullscreenchange", auChangement);
+        return () => {
+            document.removeEventListener("fullscreenchange", auChangement);
+            document.removeEventListener("webkitfullscreenchange", auChangement);
+        };
+    }, []);
+
     const bunnySource = resolveBunnySource(playbackMedia);
 
     useEffect(() => {
-        if (!bunnySource?.videoId) {
+        // Sans la preuve de vérification, le serveur refuserait l'URL : on
+        // n'appelle donc pas tant qu'elle n'a pas été franchie.
+        if (!bunnySource?.videoId || !verifie) {
             setBunnyPlaybackUrl(null);
             return;
         }
@@ -395,7 +507,11 @@ export default function WatchPage() {
             season_number: selectedEpisode?.season_number,
             episode_number: selectedEpisode?.ep_number,
         };
-        api.get(`/bunny/playback/${id}`, { params: playbackParams, silent: true })
+        api.get(`/bunny/playback/${id}`, {
+            params: playbackParams,
+            silent: true,
+            headers: lirePass() ? { "X-Playback-Pass": lirePass() } : undefined,
+        })
             .then((response) => {
                 if (!active) return;
                 const data = response.data || {};
@@ -405,7 +521,7 @@ export default function WatchPage() {
                 }
                 if (data.libraryMatchesUploadConfig === false) {
                     setBunnyPlaybackError(
-                        `Cette vidéo appartient à la bibliothèque Bunny ${data.libraryId}, mais Render est configuré pour une autre bibliothèque. Corrige BUNNY_LIBRARY_ID ou réimporte la vidéo.`
+                        `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
                     );
                     return;
                 }
@@ -416,7 +532,7 @@ export default function WatchPage() {
                 const status = error?.response?.status;
                 const detail = error?.response?.data?.detail;
                 setBunnyPlaybackError(
-                    detail || `Impossible d’obtenir l’autorisation Bunny${status ? ` (HTTP ${status})` : ""}. Vérifie Render et la sécurité de la bibliothèque Bunny.`
+                    detail || `Impossible d’obtenir l’autorisation de lecture${status ? ` (HTTP ${status})` : ""}. Vérifie la configuration du serveur et la sécurité de la bibliothèque.`
                 );
             });
         return () => { active = false; };
@@ -427,6 +543,7 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
         bunnySource?.videoId,
         bunnySource?.libraryId,
+        verifie,
     ]);
 
     useEffect(() => {
@@ -497,6 +614,8 @@ export default function WatchPage() {
         } catch (e) { }
     }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
 
+    useEffect(() => { saveProgressRef.current = saveProgress; }, [saveProgress]);
+
     useEffect(() => {
         const iframe = bunnyIframeRef.current;
         if (!user || !bunnyPlaybackUrl || !iframe) return undefined;
@@ -518,14 +637,16 @@ export default function WatchPage() {
             if (!Number.isFinite(position) || position < 3) return;
             if (Number.isFinite(duration) && duration > 0) knownDuration = duration;
 
-            const completed = knownDuration > 0 && position / knownDuration >= 0.95;
+            signalerAvancement(position, knownDuration);
+
+            const completed = knownDuration > 0 && position / knownDuration >= SEUIL_FIN;
             const now = Date.now();
             if (!force && !completed && now - bunnyLastProgressSave.current < PROGRESS_SAVE_INTERVAL_MS) return;
             bunnyLastProgressSave.current = now;
             saveProgress(position, knownDuration || null);
         };
 
-        // Repli : si l'API Bunny est indisponible (script tiers bloqué par une
+        // Repli : si l'API du lecteur est indisponible (script tiers bloqué par une
         // extension, réseau filtré…), on estime la progression au temps écoulé
         // pendant que l'onglet est visible. Moins précis, mais évite de perdre
         // totalement la reprise de lecture.
@@ -543,6 +664,7 @@ export default function WatchPage() {
                 const position = base + (Date.now() - startedAt) / 1000;
                 if (estimatedDuration > 0 && position > estimatedDuration) return;
                 saveProgress(position, estimatedDuration || null);
+                signalerAvancement(position, estimatedDuration);
             }, PROGRESS_SAVE_INTERVAL_MS);
         };
 
@@ -564,6 +686,7 @@ export default function WatchPage() {
                 });
                 on("ended", () => {
                     if (knownDuration > 0) persistProgress(knownDuration, knownDuration, true);
+                    if (!suiteRefusee.current) setFinAtteinte(true);
                 });
                 // L'API répond mais n'émet aucun « timeupdate » : on bascule aussi.
                 window.setTimeout(() => {
@@ -571,7 +694,7 @@ export default function WatchPage() {
                 }, 45_000);
             })
             .catch(() => {
-                // La lecture reste disponible même si l'API de suivi Bunny est
+                // La lecture reste disponible même si l'API de suivi est
                 // indisponible : on bascule sur l'estimation par temps écoulé.
                 startFallbackTracking();
             });
@@ -665,7 +788,7 @@ export default function WatchPage() {
         window.location.reload();
     }, [adsMemoryKey, gateDone, adDone, user]);
 
-    // Entrer dans un salon recharge la page : le lecteur Bunny est reconstruit
+    // Entrer dans un salon recharge la page : le lecteur est reconstruit
     // par le changement de mise en page, et l'ancienne instance restait
     // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
     const gotoParty = (code) => {
@@ -735,7 +858,9 @@ export default function WatchPage() {
 
     const qualities = fallbackQualities(playbackMedia);
     const userMaxQuality = "4k";
-    const runAds = !user?.premium;
+    // Sans attendre la fin du chargement, un membre premium verrait la porte
+    // publicitaire pendant la seconde qui précède l'arrivée de son compte.
+    const runAds = !authEnCours && !user?.premium;
     const hasVideo = !!(bunnySource || qualities.length > 0);
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
@@ -795,13 +920,27 @@ export default function WatchPage() {
                 <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
                     <div>
                         <div className="relative overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            {showGate ? (
+                            {media.player_broken ? (
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }} data-testid="player-broken">
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[#0a0a0a] to-[#050505] px-6 text-center">
+                                    <TriangleAlert size={24} className="text-amber-400" />
+                                    <div className="font-display text-2xl text-white">Lecture indisponible</div>
+                                    <p className="max-w-md text-sm leading-relaxed text-neutral-400">
+                                        {media.player_notice || "Le lecteur de ce contenu est momentanément indisponible. Nous travaillons à le rétablir."}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : showGate ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <AdGate onUnlock={() => setGateDone(true)} />
                             </div>
                         ) : showAd ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <PreRollAd onDone={() => setAdDone(true)} />
+                            </div>
+                        ) : !verifie ? (
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
+                                <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
@@ -828,9 +967,14 @@ export default function WatchPage() {
                                 ) : (
                                     <div className="absolute inset-0 bg-black" aria-hidden="true" />
                                 )}
+                                <PlayerGestures
+                                    playerRef={bunnyPlayerRef}
+                                    disabled={partyOpen && !isPartyHost}
+                                />
+
                                 {partyOpen && partyStarted && !isPartyHost && (
                                     <div className="pointer-events-none absolute inset-0 z-30" data-testid="party-guest-shield">
-                                        {/* Le lecteur Bunny est sur un autre domaine : impossible de
+                                        {/* Le lecteur est sur un autre domaine : impossible de
                                             désactiver certains de ses boutons. On masque donc la zone
                                             de lecture et la barre de progression, en laissant libre le
                                             coin des réglages et du plein écran. */}
@@ -852,13 +996,20 @@ export default function WatchPage() {
                             <VideoPlayer
                                 qualitySources={qualities}
                                 poster={media.banner_url || media.poster_url}
-                                onProgress={saveProgress}
+                                onProgress={suivreProgression}
                                 startAt={resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
-                                preferredQuality={user?.preferred_quality}
                                 videoRefOut={videoElRef}
                             />
+                            )}
+
+                            {afficherSuite && (
+                                <SuiteAutomatique
+                                    suite={suiteDisponible}
+                                    onLancer={lancerSuite}
+                                    onAnnuler={refuserSuite}
+                                />
                             )}
 
                             {media.type !== "movie" && episodes.length > 0 && (
@@ -940,6 +1091,18 @@ export default function WatchPage() {
                                 </Button>
                             </div>
                         )}
+                        </div>
+
+                        <div className="mt-3 flex justify-end">
+                            <AvertissementContenu media={media} />
+                            <ReportDialog
+                                mediaId={media.id}
+                                variant="discret"
+                                episode={selectedEpisode ? {
+                                    season_number: selectedEpisode.season_number,
+                                    episode_number: selectedEpisode.ep_number,
+                                } : null}
+                            />
                         </div>
 
                         {resumeAt > 0 && !bunnySource && (

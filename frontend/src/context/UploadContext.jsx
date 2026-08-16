@@ -17,7 +17,7 @@ function restoreUploads() {
                     ...item,
                     status: item.videoId ? "checking" : "interrupted",
                     stage: item.videoId
-                        ? "Vérification du téléversement Bunny…"
+                        ? "Vérification du téléversement…"
                         : "Interrompu par l’actualisation — sélectionne à nouveau le fichier",
                     updatedAt: Date.now(),
                 }
@@ -36,24 +36,41 @@ export function UploadProvider({ children }) {
     const cancelHandlers = useRef(new Map());
     const uploadsRef = useRef(uploads);
 
-    useEffect(() => {
-        uploadsRef.current = uploads;
+    const persistTimer = useRef(null);
+    const persist = useCallback(() => {
         try {
-            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(uploads));
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(uploadsRef.current));
         } catch {
             // Le suivi visuel ne doit jamais bloquer un téléversement.
         }
-    }, [uploads]);
+    }, []);
+
+    // La progression change des dizaines de fois par seconde. Sérialiser toute
+    // la file à chaque tick bloquait le fil principal, d'où la page qui ramait
+    // sur les grosses séries : on n'écrit plus qu'une fois par seconde.
+    useEffect(() => {
+        uploadsRef.current = uploads;
+        if (persistTimer.current) return;
+        persistTimer.current = window.setTimeout(() => {
+            persistTimer.current = null;
+            persist();
+        }, 1000);
+    }, [uploads, persist]);
+
+    useEffect(() => () => {
+        if (persistTimer.current) window.clearTimeout(persistTimer.current);
+        persist();
+    }, [persist]);
 
     useEffect(() => {
         const warnBeforeRefresh = (event) => {
-            if (!uploads.some((item) => item.status === "uploading" || item.status === "cancelling")) return;
+            if (!uploadsRef.current.some((item) => item.status === "uploading" || item.status === "cancelling")) return;
             event.preventDefault();
             event.returnValue = "";
         };
         window.addEventListener("beforeunload", warnBeforeRefresh);
         return () => window.removeEventListener("beforeunload", warnBeforeRefresh);
-    }, [uploads]);
+    }, []);
 
     useEffect(() => () => {
         cleanupTimers.current.forEach((timer) => window.clearTimeout(timer));
@@ -81,7 +98,17 @@ export function UploadProvider({ children }) {
     }, []);
 
     const updateUpload = useCallback((id, patch) => {
-        setUploads((current) => current.map((item) => item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item));
+        setUploads((current) => {
+            let modifie = false;
+            const suivant = current.map((item) => {
+                if (item.id !== id) return item;
+                if (Object.keys(patch).every((cle) => item[cle] === patch[cle])) return item;
+                modifie = true;
+                return { ...item, ...patch, updatedAt: Date.now() };
+            });
+            // Renvoyer la même référence : React n'ordonne alors aucun rendu.
+            return modifie ? suivant : current;
+        });
     }, []);
 
     const setUploadCancelHandler = useCallback((id, handler) => {
@@ -100,7 +127,7 @@ export function UploadProvider({ children }) {
     const cancelUpload = useCallback(async (id) => {
         const item = uploadsRef.current.find((candidate) => candidate.id === id);
         if (!item || item.status === "cancelling") return;
-        updateUpload(id, { status: "cancelling", stage: "Annulation et suppression sur Bunny…" });
+        updateUpload(id, { status: "cancelling", stage: "Annulation et suppression du fichier…" });
         try {
             const localHandler = cancelHandlers.current.get(id);
             if (localHandler) {
@@ -111,7 +138,7 @@ export function UploadProvider({ children }) {
                 });
             }
             cancelHandlers.current.delete(id);
-            updateUpload(id, { status: "cancelled", stage: "Annulé et supprimé de Bunny Stream", progress: 0 });
+            updateUpload(id, { status: "cancelled", stage: "Annulé et fichier supprimé", progress: 0 });
         } catch (error) {
             updateUpload(id, {
                 status: "error",
@@ -154,7 +181,7 @@ export function UploadProvider({ children }) {
 
         const verifyUploads = async () => {
             if (stopped || requestInFlight) return;
-            // Le suivi d'encodage Bunny est réservé aux admins : sans ce contrôle,
+            // Le suivi de préparation est réservé aux admins : sans ce contrôle,
             // les téléversements restaurés déclencheraient des 401 en boucle.
             if (!isAdmin) return;
             requestInFlight = true;

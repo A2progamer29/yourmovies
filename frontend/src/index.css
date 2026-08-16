@@ -68,6 +68,184 @@ html[style*="--accent"] .border-\[\#E8D2A6\] {
     border-color: var(--accent) !important;
 }
 
+
+/* Couleur personnalisée : les teintes pleines étaient seules prises en compte,
+   les transparences restaient dorées. Elles suivent maintenant l'accent. */
+html[style*="--accent"] .border-\[\#E8D2A6\]\/20 {
+    border-color: color-mix(in srgb, var(--accent) 20%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/25 {
+    border-color: color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/30 {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/35 {
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/40 {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/45 {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/50 {
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/55 {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/60 {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+}
+html[style*="--accent"] .border-\[\#E8D2A6\]\/70 {
+    border-color: color-mix(in srgb, var(--accent) 70%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/5 {
+    background-color: color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/10 {
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/15 {
+    background-color: color-mix(in srgb, var(--accent) 15%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/20 {
+    background-color: color-mix(in srgb, var(--accent) 20%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/25 {
+    background-color: color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/30 {
+    background-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/40 {
+    background-color: color-mix(in srgb, var(--accent) 40%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/50 {
+    background-color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/60 {
+    background-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+}
+html[style*="--accent"] .text-\[\#E8D2A6\]\/25 {
+    color: color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}
+html[style*="--accent"] .text-\[\#E8D2A6\]\/40 {
+    color: color-mix(in srgb, var(--accent) 40%, transparent) !important;
+}
+html[style*="--accent"] .text-\[\#E8D2A6\]\/50 {
+    color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
+}
+html[style*="--accent"] .text-\[\#E8D2A6\]\/60 {
+    color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+}
+html[style*="--accent"] .text-\[\#E8D2A6\]\/70 {
+    color: color-mix(in srgb, var(--accent) 70%, transparent) !important;
+}
+html[style*="--accent"] .text-\[\#E8D2A6\]\/80 {
+    color: color-mix(in srgb, var(--accent) 80%, transparent) !important;
+}
+html[style*="--accent"] .ring-\[\#E8D2A6\]\/20 {
+    --tw-ring-color: color-mix(in srgb, var(--accent) 20%, transparent) !important;
+}
+html[style*="--accent"] .ring-\[\#E8D2A6\]\/30 {
+    --tw-ring-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+}
+html[style*="--accent"] .ring-\[\#E8D2A6\]\/50 {
+    --tw-ring-color: color-mix(in srgb, var(--accent) 50%, transparent) !important;
+}
+html[style*="--accent"] .ring-\[\#E8D2A6\]\/70 {
+    --tw-ring-color: color-mix(in srgb, var(--accent) 70%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/\[0\.04\] {
+    background-color: color-mix(in srgb, var(--accent) 4%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/\[0\.06\] {
+    background-color: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+html[style*="--accent"] .bg-\[\#E8D2A6\]\/\[0\.08\] {
+    background-color: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+
+/* Reflet balayant sur les cadres mis en avant. Boucle lente et volontairement
+   discrète : l'idée est d'attirer l'œil sans gêner la lecture. */
+.ym-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.ym-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        105deg,
+        transparent 42%,
+        color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+        transparent 58%
+    );
+    transform: translateX(-120%);
+    animation: ymShimmer 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes ymShimmer {
+    0% {
+        transform: translateX(-120%);
+    }
+    45%,
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ym-shimmer::after {
+        animation: none !important;
+        opacity: 0;
+    }
+}
+
+
+/* Retour visuel des sauts de 10 secondes dans le lecteur. */
+@keyframes ymSeekFlash {
+    0% {
+        opacity: 0;
+        transform: translateY(-50%) scale(0.82);
+    }
+    18% {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+    }
+    70% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-50%) scale(1.06);
+    }
+}
+
+.ym-seek-flash {
+    animation: ymSeekFlash 600ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ym-seek-flash {
+        animation: none !important;
+    }
+}
+
+
+/* Emplacement publicitaire. Sans contenu réellement posé dans la page, aucune
+   marge n'est réservée : un chargement qui échoue laisse une zone vide plutôt
+   qu'un cadre cassé. */
+.ym-pub:has(.ym-pub-slot > *) {
+    margin-top: 3rem;
+}
+
 /* Noise texture overlay */
 .noise-overlay {
     position: fixed;

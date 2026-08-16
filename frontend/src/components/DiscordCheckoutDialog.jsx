@@ -119,7 +119,7 @@ export default function DiscordCheckoutDialog({
             </div>
 
             <div className="grid sm:grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-[#E8D2A6]/45 bg-gradient-to-b from-[#E8D2A6]/10 to-[#111] p-5 flex flex-col">
+              <div className="rounded-2xl border border-[#E8D2A6]/45 bg-[#111] p-5 flex flex-col">
                 <div className="w-10 h-10 rounded-full bg-[#E8D2A6]/15 text-[#E8D2A6] flex items-center justify-center mb-4">
                   <CreditCard size={19} />
                 </div>

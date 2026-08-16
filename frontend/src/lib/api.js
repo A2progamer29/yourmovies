@@ -10,6 +10,57 @@ export const api = axios.create({
     withCredentials: true,
 });
 
+
+// ---------- Détection d'une attente anormalement longue ----------
+// L'hébergement du serveur le met en veille : le premier appel après une
+// période creuse peut prendre près d'une minute. Plutôt que de laisser
+// quelqu'un devant une animation qui tourne sans fin, on expose l'attente en
+// cours pour pouvoir l'avertir et lui proposer de l'aide.
+const requetesEnCours = new Map();
+const abonnes = new Set();
+let compteurRequetes = 0;
+
+function debutLePlusAncien() {
+    let debut = null;
+    for (const instant of requetesEnCours.values()) {
+        if (debut === null || instant < debut) debut = instant;
+    }
+    return debut;
+}
+
+function prevenirAbonnes() {
+    const debut = debutLePlusAncien();
+    for (const abonne of abonnes) {
+        try { abonne(debut); } catch { }
+    }
+}
+
+/** S'abonne à l'attente réseau. Reçoit l'instant de départ de la plus ancienne
+ *  requête en cours, ou null quand plus rien n'est en attente. */
+export function surAttenteReseau(abonne) {
+    abonnes.add(abonne);
+    abonne(debutLePlusAncien());
+    return () => abonnes.delete(abonne);
+}
+
+function marquerDebut(config) {
+    config.__suivi = ++compteurRequetes;
+    requetesEnCours.set(config.__suivi, Date.now());
+    prevenirAbonnes();
+    return config;
+}
+
+function marquerFin(config) {
+    const cle = config?.__suivi;
+    if (cle && requetesEnCours.delete(cle)) prevenirAbonnes();
+}
+
+api.interceptors.request.use(marquerDebut);
+api.interceptors.response.use(
+    (reponse) => { marquerFin(reponse.config); return reponse; },
+    (erreur) => { marquerFin(erreur?.config); return Promise.reject(erreur); },
+);
+
 // Inject JWT token + active profile if present
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem("ym_token");
@@ -40,7 +91,7 @@ api.interceptors.response.use(
         const isSilentUrl = silentUrls.some((u) => url.includes(u)) && status === 401;
 
         // Une limitation temporaire est gérée par l'appelant (notamment le suivi
-        // Bunny qui respecte Retry-After). Elle ne doit jamais exposer le code
+        // un hébergeur qui respecte Retry-After). Elle ne doit jamais exposer le code
         // technique 429 ni déclencher une notification utilisateur.
         if (status === 429) {
             err.__silent = true;

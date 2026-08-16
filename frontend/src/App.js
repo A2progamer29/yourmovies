@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
@@ -22,6 +22,11 @@ import SubscriptionPage from "@/pages/SubscriptionPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import WishboardPage from "@/pages/WishboardPage";
+import ReferralPage from "@/pages/ReferralPage";
+import NotFoundPage from "@/pages/NotFoundPage";
+import { captureRef } from "@/lib/referral";
+import SupportBanner from "@/components/SupportBanner";
+import PollsPage from "@/pages/PollsPage";
 import CoinsPage from "@/pages/CoinsPage";
 import CagnottePage from "@/pages/CagnottePage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
@@ -37,6 +42,7 @@ import BetaNoticeDialog from "@/components/BetaNoticeDialog";
 import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
 import DiscordInvitePopup from "@/components/DiscordInvitePopup";
+import AideChargement from "@/components/AideChargement";
 import PopUnder from "@/components/PopUnder";
 import VisitTracker from "@/components/VisitTracker";
 
@@ -62,6 +68,7 @@ function AppRouter() {
         || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca" || p === "/documentation";
     return (
         <>
+        <SupportBanner />
         <ScrollToTop />
         <main key={location.pathname} className="ym-page-enter">
         <Routes>
@@ -74,6 +81,8 @@ function AppRouter() {
             <Route path="/profiles" element={<ProfilesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/wishboard" element={<WishboardPage />} />
+            <Route path="/sondages" element={<PollsPage />} />
+            <Route path="/parrainage" element={<ReferralPage />} />
             <Route path="/coins" element={<CoinsPage />} />
             <Route path="/cagnotte" element={<CagnottePage />} />
             <Route path="/u/:id" element={<PublicProfilePage />} />
@@ -90,6 +99,7 @@ function AppRouter() {
             <Route path="/admin/media/:id/edit" element={<AdminMediaForm />} />
             <Route path="/admin/users/:id" element={<AdminUserPage />} />
             <Route path="/pricing" element={<PricingPage />} />
+            <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </main>
         {!noFooter && <Footer />}
@@ -98,6 +108,10 @@ function AppRouter() {
 }
 
 function App() {
+    // Le code du parrain se lit une seule fois, au chargement : la navigation
+    // interne efface ensuite la question de l'URL.
+    useEffect(() => { captureRef(); }, []);
+
     return (
         <div className="App">
             <Splash />
@@ -113,6 +127,7 @@ function App() {
                                 <VersionChecker />
                                 <BetaNoticeDialog />
                                 <DiscordInvitePopup />
+                                <AideChargement />
                                 <Toaster theme="dark" richColors position="top-right" />
                             </FavoritesProvider>
                         </UploadProvider>

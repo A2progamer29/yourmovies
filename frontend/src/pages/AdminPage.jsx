@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -15,6 +15,16 @@ import AdminRoleDialog from "@/components/AdminRoleDialog";
 import AdminPricing from "@/components/AdminPricing";
 import AdminAds from "@/components/AdminAds";
 import AdminTraffic from "@/components/AdminTraffic";
+import AdminGuide from "@/components/AdminGuide";
+import AdminStorage from "@/components/AdminStorage";
+import AdminPolls from "@/components/AdminPolls";
+import AdminPending from "@/components/AdminPending";
+import AdminContributors from "@/components/AdminContributors";
+import AdminReferral from "@/components/AdminReferral";
+import AdminViews from "@/components/AdminViews";
+import AdminReports from "@/components/AdminReports";
+import AdminSupportBanner from "@/components/AdminSupportBanner";
+import AdminCagnotteTiers from "@/components/AdminCagnotteTiers";
 import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
@@ -30,6 +40,40 @@ function isMediaIncomplete(media) {
     if (media.type === "movie") return !hasPlayableVideo(media);
     const episodes = (media.seasons || []).flatMap((season) => season?.episodes || []);
     return episodes.length === 0 || episodes.some((episode) => !hasPlayableVideo(episode));
+}
+
+function SectionHeader({ titre, description, children }) {
+    return (
+        <div className="mb-6 flex flex-col gap-3 border-b border-[#262626] pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl">
+                <h2 className="font-display text-2xl tracking-tight text-white">{titre}</h2>
+                <p className="mt-1 text-sm leading-relaxed text-neutral-500">{description}</p>
+            </div>
+            {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
+        </div>
+    );
+}
+
+/** Date de sortie lisible. Les sources renvoient « 12 Jul 2026 » ou
+ *  « 2026-07-12 » ; on retombe sur l'année quand la date précise manque. */
+function dateSortie(media) {
+    const brut = String(media.release_date || "").trim();
+    if (brut && brut !== "N/A") {
+        const d = new Date(brut);
+        if (!Number.isNaN(d.getTime())) {
+            return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+        }
+    }
+    return media.year ? String(media.year) : "";
+}
+
+function metaTendance(media) {
+    const genre = media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime";
+    return [
+        genre,
+        dateSortie(media),
+        media.rating ? `IMDb ${media.rating}/10` : "",
+    ].filter(Boolean).join(" · ");
 }
 
 export default function AdminPage() {
@@ -51,6 +95,10 @@ export default function AdminPage() {
     const [roleUser, setRoleUser] = useState(null);
     const [userSort, setUserSort] = useState({ key: null, dir: "asc" });
     const [q, setQ] = useState("");
+    const [mediaFilter, setMediaFilter] = useState("all");
+    const [pendingCount, setPendingCount] = useState(0);
+    const [reportCount, setReportCount] = useState(0);
+    const [triTendances, setTriTendances] = useState("pertinence");
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [userQ, setUserQ] = useState("");
     const [licenseKeys, setLicenseKeys] = useState([]);
@@ -65,7 +113,7 @@ export default function AdminPage() {
     const [aiDiscoveryError, setAiDiscoveryError] = useState("");
     const [aiDiscoveryLoadedAt, setAiDiscoveryLoadedAt] = useState(null);
     const [aiDiscoveryRemoving, setAiDiscoveryRemoving] = useState({});
-    const tabParam = new URLSearchParams(location.search).get("tab") || "media";
+    const tabParam = new URLSearchParams(location.search).get("tab") || "overview";
 
     const loadMedia = async () => {
         const r = await api.get("/media?limit=500");
@@ -110,11 +158,25 @@ export default function AdminPage() {
         } catch (e) { showError(toast, e, "Chargement des clés impossible"); }
     };
 
-    const loadAiDiscovery = async () => {
+    const loadPendingCount = async () => {
+        try {
+            const r = await api.get("/admin/pending", { silent: true });
+            setPendingCount(Array.isArray(r.data) ? r.data.length : 0);
+        } catch { setPendingCount(0); }
+    };
+
+    const loadReportCount = async () => {
+        try {
+            const r = await api.get("/admin/reports", { silent: true });
+            setReportCount(r.data?.open || 0);
+        } catch { setReportCount(0); }
+    };
+
+    const loadAiDiscovery = async (tri = triTendances) => {
         setAiDiscoveryLoading(true);
         setAiDiscoveryError("");
         try {
-            const r = await api.get("/discovery/imdb?limit=24", { silent: true });
+            const r = await api.get(`/discovery/imdb?limit=24&sort=${tri}`, { silent: true });
             setAiDiscovery(Array.isArray(r.data) ? r.data : []);
             setAiDiscoveryLoadedAt(new Date());
         } catch (e) {
@@ -139,18 +201,46 @@ export default function AdminPage() {
         }
     };
 
+    // Chaque section ne charge que ses propres données, une seule fois. Le panel
+    // lançait auparavant huit requêtes à chaque ouverture, même pour venir
+    // changer un simple tarif.
+    const loadedRef = useRef({});
     useEffect(() => {
-        if (user?.is_admin) {
-            loadMedia();
-            loadUsers();
-            loadAnnouncements();
-            if ((user?.admin_level || 0) >= 2) loadReviews();
-            loadWishes();
-            loadCagnotte();
-            if ((user?.admin_level || 0) >= 3) loadLicenseKeys();
-            if ((user?.admin_level || 0) >= 2) loadAiDiscovery();
+        if (!user?.is_admin) return;
+        const sources = {
+            media: { run: loadMedia },
+            users: { run: loadUsers, perm: "users.view" },
+            announcements: { run: loadAnnouncements },
+            reviews: { run: loadReviews, perm: "reviews.moderate" },
+            wishes: { run: loadWishes, perm: "wishboard.view" },
+            cagnotte: { run: loadCagnotte },
+            licenseKeys: { run: loadLicenseKeys, perm: "keys.manage" },
+            discovery: { run: loadAiDiscovery, perm: "content.add" },
+            pending: { run: loadPendingCount, perm: "content.add" },
+            reports: { run: loadReportCount, perm: "content.edit" },
+        };
+        const parSection = {
+            overview: ["media", "users", "wishes", "reviews", "pending", "reports"],
+            media: ["media"],
+            players: ["media", "reports"],
+            discovery: ["discovery"],
+            users: ["users"],
+            comments: ["reviews"],
+            wishboard: ["wishes"],
+            coins: ["users"],
+            cagnotte: ["cagnotte"],
+            announcements: ["announcements"],
+            "license-keys": ["licenseKeys"],
+        };
+        for (const nom of parSection[tabParam] || []) {
+            const source = sources[nom];
+            if (!source || loadedRef.current[nom]) continue;
+            if (source.perm && !can(user, source.perm)) continue;
+            loadedRef.current[nom] = true;
+            source.run();
         }
-    }, [user]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, tabParam]);
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
@@ -328,7 +418,12 @@ export default function AdminPage() {
         comments: reviews.length,
     };
 
-    const filteredItems = items.filter((m) => !q || m.title.toLowerCase().includes(q.toLowerCase()));
+    const filteredItems = items.filter((m) => {
+        if (q && !m.title.toLowerCase().includes(q.toLowerCase())) return false;
+        if (mediaFilter === "incomplete") return isMediaIncomplete(m);
+        if (mediaFilter !== "all") return m.type === mediaFilter;
+        return true;
+    });
     const filteredUsers = users.filter((u) => !userQ ||
         (u.email || "").toLowerCase().includes(userQ.toLowerCase()) ||
         (u.name || "").toLowerCase().includes(userQ.toLowerCase())
@@ -358,6 +453,44 @@ export default function AdminPage() {
 
     const setTab = (t) => navigate(`/admin?tab=${t}`, { replace: true });
 
+    const incompleteItems = items.filter(isMediaIncomplete);
+    const alertes = reportCount;
+    const pendingWishes = wishes.filter((w) => (w.status || "pending") === "pending");
+
+    const NAV_GROUPS = [
+        { items: [{ value: "overview", label: "À traiter", icon: <LayoutDashboard size={14} /> }] },
+        {
+            label: "Catalogue", items: [
+                { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
+                { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
+                { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
+                { value: "players", label: "Signalements", icon: <Flag size={14} />, perm: "content.edit", badge: alertes },
+                { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
+                { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
+            ],
+        },
+        {
+            label: "Communauté", items: [
+                { value: "users", label: "Utilisateurs", icon: <Users size={14} /> },
+                { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
+                { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
+                { value: "contributors", label: "Contributeurs", icon: <Trophy size={14} />, perm: "content.add" },
+                { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
+                { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
+            ],
+        },
+        {
+            label: "Monétisation", items: [
+                { value: "pricing", label: "Tarifs", icon: <Tag size={14} />, perm: "pricing.manage" },
+                { value: "ads", label: "Publicité", icon: <Megaphone size={14} />, perm: "ads.manage" },
+                { value: "coins", label: "Freemium", icon: <Coins size={14} />, perm: "users.coins" },
+                { value: "cagnotte", label: "Cagnotte", icon: <PiggyBank size={14} />, perm: "cagnotte.manage" },
+                { value: "license-keys", label: "Clés SellAuth", icon: <KeyRound size={14} />, perm: "keys.manage" },
+            ],
+        },
+        { label: "Aide", items: [{ value: "guide", label: "Guide du panel", icon: <BookOpen size={14} /> }] },
+    ];
+
     return (
         <div className="min-h-screen bg-[#050505] text-white">
             <Header />
@@ -369,89 +502,217 @@ export default function AdminPage() {
                     </div>
                 </div>
 
-                <AdminTraffic />
-
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4 mb-10">
-                    {[
-                        { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
-                        { label: "Films", val: stats.movies, icon: <Film size={14} /> },
-                        { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
-                        { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
-                        { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
-                        { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
-                        { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
-                        { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
-                        { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
-                    ].map((s) => (
-                        <div key={s.label} className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a]">
-                            <div className="text-[10px] uppercase tracking-widest text-neutral-500 flex items-center gap-1.5">{s.icon} {s.label}</div>
-                            <div className="font-display text-2xl mt-1.5">{s.val}</div>
-                        </div>
-                    ))}
-                </div>
-
-                <Tabs value={tabParam} onValueChange={setTab}>
-                    <TabsList className="h-auto flex flex-wrap justify-start bg-[#111] border border-[#262626]">
-                        <TabsTrigger value="media" data-testid="admin-tab-media" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Film size={14} className="mr-2" /> Contenus
-                        </TabsTrigger>
-                        {can(user, "content.add") && (
-                            <TabsTrigger value="discovery" data-testid="admin-tab-discovery" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Sparkles size={14} className="mr-2" /> Tendances
-                            </TabsTrigger>
-                        )}
-                        <TabsTrigger value="users" data-testid="admin-tab-users" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <Users size={14} className="mr-2" /> Utilisateurs
-                        </TabsTrigger>
-                        {can(user, "reviews.moderate") && (
-                            <TabsTrigger value="comments" data-testid="admin-tab-comments" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <MessageSquare size={14} className="mr-2" /> Commentaires
-                            </TabsTrigger>
-                        )}
-                        <TabsTrigger value="wishboard" data-testid="admin-tab-wishboard" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                            <ChevronUp size={14} className="mr-2" /> Wishboard
-                        </TabsTrigger>
-                        {can(user, "users.coins") && (
-                            <TabsTrigger value="coins" data-testid="admin-tab-coins" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Coins size={14} className="mr-2" /> Freemium
-                            </TabsTrigger>
-                        )}
-                        {can(user, "cagnotte.manage") && (
-                            <TabsTrigger value="cagnotte" data-testid="admin-tab-cagnotte" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <PiggyBank size={14} className="mr-2" /> Cagnotte
-                            </TabsTrigger>
-                        )}
-                        {can(user, "announcements.manage") && (
-                            <TabsTrigger value="announcements" data-testid="admin-tab-announcements" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Megaphone size={14} className="mr-2" /> Annonces
-                            </TabsTrigger>
-                        )}
-                        {can(user, "pricing.manage") && (
-                            <TabsTrigger value="pricing" data-testid="admin-tab-pricing" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Tag size={14} className="mr-2" /> Tarifs
-                            </TabsTrigger>
-                        )}
-                        {can(user, "ads.manage") && (
-                            <TabsTrigger value="ads" data-testid="admin-tab-ads" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <Megaphone size={14} className="mr-2" /> Publicité
-                            </TabsTrigger>
-                        )}
-                        {can(user, "keys.manage") && (
-                            <TabsTrigger value="license-keys" data-testid="admin-tab-license-keys" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">
-                                <KeyRound size={14} className="mr-2" /> Clés SellAuth
-                            </TabsTrigger>
-                        )}
+                <Tabs value={tabParam} onValueChange={setTab} orientation="vertical" className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-10">
+                    <TabsList className="h-auto w-full shrink-0 flex-col items-stretch gap-1 rounded-xl border border-[#262626] bg-[#0a0a0a] p-2 lg:sticky lg:top-6 lg:w-60">
+                        {NAV_GROUPS.map((group, gi) => {
+                            const visibles = group.items.filter((item) => !item.perm || can(user, item.perm));
+                            if (visibles.length === 0) return null;
+                            return (
+                                <div key={group.label || gi} className={gi > 0 ? "mt-3" : ""}>
+                                    {group.label && (
+                                        <div className="px-3 pb-1.5 pt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-600">{group.label}</div>
+                                    )}
+                                    {visibles.map((item) => (
+                                        <TabsTrigger
+                                            key={item.value}
+                                            value={item.value}
+                                            data-testid={"admin-tab-" + item.value}
+                                            className="w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-sm text-neutral-400 data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black"
+                                        >
+                                            {item.icon}
+                                            <span className="flex-1 text-left">{item.label}</span>
+                                            {item.badge > 0 && (
+                                                <span className="rounded-full bg-[#E8D2A6]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#E8D2A6]">
+                                                    {item.badge}
+                                                </span>
+                                            )}
+                                        </TabsTrigger>
+                                    ))}
+                                </div>
+                            );
+                        })}
                     </TabsList>
 
-                    <TabsContent value="media" className="mt-8">
-                        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                            <div className="relative flex-1">
-                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
-                                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher..." className="pl-9 bg-[#111] border-[#262626] text-white" />
+                    <div className="min-w-0 flex-1">
+                    <TabsContent value="overview" className="mt-0 space-y-8">
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <button
+                                type="button"
+                                onClick={() => setTab("wishboard")}
+                                data-testid="todo-wishboard"
+                                className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                            >
+                                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                    <ChevronUp size={13} /> Wishboard
+                                </div>
+                                <div className={"mt-2 font-display text-3xl " + (pendingWishes.length > 0 ? "text-[#E8D2A6]" : "text-neutral-600")}>
+                                    {pendingWishes.length}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                    {pendingWishes.length > 0 ? "proposition(s) à trancher" : "rien en attente"}
+                                    <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setTab("pending")}
+                                data-testid="todo-pending"
+                                className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                            >
+                                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                    <Inbox size={13} /> Propositions
+                                </div>
+                                <div className={"mt-2 font-display text-3xl " + (pendingCount > 0 ? "text-[#E8D2A6]" : "text-neutral-600")}>
+                                    {pendingCount}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                    {pendingCount > 0 ? "en attente de validation" : "rien à valider"}
+                                    <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setTab("media")}
+                                data-testid="todo-incomplete"
+                                className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                            >
+                                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                    <AlertTriangle size={13} /> Contenus incomplets
+                                </div>
+                                <div className={"mt-2 font-display text-3xl " + (incompleteItems.length > 0 ? "text-amber-400" : "text-neutral-600")}>
+                                    {incompleteItems.length}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                    {incompleteItems.length > 0 ? "sans vidéo jouable" : "tout est complet"}
+                                    <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            </button>
+
+                            {can(user, "reviews.moderate") && (
+                                <button
+                                    type="button"
+                                    onClick={() => setTab("comments")}
+                                    data-testid="todo-comments"
+                                    className="group rounded-xl border border-[#262626] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-[#E8D2A6]/50"
+                                >
+                                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                                        <MessageSquare size={13} /> Commentaires
+                                    </div>
+                                    <div className="mt-2 font-display text-3xl text-white">{reviews.length}</div>
+                                    <div className="mt-1 flex items-center gap-1 text-xs text-neutral-500 group-hover:text-neutral-300">
+                                        à surveiller
+                                        <ArrowRight size={12} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                    </div>
+                                </button>
+                            )}
+                        </div>
+
+                        {incompleteItems.length > 0 && (
+                            <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-5">
+                                <div className="text-[10px] uppercase tracking-widest text-neutral-500">À compléter en priorité</div>
+                                <div className="mt-3 space-y-1">
+                                    {incompleteItems.slice(0, 6).map((m) => (
+                                        <button
+                                            key={m.id}
+                                            type="button"
+                                            onClick={() => navigate("/admin/media/" + m.id + "/edit")}
+                                            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-white/[0.03]"
+                                        >
+                                            {m.poster_url
+                                                ? <img src={m.poster_url} alt="" className="h-10 w-7 shrink-0 rounded object-cover" />
+                                                : <div className="h-10 w-7 shrink-0 rounded bg-[#111]" />}
+                                            <span className="min-w-0 flex-1 truncate text-sm text-white">{m.title}</span>
+                                            <span className="shrink-0 text-xs text-neutral-500">{m.type}</span>
+                                            <Edit size={13} className="shrink-0 text-neutral-600" />
+                                        </button>
+                                    ))}
+                                </div>
+                                {incompleteItems.length > 6 && (
+                                    <button type="button" onClick={() => setTab("media")} className="mt-3 text-xs text-[#E8D2A6] hover:underline">
+                                        Voir les {incompleteItems.length} contenus incomplets
+                                    </button>
+                                )}
                             </div>
-                            {can(user, "content.add") && <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-5 font-semibold">
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={() => setTab("guide")}
+                            data-testid="overview-guide-link"
+                            className="group flex w-full items-center gap-3 rounded-xl border border-[#262626] bg-[#0a0a0a] p-4 text-left transition-colors hover:border-[#E8D2A6]/50"
+                        >
+                            <BookOpen size={16} className="shrink-0 text-[#E8D2A6]" />
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-sm text-white">Guide du panel</span>
+                                <span className="block text-xs text-neutral-500">Publier un film, une série, nommer ses fichiers, régler les permissions.</span>
+                            </span>
+                            <ArrowRight size={14} className="shrink-0 text-neutral-600 transition-colors group-hover:text-[#E8D2A6]" />
+                        </button>
+
+                        <AdminTraffic />
+
+                        <div>
+                            <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Catalogue en chiffres</div>
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                                {[
+                                    { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
+                                    { label: "Films", val: stats.movies, icon: <Film size={14} /> },
+                                    { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
+                                    { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
+                                    { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
+                                    { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
+                                    { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
+                                    { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
+                                    { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
+                                ].map((c) => (
+                                    <div key={c.label} className="rounded-lg border border-[#262626] bg-[#0a0a0a] p-4">
+                                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-neutral-500">{c.icon} {c.label}</div>
+                                        <div className="mt-1.5 font-display text-2xl">{c.val}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="media" className="mt-0">
+                        <SectionHeader
+                            titre="Contenus"
+                            description="Le catalogue complet. Ajoute, modifie, et gère ce qui passe en avant."
+                        >
+                            {can(user, "content.add") && <Button onClick={() => navigate("/admin/media/new")} data-testid="add-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-10 px-5 font-semibold">
                                 <Plus size={16} className="mr-2" /> Ajouter un contenu
                             </Button>}
+                        </SectionHeader>
+
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div className="relative sm:max-w-xs sm:flex-1">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un titre…" className="pl-9 bg-[#111] border-[#262626] text-white" />
+                            </div>
+                            <div className="flex flex-wrap gap-1.5" data-testid="media-filters">
+                                {[
+                                    { id: "all", label: "Tous", n: items.length },
+                                    { id: "movie", label: "Films", n: stats.movies },
+                                    { id: "series", label: "Séries", n: stats.series },
+                                    { id: "anime", label: "Animes", n: stats.animes },
+                                    { id: "incomplete", label: "Incomplets", n: incompleteItems.length },
+                                ].map((f) => (
+                                    <button
+                                        key={f.id}
+                                        type="button"
+                                        onClick={() => setMediaFilter(f.id)}
+                                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${mediaFilter === f.id
+                                            ? "border-[#E8D2A6] bg-[#E8D2A6] font-semibold text-black"
+                                            : f.id === "incomplete" && f.n > 0
+                                                ? "border-amber-400/40 text-amber-300 hover:bg-amber-400/10"
+                                                : "border-[#262626] text-neutral-400 hover:border-[#E8D2A6]/50 hover:text-white"}`}
+                                    >
+                                        {f.label} <span className="tabular-nums opacity-70">{f.n}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         <div className="border border-[#262626] rounded-lg overflow-hidden">
@@ -542,21 +803,34 @@ export default function AdminPage() {
                     </TabsContent>
 
                     {can(user, "content.add") && (
-                        <TabsContent value="discovery" className="mt-8 space-y-6">
-                            <div className="flex flex-col gap-4 border-b border-[#262626] pb-6 sm:flex-row sm:items-end sm:justify-between">
+                        <TabsContent value="discovery" className="mt-0 space-y-6">
+                            <div className="mb-6 flex flex-col gap-3 border-b border-[#262626] pb-5 sm:flex-row sm:items-end sm:justify-between">
                                 <div className="max-w-2xl">
-                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-[#E8D2A6]">
-                                        <Sparkles size={13} aria-hidden="true" />
-                                        Tendances
-                                    </div>
-                                    <h2 className="font-display text-3xl sm:text-4xl tracking-tight">Veille IMDb</h2>
-                                    <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-                                        Repère les sorties récentes et les titres qui gagnent en popularité à partir de leurs données IMDb, même s&apos;ils ne sont pas encore disponibles sur YourMovie&apos;s.
+                                    <h2 className="font-display text-2xl tracking-tight text-white">Tendances</h2>
+                                    <p className="mt-1 text-sm leading-relaxed text-neutral-500">
+                                        Les titres qui montent sur IMDb, même absents du catalogue.
                                     </p>
                                 </div>
                                 <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                                    <div className="flex rounded-full border border-[#262626] p-0.5" data-testid="tri-tendances">
+                                        {[
+                                            { cle: "pertinence", libelle: "Pertinence" },
+                                            { cle: "sorties", libelle: "Dernières sorties ciné" },
+                                        ].map((choix) => (
+                                            <button
+                                                key={choix.cle}
+                                                type="button"
+                                                onClick={() => { setTriTendances(choix.cle); loadAiDiscovery(choix.cle); }}
+                                                className={`rounded-full px-3 py-1.5 text-xs transition-colors ${triTendances === choix.cle
+                                                    ? "bg-[#E8D2A6] font-semibold text-black"
+                                                    : "text-neutral-400 hover:text-white"}`}
+                                            >
+                                                {choix.libelle}
+                                            </button>
+                                        ))}
+                                    </div>
                                     <Button
-                                        onClick={loadAiDiscovery}
+                                        onClick={() => loadAiDiscovery()}
                                         disabled={aiDiscoveryLoading}
                                         data-testid="refresh-ai-discovery"
                                         variant="outline"
@@ -614,12 +888,15 @@ export default function AdminPage() {
                                                 </div>
                                             </a>
                                             <div className="pt-3">
-                                                <div className="text-[10px] uppercase tracking-widest text-neutral-600">
-                                                    {media.type === "movie" ? "Film" : media.type === "series" ? "Série" : "Anime"}
-                                                    {media.year ? ` · ${media.year}` : ""}
-                                                    {media.rating ? ` · IMDb ${media.rating}/10` : ""}
+                                                <div className="text-[10px] uppercase tracking-widest leading-relaxed text-neutral-600">
+                                                    {metaTendance(media)}
                                                 </div>
                                                 <h3 className="mt-1 truncate text-sm font-medium text-white">{media.title}</h3>
+                                                {media.original_title && media.original_title !== media.title && (
+                                                    <div className="truncate text-[11px] italic text-neutral-600" title={media.original_title}>
+                                                        {media.original_title}
+                                                    </div>
+                                                )}
                                                 {media.already_added ? (
                                                     <div className="mt-2 inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
                                                         Déjà ajouté
@@ -677,7 +954,11 @@ export default function AdminPage() {
                         </TabsContent>
                     )}
 
-                    <TabsContent value="users" className="mt-8">
+                    <TabsContent value="users" className="mt-0">
+                        <SectionHeader
+                            titre="Utilisateurs"
+                            description="Comptes, abonnements, blocages et permissions."
+                        />
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -764,7 +1045,11 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="comments" className="mt-8">
+                    <TabsContent value="comments" className="mt-0">
+                        <SectionHeader
+                            titre="Commentaires"
+                            description="Tous les avis publiés et leurs réponses."
+                        />
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={reviewQ} onChange={(e) => setReviewQ(e.target.value)} placeholder="Rechercher (texte, utilisateur, titre)..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -806,8 +1091,11 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="wishboard" className="mt-8">
-                        <p className="text-sm text-neutral-500 mb-6">Propositions des utilisateurs, triées par nombre de votes. Approuvez, laissez en attente ou refusez.</p>
+                    <TabsContent value="wishboard" className="mt-0">
+                        <SectionHeader
+                            titre="Wishboard"
+                            description="Propositions des visiteurs, triées par nombre de votes. Approuve, laisse en attente ou refuse."
+                        />
                         <div className="space-y-3">
                             {wishes.length === 0 && (
                                 <div className="p-6 rounded-lg border border-[#262626] bg-[#0a0a0a] text-center text-neutral-500 text-sm">Aucune proposition.</div>
@@ -849,7 +1137,12 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="coins" className="mt-8">
+                    <TabsContent value="coins" className="mt-0">
+                        <SectionHeader
+                            titre="Freemium"
+                            description="Ajuste le solde de points d'un compte, et règle les gains du parrainage."
+                        />
+                        {can(user, "pricing.manage") && <AdminReferral />}
                         <div className="mb-6 relative max-w-md">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                             <Input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="Rechercher utilisateur..." className="pl-9 bg-[#111] border-[#262626] text-white" />
@@ -893,7 +1186,13 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="cagnotte" className="mt-8">
+                    <TabsContent value="cagnotte" className="mt-0">
+                        <SectionHeader
+                            titre="Cagnotte"
+                            description="Le total affiché publiquement, et le bandeau qui invite à contribuer."
+                        />
+                        {can(user, "cagnotte.manage") && <AdminCagnotteTiers />}
+                        {can(user, "cagnotte.manage") && <AdminSupportBanner />}
                         <div className="max-w-md p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                             <div className="flex items-center gap-2 mb-4">
                                 <PiggyBank size={18} className="text-[#E8D2A6]" />
@@ -924,7 +1223,11 @@ export default function AdminPage() {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="announcements" className="mt-8">
+                    <TabsContent value="announcements" className="mt-0">
+                        <SectionHeader
+                            titre="Annonces"
+                            description="Messages visibles par tous les visiteurs."
+                        />
                         <div className="grid lg:grid-cols-2 gap-8">
                             <div className="p-5 rounded-lg border border-[#262626] bg-[#0a0a0a] h-fit">
                                 <div className="flex items-center gap-2 mb-4">
@@ -979,14 +1282,11 @@ export default function AdminPage() {
                     </TabsContent>
 
                     {can(user, "keys.manage") && (
-                        <TabsContent value="license-keys" className="mt-8 space-y-6">
-                            <div>
-                                <div className="text-xs uppercase tracking-widest text-neutral-500">SellAuth</div>
-                                <h2 className="mt-1 font-display text-3xl">Whitelist des clés</h2>
-                                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-500">
-                                    Les clés sont transformées en empreintes non réversibles côté serveur. Elles ne sont jamais renvoyées ni affichées dans le panel.
-                                </p>
-                            </div>
+                        <TabsContent value="license-keys" className="mt-0 space-y-6">
+                            <SectionHeader
+                                titre="Clés SellAuth"
+                                description="Whitelist des clés d'activation. Elles sont transformées en empreintes non réversibles côté serveur : elles ne sont jamais réaffichées."
+                            />
 
                             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                                 {[
@@ -1003,7 +1303,7 @@ export default function AdminPage() {
                             </div>
 
                             <div className="grid gap-5 lg:grid-cols-2">
-                                <div className="rounded-2xl border border-[#E8D2A6]/25 bg-gradient-to-br from-[#151107] to-[#0a0a0a] p-5">
+                                <div className="rounded-2xl border border-[#E8D2A6]/25 bg-[#0c0c0c] p-5">
                                     <div className="mb-1 flex items-center gap-2 text-white">
                                         <Plus size={16} className="text-[#E8D2A6]" />
                                         <h3 className="font-medium">Ajouter des clés</h3>
@@ -1112,17 +1412,84 @@ export default function AdminPage() {
                         </TabsContent>
                     )}
 
+                    {can(user, "polls.manage") && (
+                        <TabsContent value="polls" className="mt-0">
+                            <SectionHeader
+                                titre="Sondages"
+                                description="Publie une question aux visiteurs, connectés ou non. Chacun ne vote qu'une fois et découvre les résultats juste après."
+                            />
+                            <AdminPolls />
+                        </TabsContent>
+                    )}
+
+                    {can(user, "content.edit") && (
+                        <TabsContent value="players" className="mt-0">
+                            <SectionHeader
+                                titre="Signalements"
+                                description="Les problèmes remontés par les visiteurs, et les contenus dont tu signales toi-même l'indisponibilité."
+                            />
+                            <AdminReports onCount={setReportCount} />
+                        </TabsContent>
+                    )}
+
+                    <TabsContent value="views" className="mt-0">
+                        <SectionHeader
+                            titre="Vues"
+                            description="Ce que l'hébergeur vidéo a réellement compté, contenu par contenu, du plus regardé au moins regardé."
+                        />
+                        <AdminViews />
+                    </TabsContent>
+
+                    <TabsContent value="pending" className="mt-0">
+                        <SectionHeader
+                            titre="Propositions"
+                            description="Les contenus ajoutés par un compte sans droit de publication. Vérifie la fiche, puis publie ou refuse."
+                        />
+                        <AdminPending onCount={setPendingCount} />
+                    </TabsContent>
+
+                    <TabsContent value="contributors" className="mt-0">
+                        <SectionHeader
+                            titre="Contributeurs"
+                            description="Qui alimente le catalogue, et depuis combien de temps."
+                        />
+                        <AdminContributors />
+                    </TabsContent>
+
+                    {can(user, "content.delete") && (
+                        <TabsContent value="storage" className="mt-0">
+                            <SectionHeader
+                                titre="Stockage"
+                                description="L'espace occupé par les vidéos et les fichiers restés en ligne sans contenu associé."
+                            />
+                            <AdminStorage />
+                        </TabsContent>
+                    )}
+
+                    <TabsContent value="guide" className="mt-0">
+                        <AdminGuide />
+                    </TabsContent>
+
                     {can(user, "pricing.manage") && (
-                        <TabsContent value="pricing" className="mt-8">
+                        <TabsContent value="pricing" className="mt-0">
+                            <SectionHeader
+                                titre="Tarifs"
+                                description="Prix Premium et Freemium, et réductions en cours."
+                            />
                             <AdminPricing />
                         </TabsContent>
                     )}
 
                     {can(user, "ads.manage") && (
-                        <TabsContent value="ads" className="mt-8">
+                        <TabsContent value="ads" className="mt-0">
+                            <SectionHeader
+                                titre="Publicité"
+                                description="Emplacements publicitaires et étapes avant lecture."
+                            />
                             <AdminAds />
                         </TabsContent>
                     )}
+                    </div>
                 </Tabs>
             </div>
 

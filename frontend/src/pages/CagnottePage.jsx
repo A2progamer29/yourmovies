@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PiggyBank, Heart, Info, Gift, Lock, Check, Trophy } from "lucide-react";
+import { PiggyBank, Heart, Info, Gift, Check, Trophy, Lock, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -8,17 +8,14 @@ import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
+import { PanneauSkeleton } from "@/components/Skeletons";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PRESETS = [5, 10, 20, 50];
 
-const TIERS = [
-    { amount: 100, title: "Plans offerts", desc: "L'organisateur s'engage à offrir 10 plans Standard et 5 plans Basic." },
-    { amount: 300, title: "Giveaway Discord", desc: "Un giveaway de 50 € est organisé sur le Discord." },
-    { amount: 500, title: "Premium à vie à gagner", desc: "Chance de gagner aléatoirement le plan Premium à vie + 50 € en giveaway." },
-    { amount: 700, title: "Gros lot", desc: "100 € en giveaway + 5 plans Premium à vie." },
-    { amount: 1000, title: "Récompense finale", desc: "Une récompense de 250 € max à choisir (carte cadeau, etc.)." },
-];
+// Produit de soutien : une unité vaut un euro, la quantité fait le montant.
+// SellAuth ne propose pas de prix libre — cf. leur documentation Produits.
+const SELLAUTH_DON = "https://yourmovies.mysellauth.com/product/soutien-a-lhebergement";
 
 export default function CagnottePage() {
     const { user } = useAuth();
@@ -26,13 +23,18 @@ export default function CagnottePage() {
     const [data, setData] = useState({ total: 0, goal: 1000, reached: false, refund_pct: 0 });
     const [amount, setAmount] = useState("10");
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [chargement, setChargement] = useState(true);
     const [offer, setOffer] = useState("");
 
     const load = async () => {
         try {
             const r = await api.get("/cagnotte");
             setData(r.data);
-        } catch (e) { showError(toast, e, "Chargement impossible"); }
+        } catch (e) {
+            showError(toast, e, "Chargement impossible");
+        } finally {
+            setChargement(false);
+        }
     };
 
     useEffect(() => { load(); }, []);
@@ -56,7 +58,13 @@ export default function CagnottePage() {
                 <div className="text-xs uppercase tracking-widest text-[#E8D2A6] mb-2 flex items-center gap-2"><PiggyBank size={14} /> Cagnotte</div>
                 <h1 className="font-display text-4xl sm:text-5xl tracking-tighter mb-8">Soutiens YourMovie's</h1>
 
-                <div className="p-6 rounded-2xl border border-[#E8D2A6]/30 bg-gradient-to-br from-[#171208] to-[#0a0a0a] mb-8">
+                {chargement && (
+                    <div className="mb-8">
+                        <PanneauSkeleton colonnes={2} nombre={2} />
+                    </div>
+                )}
+
+                <div className={`p-6 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] mb-8${chargement ? " hidden" : ""}`}>
                     <div className="flex items-baseline justify-between mb-3">
                         <div className="font-display text-4xl text-white">{data.total.toLocaleString("fr-FR")} €</div>
                         <div className="text-neutral-400 text-sm">objectif {data.goal.toLocaleString("fr-FR")} €</div>
@@ -76,34 +84,74 @@ export default function CagnottePage() {
                 </div>
 
                 <div className="mb-8">
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="mb-1 flex items-center gap-2">
                         <Trophy size={18} className="text-[#E8D2A6]" />
-                        <h2 className="font-display text-2xl">Paliers de récompenses</h2>
+                        <h2 className="font-display text-2xl tracking-tight">Plus la cagnotte monte, plus il y a de gagnants</h2>
                     </div>
+                    <p className="mb-5 max-w-2xl text-sm leading-relaxed text-neutral-500">
+                        Chaque palier atteint déclenche un tirage au sort sur le Discord, ouvert à
+                        <span className="text-neutral-300"> tous les membres</span> — y compris ceux qui n&apos;ont rien donné.
+                    </p>
+
                     <div className="space-y-2.5">
-                        {TIERS.map((tier) => {
-                            const reached = data.total >= tier.amount;
+                        {(data.tiers || []).map((palier) => {
+                            const atteint = data.total >= palier.amount;
+                            const manquant = Math.max(0, palier.amount - data.total);
+                            const progression = Math.min(100, Math.round((data.total / Math.max(1, palier.amount)) * 100));
                             return (
-                                <div key={tier.amount} className={`flex items-start gap-4 p-4 rounded-lg border ${reached ? "border-[#E8D2A6]/40 bg-gradient-to-br from-[#171208] to-[#0a0a0a]" : "border-[#262626] bg-[#0a0a0a]"}`}>
-                                    <div className={`flex flex-col items-center justify-center w-16 shrink-0 ${reached ? "text-[#E8D2A6]" : "text-neutral-600"}`}>
-                                        {reached ? <Check size={18} /> : <Lock size={16} />}
-                                        <span className="font-display text-lg mt-0.5">{tier.amount}€</span>
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className={`font-medium flex items-center gap-1.5 ${reached ? "text-white" : "text-neutral-300"}`}>
-                                            <Gift size={14} className={reached ? "text-[#E8D2A6]" : "text-neutral-600"} /> {tier.title}
-                                            {reached && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[#E8D2A6] text-black font-bold">Débloqué</span>}
+                                <div
+                                    key={palier.amount}
+                                    className={`relative overflow-hidden rounded-xl border p-4 ${atteint
+                                        ? "ym-shimmer border-[#E8D2A6]/45 bg-[#0f0f0f]"
+                                        : palier.highlight
+                                            ? "border-[#E8D2A6]/25 bg-[#0c0c0c]"
+                                            : "border-[#262626] bg-[#0a0a0a]"}`}
+                                >
+                                    {!atteint && (
+                                        <div
+                                            className="absolute inset-y-0 left-0 bg-[#E8D2A6]/[0.06]"
+                                            style={{ width: `${progression}%` }}
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                    <div className="relative flex items-start gap-4">
+                                        <div className={`flex w-16 shrink-0 flex-col items-center justify-center ${atteint ? "text-[#E8D2A6]" : "text-neutral-600"}`}>
+                                            {atteint ? <Check size={18} /> : <Lock size={16} />}
+                                            <span className="mt-0.5 font-display text-lg">{palier.amount}€</span>
                                         </div>
-                                        <div className="text-sm text-neutral-400 mt-1 leading-relaxed">{tier.desc}</div>
-                                        {!reached && (
-                                            <div className="text-xs text-neutral-600 mt-1.5">Encore {(tier.amount - data.total).toLocaleString("fr-FR")} € pour débloquer</div>
-                                        )}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className={`font-medium ${atteint ? "text-white" : "text-neutral-300"}`}>
+                                                    {palier.label}
+                                                </span>
+                                                {atteint && (
+                                                    <span className="rounded-full bg-[#E8D2A6] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black">
+                                                        Débloqué
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <ul className="mt-1.5 space-y-1">
+                                                {(palier.rewards || []).map((recompense, i) => (
+                                                    <li key={i} className="text-sm leading-relaxed text-neutral-400">
+                                                        {recompense}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                            {!atteint && (
+                                                <div className="mt-2 text-xs text-neutral-600">
+                                                    Encore {manquant.toLocaleString("fr-FR")} € pour débloquer
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
-                    <p className="text-[11px] text-neutral-600 mt-3">Récompenses et giveaways gérés manuellement par l'organisateur sur le Discord.</p>
+
+                    <p className="mt-3 text-[11px] leading-relaxed text-neutral-600">
+                        Récompenses et tirages au sort gérés à la main sur le Discord, une fois le palier atteint.
+                    </p>
                 </div>
 
                 <div className="p-6 rounded-2xl border border-[#262626] bg-[#0a0a0a] mb-8">
@@ -130,11 +178,27 @@ export default function CagnottePage() {
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500">€</span>
                         </div>
-                        <Button onClick={contribute} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
-                            <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
+                        <Button asChild className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
+                            <a href={SELLAUTH_DON} target="_blank" rel="noopener noreferrer">
+                                <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
+                            </a>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={contribute}
+                            className="h-11 rounded-full border-[#262626] bg-transparent px-6 text-white hover:bg-white/5"
+                        >
+                            <MessageCircle size={16} className="mr-2" /> Via Discord
                         </Button>
                     </div>
-                    <p className="text-xs text-neutral-500 mt-3">Paiement via notre Discord — carte bancaire, PayPal, Paysafecard et plus.</p>
+                    <p className="mt-3 text-xs leading-relaxed text-neutral-500">
+                        Paiement direct par carte, PayPal, Paysafecard et crypto. Sur la page de
+                        paiement, <span className="text-neutral-400">1 unité = 1 €</span> : choisis la
+                        quantité correspondant au montant que tu veux donner.
+                    </p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-neutral-600">
+                        Tu préfères passer par quelqu'un ? Le bouton Discord ouvre un ticket, on s'occupe du reste.
+                    </p>
                 </div>
 
                 <div className="p-4 rounded-lg border border-[#262626] bg-[#0a0a0a] flex gap-3 text-sm text-neutral-400">
