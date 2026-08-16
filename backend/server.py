@@ -142,6 +142,7 @@ class UserPublic(BaseModel):
     autoplay_hero: bool = True
     autoplay_next: bool = True
     audio_boost: float = 1.0
+    nav_order: List[str] = Field(default_factory=list)
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     has_pin: bool = False
@@ -654,6 +655,7 @@ def user_public_dict(user: dict) -> dict:
         "autoplay_hero": user.get("autoplay_hero", True),
         "autoplay_next": bool(user.get("autoplay_next", True)) if premium_active else False,
         "audio_boost": float(user.get("audio_boost", 1.0) or 1.0),
+        "nav_order": (user.get("nav_order") or []) if premium_active else [],
         "accent_color": user.get("accent_color") if premium_active else None,
         "profile_background_color": user.get("profile_background_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
@@ -2773,6 +2775,14 @@ async def admin_delete_report(report_id: str, user: dict = Depends(require_perm(
         raise HTTPException(status_code=404, detail="Signalement introuvable")
     await _recompter_signalements((doc or {}).get("media_id"))
     return {"ok": True}
+
+
+# Rubriques de la barre de navigation. La liste vit aussi côté client, qui les
+# affiche ; ici elle sert uniquement à refuser tout ce qui n'en fait pas partie.
+RUBRIQUES_MENU = {
+    "accueil", "films", "series", "animes",
+    "wishboard", "sondages", "cagnotte", "premium",
+}
 
 
 # ---------- Bandeau de soutien ----------
@@ -5848,6 +5858,7 @@ class SettingsInput(BaseModel):
     autoplay_hero: Optional[bool] = None
     autoplay_next: Optional[bool] = None
     audio_boost: Optional[float] = None
+    nav_order: Optional[List[str]] = Field(default=None, max_length=40)
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     profile_public: Optional[bool] = None
@@ -5879,6 +5890,18 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Bande-annonce cinéma réservée aux abonnés Premium")
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
+    if inp.nav_order is not None:
+        if not user_public_dict(user)["premium"]:
+            raise HTTPException(status_code=403, detail="Ordre du menu réservé aux abonnés Premium")
+        # Seul l'ordre est libre : on ne retient que des rubriques connues, sans
+        # doublon. Impossible d'en inventer une ou d'en faire disparaître, les
+        # manquantes étant remises à la suite à l'affichage.
+        vus = []
+        for identifiant in inp.nav_order:
+            propre = str(identifiant or "").strip().lower()[:32]
+            if propre in RUBRIQUES_MENU and propre not in vus:
+                vus.append(propre)
+        upd["nav_order"] = vus
     if inp.audio_boost is not None:
         # Borné côté serveur : au-delà de 2,5 le son sature au point d'être
         # inaudible, et rien n'empêcherait d'envoyer 50 depuis un client modifié.

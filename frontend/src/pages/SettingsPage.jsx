@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { useAuth } from "@/context/AuthContext";
+import { LIENS_NAV, ORDRE_PAR_DEFAUT, ordonnerLiens } from "@/lib/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,18 @@ const PROFILE_BACKGROUND_PRESETS = [
     { name: "Violet nuit", value: "#120B1C" },
 ];
 
+/** Déplace une rubrique d'un cran. On repasse par la liste ordonnée plutôt que
+ *  par la valeur brute : celle-ci peut être incomplète, et les indices affichés
+ *  doivent correspondre à ce que la personne a sous les yeux. */
+function deplacerRubrique(ordre, index, sens) {
+    const identifiants = ordonnerLiens(ordre).map((lien) => lien.id);
+    const cible = index + sens;
+    if (cible < 0 || cible >= identifiants.length) return identifiants;
+    const copie = [...identifiants];
+    [copie[index], copie[cible]] = [copie[cible], copie[index]];
+    return copie;
+}
+
 const AUTOSAVE_FIELDS = [
     "name",
     "bio",
@@ -46,6 +59,7 @@ const AUTOSAVE_FIELDS = [
 ];
 
 const PREMIUM_AUTOSAVE_FIELDS = [
+    "nav_order",
     "autoplay_next",
     "accent_color",
     "profile_background_color",
@@ -57,6 +71,7 @@ const AUTOSAVE_SUCCESS_MESSAGES = {
     bio: "Bio enregistrée",
     audio_boost: "Amplification du son enregistrée",
     autoplay_next: "Lecture automatique enregistrée",
+    nav_order: "Ordre du menu enregistré",
     profile_public: "Visibilité du profil enregistrée",
     reviews_public: "Visibilité des avis enregistrée",
     history_public: "Visibilité de l’historique enregistrée",
@@ -103,6 +118,7 @@ export default function SettingsPage() {
                 bio: user.bio || "",
                 audio_boost: Number(user.audio_boost) || 1,
                 autoplay_next: user.autoplay_next !== false,
+                nav_order: ordonnerLiens(user.nav_order).map((lien) => lien.id),
                 picture: user.picture || "",
                 banner: user.banner || "",
                 autoplay_hero: user.autoplay_hero !== false,
@@ -658,6 +674,61 @@ export default function SettingsPage() {
 
                         <div className="pt-1 text-[10px] uppercase tracking-widest text-neutral-500">
                             Apparence
+                        </div>
+
+                        <div className="pb-5 border-b border-[#262626]">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-white flex items-center gap-2">
+                                    <Menu size={14} className="text-[#E8D2A6]" />
+                                    Ordre du menu
+                                    {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={!user.premium}
+                                    onClick={() => setForm((current) => ({ ...current, nav_order: [...ORDRE_PAR_DEFAUT] }))}
+                                    className="text-xs text-neutral-400 underline-offset-4 hover:text-white hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Remettre dans l&apos;ordre d&apos;origine
+                                </button>
+                            </div>
+                            <div className="mt-1 text-xs text-neutral-500">
+                                {user.premium
+                                    ? "Range les rubriques de la barre de navigation comme tu veux. Elles restent toutes présentes : seul leur ordre change."
+                                    : "Ranger les rubriques de la barre de navigation est réservé aux abonnés Premium."}
+                            </div>
+
+                            <ul className="mt-4 overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                                {ordonnerLiens(form.nav_order).map((lien, index, liste) => (
+                                    <li
+                                        key={lien.id}
+                                        className="flex items-center gap-3 border-b border-[#1a1a1a] px-4 py-2.5 last:border-b-0"
+                                    >
+                                        <span className="w-5 shrink-0 text-xs tabular-nums text-neutral-600">{index + 1}</span>
+                                        <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">{lien.label}</span>
+                                        <button
+                                            type="button"
+                                            aria-label={`Monter ${lien.label}`}
+                                            data-testid={`nav-monter-${lien.id}`}
+                                            disabled={!user.premium || index === 0}
+                                            onClick={() => setForm((current) => ({ ...current, nav_order: deplacerRubrique(current.nav_order, index, -1) }))}
+                                            className="shrink-0 rounded p-1.5 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-25"
+                                        >
+                                            <ChevronUp size={15} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label={`Descendre ${lien.label}`}
+                                            data-testid={`nav-descendre-${lien.id}`}
+                                            disabled={!user.premium || index === liste.length - 1}
+                                            onClick={() => setForm((current) => ({ ...current, nav_order: deplacerRubrique(current.nav_order, index, 1) }))}
+                                            className="shrink-0 rounded p-1.5 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-25"
+                                        >
+                                            <ChevronDown size={15} />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
 
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
