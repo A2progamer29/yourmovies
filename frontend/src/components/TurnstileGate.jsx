@@ -44,9 +44,9 @@ export default function TurnstileGate({ onVerified }) {
 
     // Deux echecs suffisent a etablir que le blocage ne vient pas d'un hasard :
     // on laisse alors passer plutot que d'enfermer un visiteur legitime.
-    const contourner = useCallback(async () => {
+    const contourner = useCallback(async (codeErreur) => {
         try {
-            const r = await api.post("/playback/verify/skip", {}, { silent: true });
+            const r = await api.post("/playback/verify/skip", { code: String(codeErreur || "") }, { silent: true });
             ecrirePass(r.data?.pass);
         } catch {
             // meme sans laissez-passer, on n'immobilise personne
@@ -84,9 +84,14 @@ export default function TurnstileGate({ onVerified }) {
                     // Cloudflare transmet un code : l'afficher evite de
                     // diagnostiquer a l'aveugle quand quelqu'un signale le probleme.
                     "error-callback": (codeErreur) => {
+                        const code = String(codeErreur || "");
+                        // Les codes en 110 disent que la verification refuse ce
+                        // domaine : reessayer ne changera rien, et le visiteur
+                        // n'y est pour rien. On passe sans le faire patienter.
+                        if (code.startsWith("110")) { contourner(code); return; }
                         echecs.current += 1;
-                        if (echecs.current >= 2) { contourner(); return; }
-                        setCode(String(codeErreur || ""));
+                        if (echecs.current >= 2) { contourner(code); return; }
+                        setCode(code);
                         setErreur("La vérification n'a pas pu aboutir.");
                         setEtat("erreur");
                     },

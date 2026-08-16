@@ -170,14 +170,25 @@ export default function AdminMediaForm() {
     const [dragBunny, setDragBunny] = useState(false);
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
     const uploadStage = (key) => activeUpload(key)?.stage || "";
-    // L'enregistrement est bloqué uniquement pendant les quelques secondes avant
-    // que l'hébergeur fournisse une référence. Dès que videoId existe, le transfert peut
-    // continuer globalement pendant que l'admin crée un autre contenu.
-    const hasUploadWithoutReference = uploads.some((item) =>
+    // Le transfert doit etre termine avant d'enregistrer. Auparavant seule la
+    // reference etait attendue : la fiche partait avec un identifiant de video
+    // valide alors que pas un octet n'etait encore arrive, et quitter la page
+    // interrompait l'envoi. La video restait alors vide chez l'hebergeur, la
+    // fiche pointant sur un fichier qui n'existerait jamais.
+    const transfertEnCours = uploads.some((item) =>
         item.key?.startsWith(`${uploadScope}:`)
         && ["uploading", "cancelling"].includes(item.status)
-        && !item.videoId
     );
+    const hasUploadWithoutReference = transfertEnCours;
+
+    // Recharger ou fermer l'onglet coupe le transfert : le navigateur demande
+    // confirmation plutot que de le laisser mourir sans un mot.
+    useEffect(() => {
+        if (!transfertEnCours) return undefined;
+        const avertir = (evenement) => { evenement.preventDefault(); evenement.returnValue = ""; };
+        window.addEventListener("beforeunload", avertir);
+        return () => window.removeEventListener("beforeunload", avertir);
+    }, [transfertEnCours]);
     const [saving, setSaving] = useState(false);
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [tmdbQuery, setTmdbQuery] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
@@ -407,7 +418,7 @@ export default function AdminMediaForm() {
 
     const save = async () => {
         if (hasUploadWithoutReference) {
-            toast.error("Patiente quelques secondes, le temps que la référence vidéo soit créée.");
+            toast.error("Le fichier n'a pas fini d'être envoyé. Enregistrer maintenant laisserait une vidéo vide chez l'hébergeur.");
             return;
         }
         const payload = {
@@ -740,7 +751,7 @@ export default function AdminMediaForm() {
                         </h1>
                     </div>
                     <Button onClick={save} disabled={!form.title || saving || hasUploadWithoutReference} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Préparation…" : "Enregistrer"}
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Téléversement en cours…" : "Enregistrer"}
                     </Button>
                 </div>
 

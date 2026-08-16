@@ -2415,14 +2415,35 @@ async def playback_verify(inp: TurnstileInput, request: Request):
     return {"ok": True, "pass": laissez_passer, "expires_in": PLAYBACK_PASS_MINUTES * 60}
 
 
+class ContournementInput(BaseModel):
+    code: Optional[str] = Field(default=None, max_length=20)
+
+
 @api_router.post("/playback/verify/skip")
-async def playback_verify_skip(request: Request):
+async def playback_verify_skip(request: Request, inp: Optional[ContournementInput] = None):
     """Filet de securite : un bloqueur ou un VPN empeche parfois Cloudflare de
     repondre. Plutot que d'enfermer quelqu'un de legitime devant un ecran vide,
-    on delivre un laissez-passer court, fortement limite et journalise."""
+    on delivre un laissez-passer court, fortement limite et journalise.
+
+    Les codes en 110 signalent une verification mal configuree — domaine absent
+    de la liste, cle invalide. La faute est alors de notre cote et frappe tout le
+    monde a la fois : la limite stricte n'y protegerait de rien et fermerait le
+    site a des visiteurs qui n'y peuvent rien. On l'assouplit, et on le dit
+    assez fort dans le journal pour que la cause soit corrigee."""
     if not TURNSTILE_CONFIGURED:
         return {"ok": True, "pass": None}
-    await _enforce_rate_limit(request, "turnstile-skip", 3, 3600)
+    code = (inp.code if inp else "") or ""
+    mauvaise_config = code.startswith("110")
+    if mauvaise_config:
+        logger.error(
+            "Verification anti-robots mal configuree (code %s) : la cle Cloudflare "
+            "n'accepte pas ce domaine. La lecture est ouverte sans verification "
+            "tant que ce n'est pas corrige.",
+            code,
+        )
+        await _enforce_rate_limit(request, "turnstile-skip-config", 30, 3600)
+    else:
+        await _enforce_rate_limit(request, "turnstile-skip", 3, 3600)
     ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
     logger.info("Laissez-passer de secours delivre a %s", ip)
     expire = datetime.now(timezone.utc) + timedelta(minutes=15)
