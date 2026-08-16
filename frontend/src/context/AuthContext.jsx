@@ -107,6 +107,16 @@ export function AuthProvider({ children }) {
         }
     }, [claimDaily]);
 
+    // Un réglage modifié dans un autre onglet doit valoir ici aussi : sans cela
+    // une vidéo en cours de lecture garderait les anciens réglages.
+    useEffect(() => {
+        const auChangement = (evenement) => {
+            if (evenement.key === "ym_reglages_touch") checkAuth();
+        };
+        window.addEventListener("storage", auChangement);
+        return () => window.removeEventListener("storage", auChangement);
+    }, [checkAuth]);
+
     useEffect(() => {
         if (window.location.hash?.includes("session_id=")) {
             setLoading(false);

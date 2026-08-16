@@ -98,7 +98,6 @@ export default function VideoPlayer({
     const chaineAudio = useRef({ contexte: null, gain: null });
     const hideTimer = useRef(null);
     const demarrageAuto = useRef(false);
-    const boostApplique = useRef(false);
     const progressTimer = useRef(null);
 
     // Flux adaptatif : Safari lit le HLS nativement, les autres passent par
@@ -188,6 +187,17 @@ export default function VideoPlayer({
     // En automatique, la qualité est bridée à la taille réelle du lecteur : inutile
     // de charger du 1080p dans une fenêtre de 700 px, et la bande passante coûte.
     // Un choix manuel doit passer outre, sinon la sélection reste sans effet.
+    // L'amplification demandée s'applique sans attendre : changer le réglage
+    // pendant la lecture doit s'entendre tout de suite. Le graphe audio n'est
+    // construit qu'une fois la lecture lancée — avant le premier geste, le
+    // navigateur garderait le contexte suspendu et la vidéo deviendrait muette.
+    useEffect(() => {
+        const souhaite = Number(boostInitial) || 1;
+        setBoost(souhaite);
+        if (!playing && !chaineAudio.current.contexte) return;
+        appliquerBoost(souhaite);
+    }, [boostInitial, playing, appliquerBoost]);
+
     const choisirNiveau = (index) => {
         setNiveauChoisi(index);
         const hls = hlsRef.current;
@@ -433,14 +443,7 @@ export default function VideoPlayer({
                 onLoadedMetadata={onLoadedMetadata}
                 onTimeUpdate={onTimeUpdate}
                 onCanPlay={demarrerSiPossible}
-                onPlay={() => {
-                    setPlaying(true);
-                    const souhaite = Number(boostInitial) || 1;
-                    if (!boostApplique.current && souhaite > 1) {
-                        boostApplique.current = true;
-                        appliquerBoost(souhaite);
-                    }
-                }}
+                onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
                 onClick={() => !adsRunning && togglePlay()}

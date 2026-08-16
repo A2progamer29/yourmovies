@@ -71,7 +71,7 @@ const getAutosaveSuccessMessage = (fields) => {
 };
 
 export default function SettingsPage() {
-    const { user, loading, refresh } = useAuth();
+    const { user, loading, refresh, setUser } = useAuth();
     const navigate = useNavigate();
     const [tab, setTab] = useState("profile"); // profile | preferences | security
     const [form, setForm] = useState({});
@@ -152,6 +152,10 @@ export default function SettingsPage() {
                     ]),
                 );
                 lastSavedForm.current = { ...lastSavedForm.current, ...confirmed };
+                // Sans cette ligne, le reste du site gardait l'ancienne valeur
+                // jusqu'au prochain rechargement complet de la page.
+                setUser((courant) => (courant ? { ...courant, ...confirmed } : courant));
+                try { localStorage.setItem("ym_reglages_touch", String(Date.now())); } catch { }
                 setForm((current) => {
                     const synchronized = { ...current };
                     changedFields.forEach((field) => {

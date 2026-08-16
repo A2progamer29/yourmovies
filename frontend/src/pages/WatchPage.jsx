@@ -312,6 +312,9 @@ export default function WatchPage() {
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [manifestUrl, setManifestUrl] = useState(null);
+    // Seul le franchissement du seuil change de lecteur. Faire dépendre l'appel
+    // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
+    const lecteurAvanceDemande = (Number(user?.audio_boost) || 1) > 1;
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     // En salon, la fin des publicités change la mise en page et reconstruit
     // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
@@ -529,7 +532,7 @@ export default function WatchPage() {
         setBunnyPlaybackError(null);
         // Le lecteur avancé n'est demandé que si l'amplification est réglée : sans
         // elle il n'apporte rien, et le lecteur intégré reste le chemin éprouvé.
-        const amplification = Number(user?.audio_boost) || 1;
+        const amplification = lecteurAvanceDemande ? 2 : 1;
         const playbackParams = {
             ...(media?.type === "movie" ? {} : {
                 season_number: selectedEpisode?.season_number,
@@ -577,9 +580,9 @@ export default function WatchPage() {
         bunnySource?.videoId,
         bunnySource?.libraryId,
         verifie,
-        // Changer l'amplification dans les paramètres doit rebasculer le lecteur
-        // sans qu'on ait à recharger la page.
-        user?.audio_boost,
+        // Changer de lecteur, oui ; changer de niveau, non : le niveau est suivi
+        // en direct par le lecteur lui-même.
+        lecteurAvanceDemande,
     ]);
 
     useEffect(() => {
