@@ -293,14 +293,19 @@ export default function VideoPlayer({
         }
     };
 
-    // Lancement de la vidéo une fois les publicités passées. Une seule fois :
-    // l'effet dépendait de « playing », si bien que chaque pause déclenchait une
-    // relecture immédiate et rendait la mise en pause impossible.
-    useEffect(() => {
-        if (!adsFinished || demarrageAuto.current || !videoRef.current) return;
-        demarrageAuto.current = true;
-        videoRef.current.play().then(() => setPlaying(true)).catch(() => { });
+    // Lancement de la vidéo une fois les publicités passées. Cet effet dépendait
+    // de l'état de lecture : chaque pause le rejouait et relançait aussitôt la
+    // vidéo, rendant la mise en pause impossible. Le drapeau n'est plus levé qu'au
+    // premier démarrage réussi, ou dès que la lecture est commandée à la main.
+    const demarrerSiPossible = useCallback(() => {
+        const video = videoRef.current;
+        if (!adsFinished || demarrageAuto.current || !video) return;
+        // La tentative peut échouer tant que le flux n'est pas rattaché, ou si le
+        // navigateur refuse une lecture non sollicitée : on réessaie à « canplay ».
+        video.play().then(() => { demarrageAuto.current = true; }).catch(() => { });
     }, [adsFinished]);
+
+    useEffect(() => { demarrerSiPossible(); }, [demarrerSiPossible]);
 
     // Change quality preserves position
     const changeQuality = (q) => {
@@ -324,6 +329,9 @@ export default function VideoPlayer({
     const togglePlay = () => {
         const v = videoRef.current;
         if (!v) return;
+        // Commander la lecture soi-même clôt le démarrage automatique : sans
+        // cela, une pause suivie d'un saut le relancerait.
+        demarrageAuto.current = true;
         if (v.paused) v.play(); else v.pause();
     };
     const toggleMute = () => {
@@ -406,6 +414,7 @@ export default function VideoPlayer({
                 className="w-full h-full"
                 onLoadedMetadata={onLoadedMetadata}
                 onTimeUpdate={onTimeUpdate}
+                onCanPlay={demarrerSiPossible}
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
