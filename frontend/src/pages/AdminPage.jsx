@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -18,6 +18,7 @@ import AdminTraffic from "@/components/AdminTraffic";
 import AdminGuide from "@/components/AdminGuide";
 import AdminStorage from "@/components/AdminStorage";
 import AdminInventaire from "@/components/AdminInventaire";
+import AdminJournal from "@/components/AdminJournal";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminContributors from "@/components/AdminContributors";
@@ -476,6 +477,7 @@ export default function AdminPage() {
                 { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
                 { value: "contributors", label: "Contributeurs", icon: <Trophy size={14} />, perm: "content.add" },
+                { value: "journal", label: "Journal", icon: <ScrollText size={14} />, perm: "content.add" },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
@@ -1456,6 +1458,16 @@ export default function AdminPage() {
                         />
                         <AdminContributors />
                     </TabsContent>
+
+                    {can(user, "content.add") && (
+                        <TabsContent value="journal" className="mt-0">
+                            <SectionHeader
+                                titre="Journal"
+                                description="Qui a ajoute, propose, valide, refuse ou supprime un contenu, et a quelle heure."
+                            />
+                            <AdminJournal />
+                        </TabsContent>
+                    )}
 
                     {can(user, "content.delete") && (
                         <TabsContent value="storage" className="mt-0">

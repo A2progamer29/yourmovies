@@ -1243,7 +1243,12 @@ async def _record_catalog_history(doc: dict, *, active: bool, user_id: Optional[
         )
 
 
-async def _record_media_event(action: Literal["added", "deleted"], doc: dict, *, user_id: Optional[str]) -> None:
+async def _record_media_event(
+    action: Literal["added", "deleted", "proposed", "published", "rejected"],
+    doc: dict,
+    *,
+    user_id: Optional[str],
+) -> None:
     await db.media_events.insert_one({
         "event_id": f"media_evt_{uuid.uuid4().hex}",
         "action": action,
@@ -1363,6 +1368,10 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_perm("conten
     if not _peut_publier(user):
         doc["proposed_by_name"] = user.get("name", "")
         await db.media_pending.insert_one(dict(doc))
+        try:
+            await _record_media_event("proposed", doc, user_id=user.get("user_id"))
+        except Exception as exc:
+            logger.error("Journalisation de la proposition %s impossible : %s", media_id, exc)
         return {**serialize_media(doc), "pending": True}
     await db.media.insert_one(doc)
     try:
@@ -1752,6 +1761,9 @@ async def admin_publish_pending(media_id: str, user: dict = Depends(require_perm
     try:
         await _record_catalog_history(doc, active=True, user_id=doc.get("created_by"))
         await _record_media_event("added", doc, user_id=doc.get("created_by"))
+        # L'ajout reste porte au credit de la personne qui a propose ; la
+        # validation est un geste distinct, qui merite sa propre ligne.
+        await _record_media_event("published", doc, user_id=user.get("user_id"))
     except Exception as exc:
         logger.error("Journalisation de la publication de %s impossible : %s", media_id, exc)
     return serialize_media(doc)
@@ -1766,8 +1778,54 @@ async def admin_reject_pending(media_id: str, user: dict = Depends(require_perm(
     # Les fichiers ont bien ete televerses chez l'hebergeur : les laisser reviendrait a
     # payer le stockage d'une proposition refusee.
     supprimees = await _purge_bunny_of(doc)
+    try:
+        await _record_media_event("rejected", doc, user_id=user.get("user_id"))
+    except Exception as exc:
+        logger.error("Journalisation du refus de %s impossible : %s", media_id, exc)
     logger.info("Proposition %s refusee par %s (%s videos supprimees)", media_id, user.get("user_id"), supprimees)
     return {"ok": True, "bunny_deleted": supprimees}
+
+
+@api_router.get("/admin/journal")
+async def admin_journal(
+    limit: int = Query(150, ge=1, le=500),
+    action: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.add")),
+):
+    """Qui a fait quoi, et quand, dans l'ordre. Les propositions encore en attente
+    y figurent aussi : sans elles, le travail de quelqu'un resterait invisible
+    tant que personne ne l'a validee."""
+    requete = {}
+    if action in {"added", "deleted", "proposed", "published", "rejected"}:
+        requete["action"] = action
+    evenements = await db.media_events.find(requete, {"_id": 0}).sort("created_at", -1).to_list(limit)
+
+    identifiants = {e.get("created_by") for e in evenements if e.get("created_by")}
+    comptes = await db.users.find(
+        {"user_id": {"$in": list(identifiants)}},
+        {"_id": 0, "user_id": 1, "name": 1, "picture": 1},
+    ).to_list(1000)
+    noms = {c["user_id"]: c for c in comptes}
+
+    sortie = []
+    for evenement in evenements:
+        quand = evenement.get("created_at")
+        compte = noms.get(evenement.get("created_by")) or {}
+        media = evenement.get("media") or {}
+        sortie.append({
+            "id": evenement.get("event_id"),
+            "action": evenement.get("action"),
+            "at": quand.isoformat() if hasattr(quand, "isoformat") else str(quand or ""),
+            "user_id": evenement.get("created_by"),
+            "user_name": compte.get("name") or ("Compte supprimé" if evenement.get("created_by") else "Système"),
+            "user_picture": compte.get("picture"),
+            "media_id": media.get("id"),
+            "title": media.get("title") or "",
+            "type": media.get("type") or "movie",
+            "poster_url": media.get("poster_url"),
+            "year": media.get("year"),
+        })
+    return {"items": sortie}
 
 
 @api_router.get("/admin/contributors")
