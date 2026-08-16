@@ -2781,7 +2781,23 @@ BANNER_DEFAULTS = {
     "always_show": False,
     "message": "Chaque visionnage a un coût, et YourMovie's ne rapporte rien pour l'instant. Un coup de main aide à garder les lecteurs allumés.",
     "cta_label": "Soutenir le site",
+    "cta_url": "/cagnotte",
 }
+
+
+def _lien_bandeau(valeur: Optional[str], defaut: str) -> str:
+    """Destination du bouton, restreinte à une page du site ou à une adresse
+    web. Tout le reste retombe sur la valeur par défaut : ce lien est écrit
+    depuis l'administration et finit dans un attribut de lien, où un schéma
+    comme « javascript: » exécuterait du code chez le visiteur."""
+    brut = (valeur or "").strip()
+    if not brut:
+        return defaut
+    if brut.startswith("//"):
+        return defaut
+    if brut.startswith("/") or re.match(r"^https?://", brut, re.IGNORECASE):
+        return brut[:300]
+    return defaut
 
 
 async def _effective_banner() -> dict:
@@ -2793,6 +2809,7 @@ async def _effective_banner() -> dict:
         valeur = doc.get(cle)
         if isinstance(valeur, str) and valeur.strip():
             config[cle] = valeur.strip()[:300]
+    config["cta_url"] = _lien_bandeau(doc.get("cta_url"), BANNER_DEFAULTS["cta_url"])
     return config
 
 
@@ -2801,6 +2818,7 @@ class BannerInput(BaseModel):
     always_show: Optional[bool] = None
     message: Optional[str] = Field(default=None, max_length=300)
     cta_label: Optional[str] = Field(default=None, max_length=40)
+    cta_url: Optional[str] = Field(default=None, max_length=300)
 
 
 @api_router.get("/support-banner")
@@ -2816,6 +2834,8 @@ async def admin_get_banner(user: dict = Depends(require_perm("cagnotte.manage"))
 @api_router.post("/admin/support-banner")
 async def admin_set_banner(inp: BannerInput, user: dict = Depends(require_perm("cagnotte.manage"))):
     update = {k: v for k, v in inp.model_dump(exclude_unset=True).items() if v is not None}
+    if "cta_url" in update:
+        update["cta_url"] = _lien_bandeau(update["cta_url"], BANNER_DEFAULTS["cta_url"])
     if update:
         await db.settings.update_one({"id": "support_banner"}, {"$set": update}, upsert=True)
     return await _effective_banner()
