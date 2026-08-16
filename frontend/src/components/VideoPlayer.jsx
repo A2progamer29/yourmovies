@@ -103,14 +103,17 @@ export default function VideoPlayer({
         let annule = false;
         let instance = null;
 
+        // hls.js d'abord : Chrome annonce « maybe » sur le type HLS sans le lire
+        // réellement selon les versions, et lui seul expose les niveaux de qualité.
+        // La lecture native ne sert que là où hls.js ne fonctionne pas, iOS surtout.
         (async () => {
-            if (video.canPlayType("application/vnd.apple.mpegurl")) {
-                video.src = manifestUrl;
-                return;
-            }
             try {
                 const { default: Hls } = await import("hls.js");
-                if (annule || !Hls.isSupported()) return;
+                if (annule) return;
+                if (!Hls.isSupported()) {
+                    if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = manifestUrl;
+                    return;
+                }
                 instance = new Hls({ capLevelToPlayerSize: true });
                 hlsRef.current = instance;
                 instance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -127,7 +130,11 @@ export default function VideoPlayer({
                 instance.loadSource(manifestUrl);
                 instance.attachMedia(video);
             } catch {
-                // hls.js indisponible : la lecture reste possible sans choix de qualité.
+                // hls.js n'a pas pu être chargé : on tente la lecture native,
+                // et à défaut le lecteur intégré reprend la main.
+                if (annule) return;
+                if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = manifestUrl;
+                else if (onFluxImpossible) onFluxImpossible();
             }
         })();
 
