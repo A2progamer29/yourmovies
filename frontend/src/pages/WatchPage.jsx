@@ -311,6 +311,7 @@ export default function WatchPage() {
     const bunnyPlayerRef = useRef(null);
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
+    const [manifestUrl, setManifestUrl] = useState(null);
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     // En salon, la fin des publicités change la mise en page et reconstruit
     // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
@@ -502,6 +503,7 @@ export default function WatchPage() {
         }
         let active = true;
         setBunnyPlaybackUrl(null);
+        setManifestUrl(null);
         setBunnyPlaybackError(null);
         const playbackParams = media?.type === "movie" ? undefined : {
             season_number: selectedEpisode?.season_number,
@@ -519,6 +521,9 @@ export default function WatchPage() {
                     setBunnyPlaybackError("Le backend n’a renvoyé aucune URL de lecture.");
                     return;
                 }
+                // Le flux servi en direct autorise nos propres contrôles, dont
+                // l’amplification du son. À défaut, le lecteur intégré prend le relais.
+                setManifestUrl(data.playback_type === "direct" ? data.manifest_url : null);
                 if (data.libraryMatchesUploadConfig === false) {
                     setBunnyPlaybackError(
                         `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
@@ -942,6 +947,19 @@ export default function WatchPage() {
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
+                        ) : bunnySource && manifestUrl && !partyOpen ? (
+                            /* En salon, le lecteur intégré reste seul : c'est lui que le
+                               masque de l'invité neutralise pour laisser l'hôte diriger. */
+                            <VideoPlayer
+                                key={manifestUrl}
+                                manifestUrl={manifestUrl}
+                                poster={media.banner_url || media.poster_url}
+                                onProgress={suivreProgression}
+                                startAt={resumeAt}
+                                userMaxQuality={userMaxQuality}
+                                runAds={false}
+                                videoRefOut={videoElRef}
+                            />
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 {bunnyPlaybackError ? (

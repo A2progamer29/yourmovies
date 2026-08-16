@@ -51,6 +51,7 @@ export default function VideoPlayer({
     runAds = true,
     preferredQuality = null,
     videoRefOut = null,
+    manifestUrl = null,
 }) {
     const wrapRef = useRef(null);
     const videoRef = useRef(null);
@@ -85,8 +86,89 @@ export default function VideoPlayer({
     const [adInfo, setAdInfo] = useState(null); // {remainingTime, skippable, canSkip, index, total}
     const [adsFinished, setAdsFinished] = useState(!runAds);
     const [adsBlocked, setAdsBlocked] = useState(false);
+    const [boost, setBoost] = useState(1);
+    const [niveaux, setNiveaux] = useState([]);
+    const [niveauChoisi, setNiveauChoisi] = useState(-1);
+    const hlsRef = useRef(null);
+    const chaineAudio = useRef({ contexte: null, gain: null });
     const hideTimer = useRef(null);
     const progressTimer = useRef(null);
+
+    // Flux adaptatif : Safari lit le HLS nativement, les autres passent par
+    // hls.js, chargé à la demande pour ne pas alourdir le reste du site.
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!manifestUrl || !video) return undefined;
+        let annule = false;
+        let instance = null;
+
+        (async () => {
+            if (video.canPlayType("application/vnd.apple.mpegurl")) {
+                video.src = manifestUrl;
+                return;
+            }
+            try {
+                const { default: Hls } = await import("hls.js");
+                if (annule || !Hls.isSupported()) return;
+                instance = new Hls({ capLevelToPlayerSize: true });
+                hlsRef.current = instance;
+                instance.on(Hls.Events.MANIFEST_PARSED, () => {
+                    if (annule) return;
+                    setNiveaux(instance.levels.map((n, index) => ({ index, height: n.height })));
+                });
+                instance.loadSource(manifestUrl);
+                instance.attachMedia(video);
+            } catch {
+                // hls.js indisponible : la lecture reste possible sans choix de qualité.
+            }
+        })();
+
+        return () => {
+            annule = true;
+            if (instance) instance.destroy();
+            hlsRef.current = null;
+        };
+    }, [manifestUrl]);
+
+    // Amplification au-delà de 100 %. Le graphe audio n'est construit qu'au
+    // premier usage : tant que personne n'y touche, le son suit son chemin
+    // habituel et rien ne peut le couper.
+    const appliquerBoost = useCallback(async (valeur) => {
+        setBoost(valeur);
+        const video = videoRef.current;
+        if (!video) return;
+        if (valeur <= 1 && !chaineAudio.current.contexte) return;
+        try {
+            if (!chaineAudio.current.contexte) {
+                const Contexte = window.AudioContext || window.webkitAudioContext;
+                if (!Contexte) return;
+                const contexte = new Contexte();
+                // Un élément vidéo n'accepte qu'une seule source Web Audio :
+                // elle est donc créée une fois et conservée.
+                const source = contexte.createMediaElementSource(video);
+                const gain = contexte.createGain();
+                source.connect(gain).connect(contexte.destination);
+                chaineAudio.current = { contexte, gain };
+            }
+            if (chaineAudio.current.contexte.state === "suspended") {
+                await chaineAudio.current.contexte.resume();
+            }
+            chaineAudio.current.gain.gain.value = valeur;
+        } catch {
+            // Navigateur trop restrictif : le volume normal reste opérationnel.
+        }
+    }, []);
+
+    useEffect(() => () => {
+        const { contexte } = chaineAudio.current;
+        if (contexte && contexte.state !== "closed") contexte.close().catch(() => { });
+    }, []);
+
+    const choisirNiveau = (index) => {
+        setNiveauChoisi(index);
+        if (hlsRef.current) hlsRef.current.currentLevel = index;
+        setShowSettings(false);
+    };
 
     // Init IMA
     useEffect(() => {
@@ -299,7 +381,8 @@ export default function VideoPlayer({
             <video
                 ref={videoRef}
                 data-testid="video-player"
-                src={src}
+                src={manifestUrl ? undefined : src}
+                crossOrigin={manifestUrl ? "anonymous" : undefined}
                 poster={poster}
                 className="w-full h-full"
                 onLoadedMetadata={onLoadedMetadata}
@@ -387,6 +470,11 @@ export default function VideoPlayer({
                                     onChange={(e) => setVol(Number(e.target.value))}
                                     className="w-20 accent-[#E8D2A6] cursor-pointer"
                                 />
+                                {boost > 1 && (
+                                    <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#E8D2A6]">
+                                        x{boost.toFixed(1)}
+                                    </span>
+                                )}
                             </div>
                             <div className="flex-1" />
                             <div className="relative">
@@ -399,7 +487,49 @@ export default function VideoPlayer({
                                     <span className="uppercase text-xs tracking-widest">{currentQuality}</span>
                                 </button>
                                 {showSettings && (
-                                    <div data-testid="quality-menu" className="absolute right-0 bottom-full mb-2 bg-[#0a0a0a] border border-[#262626] rounded-lg overflow-hidden shadow-2xl min-w-[160px]">
+                                    <div data-testid="quality-menu" className="absolute right-0 bottom-full mb-2 bg-[#0a0a0a] border border-[#262626] rounded-lg overflow-hidden shadow-2xl min-w-[210px]">
+                                        <div className="border-b border-[#262626] px-3 py-2.5">
+                                            <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-neutral-500">
+                                                <span>Amplification</span>
+                                                <span className="tabular-nums text-[#E8D2A6]">{Math.round(boost * 100)} %</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="2.5"
+                                                step="0.1"
+                                                value={boost}
+                                                data-testid="player-boost"
+                                                onChange={(e) => appliquerBoost(Number(e.target.value))}
+                                                className="mt-2 w-full accent-[#E8D2A6] cursor-pointer"
+                                            />
+                                            <p className="mt-1.5 text-[10px] leading-snug text-neutral-600">
+                                                Au-delà de 100 %, le son peut saturer selon la piste.
+                                            </p>
+                                        </div>
+                                        {niveaux.length > 0 && (
+                                            <>
+                                                <div className="border-b border-[#262626] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">Qualité</div>
+                                                <button
+                                                    onClick={() => choisirNiveau(-1)}
+                                                    className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === -1 ? "text-[#E8D2A6]" : "text-white"}`}
+                                                >
+                                                    Automatique
+                                                </button>
+                                                {[...niveaux].reverse().map((n) => (
+                                                    <button
+                                                        key={n.index}
+                                                        data-testid={`niveau-${n.height}`}
+                                                        onClick={() => choisirNiveau(n.index)}
+                                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === n.index ? "text-[#E8D2A6]" : "text-white"}`}
+                                                    >
+                                                        {n.height}p
+                                                    </button>
+                                                ))}
+                                            </>
+                                        )}
+                                        {niveaux.length === 0 && (
+                                          <>
                                         <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-[#262626]">Qualité</div>
                                         {availableQualities.length === 0 && (
                                             <div className="px-3 py-2 text-xs text-neutral-500">Aucune option</div>
@@ -427,6 +557,8 @@ export default function VideoPlayer({
                                                     <Zap size={12} className="text-[#E8D2A6]" />
                                                 </Link>
                                             ))}
+                                          </>
+                                        )}
                                     </div>
                                 )}
                             </div>

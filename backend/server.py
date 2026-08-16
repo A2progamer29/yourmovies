@@ -13,6 +13,8 @@ import uuid
 import io
 import secrets
 import hashlib
+import base64
+from urllib.parse import quote
 import time
 import unicodedata
 import requests
@@ -4198,6 +4200,75 @@ def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
             return library_id or None, raw
     return None, None
 
+# ---------- Lecture directe du flux ----------
+# L'iframe de l'hébergeur est un document d'un autre domaine : rien dans la page
+# ne peut atteindre son élément vidéo, donc ni amplification du son, ni contrôle
+# réel de la lecture. Servir le manifeste nous-mêmes lève cette barrière.
+
+_format_jeton_cdn = {"choisi": None, "teste": False, "expire": 0.0}
+
+
+def _signer_dossier_cdn(video_id: str, expires: int, encoder_chemin: bool) -> str:
+    """URL signée couvrant tout le dossier d'une vidéo.
+
+    Un jeton par fichier ne suffirait pas : le manifeste HLS renvoie vers des
+    dizaines de segments, qui seraient tous refusés. Le jeton de dossier les
+    couvre d'un coup.
+
+    base64(sha256(clé + chemin + expiration + paramètres triés)), rendu compatible
+    URL. Les deux écritures du chemin circulent selon les implémentations, d'où
+    le paramètre : celle qui répond est retenue une fois pour toutes."""
+    dossier = f"/{video_id}/"
+    chemin_parametre = quote(dossier, safe="") if encoder_chemin else dossier
+    a_hacher = f"{BUNNY_TOKEN_AUTH_KEY}{dossier}{expires}token_path={chemin_parametre}"
+    empreinte = hashlib.sha256(a_hacher.encode()).digest()
+    jeton = (
+        base64.b64encode(empreinte).decode()
+        .replace("+", "-").replace("/", "_").replace("=", "")
+    )
+    return (
+        f"https://{BUNNY_CDN_HOST}/{video_id}/playlist.m3u8"
+        f"?token={jeton}&token_path={chemin_parametre}&expires={expires}"
+    )
+
+
+async def _manifeste_lisible(url: str) -> bool:
+    try:
+        r = await run_in_threadpool(lambda: requests.get(
+            url, timeout=12, stream=True, headers={"Origin": "https://yourmovies.space"},
+        ))
+        r.close()
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+async def _url_directe(video_id: str) -> Optional[str]:
+    """URL du manifeste si la lecture directe fonctionne, sinon None.
+
+    L'écriture retenue est vérifiée une fois puis mémorisée : se tromper de
+    format ferait échouer toutes les lectures, alors qu'un retour à l'iframe est
+    invisible pour le spectateur."""
+    if not (BUNNY_TOKEN_AUTH_KEY and BUNNY_CDN_HOST):
+        return None
+    expires = int(time.time()) + 4 * 60 * 60
+
+    if _format_jeton_cdn["teste"] and time.time() < _format_jeton_cdn["expire"]:
+        choisi = _format_jeton_cdn["choisi"]
+        return _signer_dossier_cdn(video_id, expires, choisi) if choisi is not None else None
+
+    for encoder in (True, False):
+        url = _signer_dossier_cdn(video_id, expires, encoder)
+        if await _manifeste_lisible(url):
+            _format_jeton_cdn.update({"choisi": encoder, "teste": True, "expire": time.time() + 3600})
+            logger.info("Lecture directe active (chemin encodé : %s)", encoder)
+            return url
+
+    _format_jeton_cdn.update({"choisi": None, "teste": True, "expire": time.time() + 900})
+    logger.info("Lecture directe indisponible, le lecteur intégré prend le relais")
+    return None
+
+
 @api_router.get("/bunny/playback/{media_id}")
 async def bunny_playback(
     media_id: str,
@@ -4259,8 +4330,11 @@ async def bunny_playback(
         params = f"token={token}&expires={expires}&{params}"
 
     playback_url = f"https://iframe.mediadelivery.net/embed/{library_id}/{video_id}?{params}"
+    manifeste = await _url_directe(video_id)
     return {
         "url": playback_url,
+        "manifest_url": manifeste,
+        "playback_type": "direct" if manifeste else "embed",
         "expires": expires if BUNNY_TOKEN_AUTH_KEY else None,
         "signed": bool(BUNNY_TOKEN_AUTH_KEY),
         "libraryId": library_id,
