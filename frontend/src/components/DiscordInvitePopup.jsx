@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { lireSession, ecrireSession } from "@/lib/stockage";
 import { X } from "lucide-react";
 
 const DISCORD_URL = "https://discord.gg/6mGTfvcNeD";
@@ -16,14 +17,14 @@ export default function DiscordInvitePopup() {
     const [visible, setVisible] = useState(false);
 
     useEffect(() => {
-        if (!window.sessionStorage.getItem(STORAGE_KEY)) {
+        if (!lireSession(STORAGE_KEY)) {
             const timer = window.setTimeout(() => setVisible(true), 1200);
             return () => window.clearTimeout(timer);
         }
     }, []);
 
     const dismiss = () => {
-        window.sessionStorage.setItem(STORAGE_KEY, "1");
+        ecrireSession(STORAGE_KEY, "1");
         setVisible(false);
     };
 

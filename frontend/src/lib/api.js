@@ -1,4 +1,5 @@
 import axios from "axios";
+import { lireLocal } from "@/lib/stockage";
 import { toast } from "sonner";
 import { describeError } from "@/lib/errors";
 
@@ -63,12 +64,12 @@ api.interceptors.response.use(
 
 // Inject JWT token + active profile if present
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ym_token");
+    const token = lireLocal("ym_token");
     if (token) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${token}`;
     }
-    const profileId = localStorage.getItem("ym_profile_id");
+    const profileId = lireLocal("ym_profile_id");
     if (profileId) {
         config.headers = config.headers || {};
         config.headers["X-Profile-Id"] = profileId;

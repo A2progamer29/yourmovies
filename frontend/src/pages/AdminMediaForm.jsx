@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { lireSession, ecrireSession } from "@/lib/stockage";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch, CheckCircle2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -156,10 +157,10 @@ export default function AdminMediaForm() {
     const [uploadScope] = useState(() => {
         if (isEdit) return `media:${id}`;
         const storageKey = "yourmovies_admin_media_draft_scope";
-        let scope = window.sessionStorage.getItem(storageKey);
+        let scope = lireSession(storageKey);
         if (!scope) {
             scope = `draft:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-            window.sessionStorage.setItem(storageKey, scope);
+            ecrireSession(storageKey, scope);
         }
         return scope;
     });

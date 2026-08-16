@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { lireLocal } from "@/lib/stockage";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -904,7 +905,7 @@ export default function WatchPage() {
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
     const adsDone = !runAds || adDone;
-    const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
+    const token = lireLocal("ym_token");
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">

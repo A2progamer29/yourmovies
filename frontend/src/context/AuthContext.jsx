@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { ecrireLocal } from "@/lib/stockage";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { refCode, clearRef } from "@/lib/referral";
@@ -50,10 +51,10 @@ export function AuthProvider({ children }) {
             setActiveProfileState(null);
             return;
         }
-        localStorage.setItem("ym_profile_id", p.id);
-        localStorage.setItem("ym_profile_name", p.name || "");
-        localStorage.setItem("ym_profile_emoji", p.avatar_emoji || p.emoji || "🎬");
-        localStorage.setItem("ym_profile_color", p.avatar_color || p.color || "#E8D2A6");
+        ecrireLocal("ym_profile_id", p.id);
+        ecrireLocal("ym_profile_name", p.name || "");
+        ecrireLocal("ym_profile_emoji", p.avatar_emoji || p.emoji || "🎬");
+        ecrireLocal("ym_profile_color", p.avatar_color || p.color || "#E8D2A6");
         setActiveProfileState({
             id: p.id,
             name: p.name || "",
@@ -145,7 +146,7 @@ export function AuthProvider({ children }) {
 
     const login = async (email, password) => {
         const res = await api.post("/auth/login", { email, password });
-        localStorage.setItem("ym_token", res.data.token);
+        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -153,7 +154,7 @@ export function AuthProvider({ children }) {
     const register = async (email, password, name) => {
         const res = await api.post("/auth/register", { email, password, name, ref: refCode() });
         clearRef();
-        localStorage.setItem("ym_token", res.data.token);
+        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -161,7 +162,7 @@ export function AuthProvider({ children }) {
     const loginWithGoogle = async (credential) => {
         const res = await api.post("/auth/google", { credential, ref: refCode() });
         clearRef();
-        localStorage.setItem("ym_token", res.data.token);
+        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
