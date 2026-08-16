@@ -492,8 +492,6 @@ export default function WatchPage() {
         };
     }, [media, selectedEpisode]);
 
-    const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
-
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
@@ -514,6 +512,9 @@ export default function WatchPage() {
     }, []);
 
     const bunnySource = resolveBunnySource(playbackMedia);
+
+    // Déclaré après bunnySource, dont il dépend.
+    const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
 
     useEffect(() => {
         // Sans la preuve de vérification, le serveur refuserait l'URL : on
