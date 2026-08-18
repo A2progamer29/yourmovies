@@ -92,6 +92,19 @@ function resolveBunnySource(media) {
     return null;
 }
 
+/** Un fichier est jouable par sa piste principale ou par l'une de ses pistes de
+ *  langue. Ce test doit rester unique : reparti en plusieurs endroits, il en
+ *  restait toujours un qui ignorait les pistes et rejetait l'episode. */
+function estJouable(item) {
+    if (!item) return false;
+    return Boolean(
+        item.bunny_video_id
+        || item.video_url
+        || item.video_file_path
+        || (item.language_tracks || []).some((piste) => piste?.bunny_video_id),
+    );
+}
+
 function fallbackQualities(media) {
     if (media.qualities && media.qualities.length > 0) {
         return media.qualities.map((q) => ({
@@ -236,7 +249,7 @@ function EpisodeSelectorOverlay({
 
                             <ul className="mt-4 max-h-[38vh] divide-y divide-[#1a1a1a] overflow-y-auto border-t border-[#1a1a1a] pr-1 [scrollbar-color:#3a3a3a_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#3a3a3a] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:bg-transparent">
                                 {seasonEpisodes.map((episode) => {
-                                    const playable = Boolean(resolveBunnySource(episode) || episode.video_file_path);
+                                    const playable = estJouable(episode);
                                     const isActive = selectedEpisode?._key === episode._key;
                                     const duration = formatEpisodeDuration(episode);
                                     const progress = getEpisodeProgress(episode, watchProgress);
@@ -348,7 +361,7 @@ export default function WatchPage() {
         }))
     ), [media]);
     const selectedEpisode = episodes.find((episode) => episode._key === selectedEpisodeKey)
-        || episodes.find((episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path)
+        || episodes.find(estJouable)
         || episodes[0]
         || null;
     const selectedSeasonNumber = selectedSeason
@@ -356,8 +369,7 @@ export default function WatchPage() {
     const seasonEpisodes = episodes.filter(
         (episode) => String(episode.season_number) === selectedSeasonNumber
     );
-    const playableEpisodes = episodes.filter((episode) => Boolean(resolveBunnySource(episode))
-        || episode.video_file_path);
+    const playableEpisodes = episodes.filter(estJouable);
     const selectedPlayableIndex = playableEpisodes.findIndex(
         (episode) => episode._key === selectedEpisode?._key
     );
@@ -612,11 +624,9 @@ export default function WatchPage() {
                 const requested = allEpisodes.find((episode) =>
                     String(episode.season_number) === String(requestedSeason)
                     && String(episode.ep_number) === String(requestedEpisode)
-                    && (episode.bunny_video_id || episode.video_url || episode.video_file_path)
+                    && estJouable(episode)
                 );
-                const firstPlayable = requested || allEpisodes.find((episode) =>
-                    episode.bunny_video_id || episode.video_url || episode.video_file_path
-                );
+                const firstPlayable = requested || allEpisodes.find(estJouable);
                 if (firstPlayable) {
                     initialEpisode = firstPlayable;
                     setSelectedEpisodeKey(`${firstPlayable.season_number}:${firstPlayable.ep_number}`);
