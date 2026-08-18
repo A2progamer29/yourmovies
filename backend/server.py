@@ -4347,6 +4347,28 @@ async def _referenced_bunny_ids() -> set:
     return utilises
 
 
+def _premiere_piste_jouable(doc: dict) -> tuple[Optional[str], Optional[str]]:
+    """Reference de la premiere piste utilisable d'un fichier.
+
+    Une VO importee seule est une video a part entiere : sans ce repli, un
+    episate n'ayant qu'une piste supplementaire serait declare introuvable."""
+    for piste in (doc.get("language_tracks") or []) if isinstance(doc, dict) else []:
+        if not isinstance(piste, dict):
+            continue
+        bibliotheque, video = _resolve_bunny_reference(piste)
+        if bibliotheque and video:
+            return bibliotheque, video
+    return None, None
+
+
+def _a_une_video(doc: dict) -> bool:
+    if not isinstance(doc, dict):
+        return False
+    if _resolve_bunny_reference(doc)[1]:
+        return True
+    return bool(_premiere_piste_jouable(doc)[1])
+
+
 def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
     """Normalise un GUID ou une URL d'embed sans faire confiance au client."""
     library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
@@ -4495,7 +4517,7 @@ async def bunny_playback(
                     episode
                     for season in doc.get("seasons") or []
                     for episode in season.get("episodes") or []
-                    if _resolve_bunny_reference(episode)[1]
+                    if _a_une_video(episode)
                 ),
                 None,
             )
@@ -4516,6 +4538,9 @@ async def bunny_playback(
             if piste_library and piste_video:
                 library_id, video_id = piste_library, piste_video
             break
+
+    if not video_id:
+        library_id, video_id = _premiere_piste_jouable(playback_doc)
 
     if not library_id or not video_id:
         raise HTTPException(status_code=404, detail="Aucun fichier vidéo associé à ce contenu")

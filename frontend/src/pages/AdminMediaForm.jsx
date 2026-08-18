@@ -66,6 +66,11 @@ function parseYouTubeId(input) {
 
 function hasPlayableVideo(item = {}) {
     if (item.bunny_video_id || item.video_url || item.video_file_path) return true;
+    // Une piste importee seule — une saison en VO, par exemple — est une video a
+    // part entiere. Sans cette ligne, le diagnostic annoncait des episodes vides
+    // alors que leurs fichiers venaient d'etre deposes.
+    if (Array.isArray(item.language_tracks)
+        && item.language_tracks.some((piste) => piste?.bunny_video_id)) return true;
     return Array.isArray(item.qualities) && item.qualities.some((quality) =>
         quality?.url || quality?.video_url || quality?.file_path
     );
@@ -1174,7 +1179,8 @@ export default function AdminMediaForm() {
                                             <div className="space-y-2">
                                                 {(s.episodes || []).map((ep, j) => {
                                                     const episodeKey = `episode:${s.season_number || i + 1}:${ep.ep_number || j + 1}`;
-                                                    const hasEpisodeVideo = Boolean(
+                                                    const hasEpisodeVideo = hasPlayableVideo(ep);
+                                                    const aPistePrincipale = Boolean(
                                                         ep.bunny_video_id || ep.video_url || ep.video_file_path,
                                                     );
                                                     return (
@@ -1214,15 +1220,15 @@ export default function AdminMediaForm() {
                                                                         )}
                                                                     />
                                                                     <span
-                                                                        className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${hasEpisodeVideo
+                                                                        className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${aPistePrincipale
                                                                             ? "border-[#E8D2A6]/45 bg-[#E8D2A6]/[0.06] text-[#E8D2A6] hover:border-[#E8D2A6]/75"
                                                                             : "border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50"
                                                                         }`}
-                                                                        title={hasEpisodeVideo ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
+                                                                        title={aPistePrincipale ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
                                                                     >
                                                                         {activeUpload(episodeKey)
                                                                             ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(episodeKey)}%</>
-                                                                            : hasEpisodeVideo
+                                                                            : aPistePrincipale
                                                                                 ? <><Film size={12} /> Fichier déjà ajouté</>
                                                                                 : <><Upload size={12} /> Ajouter le MP4</>}
                                                                     </span>

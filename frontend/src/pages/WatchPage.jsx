@@ -55,7 +55,11 @@ function loadBunnyPlayerApi() {
 
 function resolveBunnySource(media) {
     if (!media) return null;
-    const candidates = [media.bunny_video_id, media.video_url].filter(Boolean);
+    // Une piste importee seule fait office de video principale : sinon un episode
+    // n'existant qu'en VO passerait pour depourvu de fichier.
+    const premierePiste = (media.language_tracks || []).find((p) => p?.bunny_video_id);
+    const candidates = [media.bunny_video_id, media.video_url, premierePiste?.bunny_video_id]
+        .filter(Boolean);
 
     for (const value of candidates) {
         const raw = String(value).trim();
@@ -232,7 +236,7 @@ function EpisodeSelectorOverlay({
 
                             <ul className="mt-4 max-h-[38vh] divide-y divide-[#1a1a1a] overflow-y-auto border-t border-[#1a1a1a] pr-1 [scrollbar-color:#3a3a3a_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#3a3a3a] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:bg-transparent">
                                 {seasonEpisodes.map((episode) => {
-                                    const playable = Boolean(episode.bunny_video_id || episode.video_url || episode.video_file_path);
+                                    const playable = Boolean(resolveBunnySource(episode) || episode.video_file_path);
                                     const isActive = selectedEpisode?._key === episode._key;
                                     const duration = formatEpisodeDuration(episode);
                                     const progress = getEpisodeProgress(episode, watchProgress);
@@ -352,9 +356,8 @@ export default function WatchPage() {
     const seasonEpisodes = episodes.filter(
         (episode) => String(episode.season_number) === selectedSeasonNumber
     );
-    const playableEpisodes = episodes.filter(
-        (episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path
-    );
+    const playableEpisodes = episodes.filter((episode) => Boolean(resolveBunnySource(episode))
+        || episode.video_file_path);
     const selectedPlayableIndex = playableEpisodes.findIndex(
         (episode) => episode._key === selectedEpisode?._key
     );
