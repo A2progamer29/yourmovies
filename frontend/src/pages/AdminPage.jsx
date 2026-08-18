@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -19,6 +19,7 @@ import AdminGuide from "@/components/AdminGuide";
 import AdminStorage from "@/components/AdminStorage";
 import AdminInventaire from "@/components/AdminInventaire";
 import AdminJournal from "@/components/AdminJournal";
+import AdminStatistiques from "@/components/AdminStatistiques";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminReferral from "@/components/AdminReferral";
@@ -476,6 +477,7 @@ export default function AdminPage() {
                 { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
                 { value: "journal", label: "Journal", icon: <ScrollText size={14} />, perm: "content.add" },
+                { value: "statistiques", label: "Statistiques", icon: <ChartPie size={14} /> },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
@@ -654,27 +656,6 @@ export default function AdminPage() {
 
                         <AdminTraffic />
 
-                        <div>
-                            <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Catalogue en chiffres</div>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                                {[
-                                    { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
-                                    { label: "Films", val: stats.movies, icon: <Film size={14} /> },
-                                    { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
-                                    { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
-                                    { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
-                                    { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
-                                    { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
-                                    { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
-                                    { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
-                                ].map((c) => (
-                                    <div key={c.label} className="rounded-lg border border-[#262626] bg-[#0a0a0a] p-4">
-                                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-neutral-500">{c.icon} {c.label}</div>
-                                        <div className="mt-1.5 font-display text-2xl">{c.val}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
                     </TabsContent>
 
                     <TabsContent value="media" className="mt-0">
@@ -1447,6 +1428,14 @@ export default function AdminPage() {
                             description="Les contenus ajoutés par un compte sans droit de publication. Vérifie la fiche, puis publie ou refuse."
                         />
                         <AdminPending onCount={setPendingCount} />
+                    </TabsContent>
+
+                    <TabsContent value="statistiques" className="mt-0">
+                        <SectionHeader
+                            titre="Statistiques"
+                            description="Qui regarde en ce moment, d'ou vient l'audience, et ce que le catalogue represente."
+                        />
+                        <AdminStatistiques />
                     </TabsContent>
 
                     {can(user, "content.add") && (

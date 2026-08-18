@@ -4727,6 +4727,140 @@ async def site_ping(inp: VisitPing):
     await db.site_stats.update_one({"id": today}, {"$inc": inc, "$set": {"date": today}}, upsert=True)
     return {"ok": True}
 
+@api_router.get("/admin/statistiques")
+async def admin_statistiques(admin: dict = Depends(require_admin)):
+    """Tableau de bord chiffre du site.
+
+    Le direct vient de deux sources distinctes : « en ligne » suit la derniere
+    requete d'un compte, « en train de regarder » suit les battements envoyes par
+    le lecteur. Les confondre gonflerait le second, quelqu'un pouvant naviguer
+    sans rien lire."""
+    maintenant = datetime.now(timezone.utc)
+    aujourdhui = maintenant.date()
+
+    # ---------- en direct ----------
+    limite_lecture = maintenant - timedelta(seconds=WATCH_ACTIVITY_TTL_SECONDS)
+    activites = await db.watch_activity.find({}, {"_id": 0}).to_list(2000)
+    en_lecture = []
+    for a in activites:
+        try:
+            vu = datetime.fromisoformat(a.get("updated_at"))
+            if vu.tzinfo is None:
+                vu = vu.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if vu >= limite_lecture:
+            en_lecture.append(a)
+
+    comptes = await db.users.find(
+        {}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "last_seen": 1, "created_at": 1,
+             "premium_plan": 1, "premium_until": 1, "discord_premium_plan": 1,
+             "discord_premium_until": 1, "license_entitlements": 1},
+    ).to_list(100000)
+    par_id = {c["user_id"]: c for c in comptes}
+    fiches = await _fiches_par_id([a.get("media_id") for a in en_lecture if a.get("media_id")])
+
+    spectateurs = []
+    for a in en_lecture:
+        fiche = fiches.get(a.get("media_id")) or {}
+        compte = par_id.get(a.get("user_id")) or {}
+        spectateurs.append({
+            "name": compte.get("name") or "Compte supprimé",
+            "picture": compte.get("picture"),
+            "media_id": a.get("media_id"),
+            "title": fiche.get("title") or "Titre retiré",
+            "poster_url": fiche.get("poster_url"),
+            "season_number": a.get("season_number"),
+            "episode_number": a.get("episode_number"),
+            "since": a.get("updated_at"),
+        })
+    spectateurs.sort(key=lambda x: x.get("since") or "", reverse=True)
+
+    en_ligne = sum(1 for c in comptes if _is_online(c))
+    abonnes = sum(1 for c in comptes if _is_premium(c))
+
+    def nes_depuis(jours):
+        seuil = (maintenant - timedelta(days=jours)).isoformat()
+        return sum(1 for c in comptes if (c.get("created_at") or "") >= seuil)
+
+    # ---------- audience ----------
+    visites = await db.site_stats.find({}, {"_id": 0}).to_list(1000)
+    par_jour = {d.get("date") or d.get("id"): d for d in visites}
+
+    def cumul(jours, champ):
+        return sum(
+            int((par_jour.get((aujourdhui - timedelta(days=i)).isoformat()) or {}).get(champ, 0) or 0)
+            for i in range(jours)
+        )
+
+    # ---------- catalogue et engagement ----------
+    medias = await db.media.find({}, {"_id": 0, "type": 1, "seasons": 1}).to_list(100000)
+    episodes = sum(
+        len(saison.get("episodes") or [])
+        for m in medias for saison in (m.get("seasons") or []) if isinstance(saison, dict)
+    )
+
+    progressions = await db.watch_progress.find({}, {"_id": 0, "media_id": 1, "seconds_watched": 1}).to_list(100000)
+    secondes_total = sum(int(p.get("seconds_watched") or 0) for p in progressions)
+    par_media = {}
+    for p in progressions:
+        if p.get("media_id"):
+            par_media[p["media_id"]] = par_media.get(p["media_id"], 0) + int(p.get("seconds_watched") or 0)
+    meilleurs = sorted(par_media.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    fiches_top = await _fiches_par_id([mid for mid, _ in meilleurs])
+
+    commentaires, souhaits, parrainages = await asyncio.gather(
+        db.reviews.count_documents({}),
+        db.wishboard.count_documents({}),
+        db.referrals.count_documents({}),
+    )
+
+    return {
+        "direct": {
+            "watching": len(spectateurs),
+            "online": en_ligne,
+            "viewers": spectateurs[:20],
+        },
+        "membres": {
+            "total": len(comptes),
+            "abonnes": abonnes,
+            "nouveaux_7j": nes_depuis(7),
+            "nouveaux_30j": nes_depuis(30),
+        },
+        "audience": {
+            "vues_jour": cumul(1, "views"),
+            "vues_7j": cumul(7, "views"),
+            "vues_30j": cumul(30, "views"),
+            "visiteurs_jour": cumul(1, "visitors"),
+            "visiteurs_7j": cumul(7, "visitors"),
+            "visiteurs_30j": cumul(30, "visitors"),
+        },
+        "catalogue": {
+            "total": len(medias),
+            "films": sum(1 for m in medias if m.get("type") == "movie"),
+            "series": sum(1 for m in medias if m.get("type") == "series"),
+            "animes": sum(1 for m in medias if m.get("type") == "anime"),
+            "episodes": episodes,
+        },
+        "engagement": {
+            "secondes_regardees": secondes_total,
+            "titres_commences": len(par_media),
+            "commentaires": commentaires,
+            "souhaits": souhaits,
+            "parrainages": parrainages,
+            "top": [
+                {
+                    "media_id": mid,
+                    "title": (fiches_top.get(mid) or {}).get("title") or "Titre retiré",
+                    "poster_url": (fiches_top.get(mid) or {}).get("poster_url"),
+                    "secondes": secondes,
+                }
+                for mid, secondes in meilleurs
+            ],
+        },
+    }
+
+
 @api_router.get("/admin/site-stats")
 async def admin_site_stats(admin: dict = Depends(require_admin)):
     today = datetime.now(timezone.utc).date()
