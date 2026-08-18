@@ -1260,8 +1260,13 @@ async def _record_media_event(
     doc: dict,
     *,
     user_id: Optional[str],
+    depuis_proposition: bool = False,
 ) -> None:
     await db.media_events.insert_one({
+        # Publier une proposition inscrit un ajout au credit de son auteur. Sans
+        # cette marque, le quota du jour le compterait une seconde fois, alors
+        # qu'il n'a rien depose ce jour-la.
+        "from_pending": depuis_proposition,
         "event_id": f"media_evt_{uuid.uuid4().hex}",
         "action": action,
         "media": {
@@ -1772,7 +1777,7 @@ async def admin_publish_pending(media_id: str, user: dict = Depends(require_perm
     await db.media_pending.delete_one({"id": media_id})
     try:
         await _record_catalog_history(doc, active=True, user_id=doc.get("created_by"))
-        await _record_media_event("added", doc, user_id=doc.get("created_by"))
+        await _record_media_event("added", doc, user_id=doc.get("created_by"), depuis_proposition=True)
         # L'ajout reste porte au credit de la personne qui a propose ; la
         # validation est un geste distinct, qui merite sa propre ligne.
         await _record_media_event("published", doc, user_id=user.get("user_id"))
@@ -4726,6 +4731,120 @@ async def site_ping(inp: VisitPing):
         inc["visitors"] = 1
     await db.site_stats.update_one({"id": today}, {"$inc": inc, "$set": {"date": today}}, upsert=True)
     return {"ok": True}
+
+# ---------- Quota quotidien de publication ----------
+QUOTA_DEFAUT = {"enabled": True, "cible": 10}
+
+try:
+    from zoneinfo import ZoneInfo
+    FUSEAU_QUOTA = ZoneInfo("Europe/Paris")
+except Exception:  # pragma: no cover - image sans base de fuseaux
+    # Le quota se compte en journees vecues, pas en journees UTC : sans le fuseau,
+    # la remise a zero tomberait en pleine soiree. A defaut, on l'assume en UTC.
+    FUSEAU_QUOTA = timezone.utc
+
+
+async def _config_quota() -> dict:
+    doc = await db.settings.find_one({"id": "quota_publication"}, {"_id": 0}) or {}
+    config = dict(QUOTA_DEFAUT)
+    config["enabled"] = bool(doc.get("enabled", config["enabled"]))
+    cible = doc.get("cible")
+    if isinstance(cible, (int, float)):
+        config["cible"] = int(max(1, min(200, cible)))
+    return config
+
+
+def _journee_locale(moment: datetime) -> str:
+    return moment.astimezone(FUSEAU_QUOTA).date().isoformat()
+
+
+@api_router.get("/admin/quota")
+async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(require_admin)):
+    """Ou en est chaque administrateur sur son quota du jour.
+
+    Seuls les depots comptent : un ajout direct ou une proposition. Publier la
+    proposition d'un autre est un geste de validation, pas de depot — le compter
+    recompenserait deux fois le meme contenu."""
+    config = await _config_quota()
+    maintenant = datetime.now(timezone.utc)
+    aujourdhui = _journee_locale(maintenant)
+    depuis = maintenant - timedelta(days=jours + 1)
+
+    evenements = await db.media_events.find(
+        {"action": {"$in": ["added", "proposed"]}, "created_at": {"$gte": depuis}},
+        {"_id": 0, "action": 1, "created_at": 1, "created_by": 1, "from_pending": 1, "media": 1},
+    ).to_list(100000)
+
+    comptes = await db.users.find({}, {"_id": 0}).to_list(100000)
+    administrateurs = [c for c in comptes if "content.add" in _admin_perms(c)]
+
+    par_personne = {c["user_id"]: {} for c in administrateurs}
+    for evenement in evenements:
+        if evenement.get("action") == "added" and evenement.get("from_pending"):
+            continue
+        auteur = evenement.get("created_by")
+        if auteur not in par_personne:
+            continue
+        quand = evenement.get("created_at")
+        if not hasattr(quand, "astimezone"):
+            continue
+        if quand.tzinfo is None:
+            quand = quand.replace(tzinfo=timezone.utc)
+        journee = _journee_locale(quand)
+        par_personne[auteur].setdefault(journee, []).append(
+            (evenement.get("media") or {}).get("title") or "Sans titre"
+        )
+
+    journees = [
+        _journee_locale(maintenant - timedelta(days=i))
+        for i in range(jours - 1, -1, -1)
+    ]
+
+    lignes = []
+    for compte in administrateurs:
+        par_jour = par_personne.get(compte["user_id"], {})
+        deposes = par_jour.get(aujourdhui, [])
+        lignes.append({
+            "user_id": compte["user_id"],
+            "name": compte.get("name") or "Sans nom",
+            "picture": compte.get("picture"),
+            "role": _admin_role(compte),
+            "aujourdhui": len(deposes),
+            "manquants": max(0, config["cible"] - len(deposes)),
+            "atteint": len(deposes) >= config["cible"],
+            "titres": deposes[:10],
+            "historique": [
+                {"date": journee, "total": len(par_jour.get(journee, []))}
+                for journee in journees
+            ],
+        })
+
+    # Les retardataires d'abord : c'est la question posee a cette page.
+    lignes.sort(key=lambda l: (l["atteint"], -l["manquants"], l["name"].lower()))
+
+    return {
+        **config,
+        "date": aujourdhui,
+        "fuseau": str(FUSEAU_QUOTA),
+        "jours": journees,
+        "admins": lignes,
+        "total_du_jour": sum(l["aujourdhui"] for l in lignes),
+        "objectif_collectif": config["cible"] * len(lignes),
+    }
+
+
+class QuotaInput(BaseModel):
+    enabled: Optional[bool] = None
+    cible: Optional[int] = Field(default=None, ge=1, le=200)
+
+
+@api_router.post("/admin/quota")
+async def admin_set_quota(inp: QuotaInput, admin: dict = Depends(require_perm("roles.manage"))):
+    update = {k: v for k, v in inp.model_dump(exclude_unset=True).items() if v is not None}
+    if update:
+        await db.settings.update_one({"id": "quota_publication"}, {"$set": update}, upsert=True)
+    return await _config_quota()
+
 
 @api_router.get("/admin/statistiques")
 async def admin_statistiques(admin: dict = Depends(require_admin)):

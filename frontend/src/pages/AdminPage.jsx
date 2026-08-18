@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -20,6 +20,7 @@ import AdminStorage from "@/components/AdminStorage";
 import AdminInventaire from "@/components/AdminInventaire";
 import AdminJournal from "@/components/AdminJournal";
 import AdminStatistiques from "@/components/AdminStatistiques";
+import AdminQuota from "@/components/AdminQuota";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
 import AdminReferral from "@/components/AdminReferral";
@@ -478,6 +479,7 @@ export default function AdminPage() {
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
                 { value: "journal", label: "Journal", icon: <ScrollText size={14} />, perm: "content.add" },
                 { value: "statistiques", label: "Statistiques", icon: <ChartPie size={14} /> },
+                { value: "quota", label: "Quota du jour", icon: <Target size={14} />, perm: "content.add" },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
@@ -1429,6 +1431,16 @@ export default function AdminPage() {
                         />
                         <AdminPending onCount={setPendingCount} />
                     </TabsContent>
+
+                    {can(user, "content.add") && (
+                        <TabsContent value="quota" className="mt-0">
+                            <SectionHeader
+                                titre="Quota du jour"
+                                description="Combien de contenus chaque administrateur a depose aujourd'hui, et ce qu'il lui reste a faire."
+                            />
+                            <AdminQuota peutRegler={can(user, "roles.manage")} />
+                        </TabsContent>
+                    )}
 
                     <TabsContent value="statistiques" className="mt-0">
                         <SectionHeader
