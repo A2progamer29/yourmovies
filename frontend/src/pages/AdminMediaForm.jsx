@@ -730,6 +730,29 @@ export default function AdminMediaForm() {
             return { ...f, seasons };
         });
     };
+    /** Range une reference video sur la piste demandee d'un episode. Un libelle
+     *  vide designe la piste principale ; sinon la piste est creee si besoin, ce
+     *  qui permet d'importer une saison entiere en VO d'un seul geste. */
+    const appliquerPisteEpisode = (i, j, label, reference) => {
+        const propre = (label || "").trim();
+        if (!propre) {
+            updateEpisode(i, j, reference);
+            return;
+        }
+        setForm((f) => {
+            const seasons = [...(f.seasons || [])];
+            const eps = [...(seasons[i].episodes || [])];
+            const pistes = [...(eps[j]?.language_tracks || [])];
+            const index = pistes.findIndex((piste) => piste.label === propre);
+            const fusion = { label: propre, ...reference };
+            if (index >= 0) pistes[index] = { ...pistes[index], ...fusion };
+            else pistes.push(fusion);
+            eps[j] = { ...eps[j], language_tracks: pistes };
+            seasons[i] = { ...seasons[i], episodes: eps };
+            return { ...f, seasons };
+        });
+    };
+
     const removeEpisode = (i, j) => {
         setForm((f) => {
             const seasons = [...(f.seasons || [])];
@@ -1128,6 +1151,7 @@ export default function AdminMediaForm() {
                                             title={form.title}
                                             uploadToBunny={uploadToBunny}
                                             updateEpisode={updateEpisode}
+                                            appliquerPisteEpisode={appliquerPisteEpisode}
                                             activeUpload={activeUpload}
                                             scopedUploadKey={scopedUploadKey}
                                         />

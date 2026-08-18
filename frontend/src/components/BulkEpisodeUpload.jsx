@@ -53,8 +53,13 @@ export function matchFileToEpisode(fileName, seasons) {
     return { parsed, si, ei };
 }
 
-export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updateEpisode, activeUpload, scopedUploadKey }) {
+const PISTES = ["", "VO", "VOSTFR", "Bande originale"];
+
+export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updateEpisode, appliquerPisteEpisode, activeUpload, scopedUploadKey }) {
     const [files, setFiles] = useState([]);
+    // Piste de destination du lot. Vide = piste principale. Choisir ici plutot
+    // que fichier par fichier : une saison entiere arrive dans une seule langue.
+    const [piste, setPiste] = useState("");
     const [dragging, setDragging] = useState(false);
     const [running, setRunning] = useState(false);
     const [current, setCurrent] = useState(null);
@@ -96,9 +101,13 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                 // poursuit en arrière-plan pendant que le fichier suivant démarre.
                 await new Promise((resolve, reject) => {
                     uploadToBunny(row.file, {
-                        key: row.key,
-                        title: `${title || "Épisode"} — S${row.seasonNo}E${row.epNo}`,
-                        onReference: (reference) => updateEpisode(row.si, row.ei, reference),
+                        // La piste entre dans la cle : sans elle, importer la VO
+                        // d'un episode ecraserait le suivi de sa piste principale.
+                        key: `${row.key}:${piste || "principale"}`,
+                        title: `${title || "Épisode"} — S${row.seasonNo}E${row.epNo}${piste ? ` (${piste})` : ""}`,
+                        onReference: (reference) => (appliquerPisteEpisode
+                            ? appliquerPisteEpisode(row.si, row.ei, piste, reference)
+                            : updateEpisode(row.si, row.ei, reference)),
                         onTransferred: resolve,
                     }).then(resolve).catch(reject);
                 });
@@ -124,6 +133,38 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                 (<span className="text-neutral-400">S01E02</span>, <span className="text-neutral-400">1x02</span>,
                 <span className="text-neutral-400"> Épisode 2</span>…) puis téléversés l&apos;un après l&apos;autre.
             </p>
+
+            <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="bulk-piste">
+                <span className="text-[10px] uppercase tracking-widest text-neutral-500">Piste de destination</span>
+                {PISTES.map((valeur) => (
+                    <button
+                        key={valeur || "principale"}
+                        type="button"
+                        disabled={running}
+                        onClick={() => setPiste(valeur)}
+                        data-testid={`bulk-piste-${valeur || "principale"}`}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${piste === valeur
+                            ? "bg-[#E8D2A6] text-black"
+                            : "bg-[#161616] text-neutral-300 hover:bg-[#1f1f1f]"}`}
+                    >
+                        {valeur || "Principale"}
+                    </button>
+                ))}
+                <input
+                    value={PISTES.includes(piste) ? "" : piste}
+                    onChange={(e) => setPiste(e.target.value.slice(0, 40))}
+                    disabled={running}
+                    placeholder="Autre langue…"
+                    data-testid="bulk-piste-libre"
+                    className="h-7 w-32 rounded-md border border-[#262626] bg-[#111] px-2 text-xs text-white outline-none focus:border-[#E8D2A6]/60 disabled:opacity-40"
+                />
+            </div>
+            {piste && (
+                <p className="mb-4 text-xs leading-relaxed text-[#E8D2A6]">
+                    Ces fichiers seront rangés en piste « {piste} ». La piste principale de chaque
+                    épisode reste intacte.
+                </p>
+            )}
 
             <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}

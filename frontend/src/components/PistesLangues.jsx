@@ -3,7 +3,7 @@ import { Loader2, Upload, Plus, Trash2, Languages } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import VerifierVideo from "@/components/VerifierVideo";
 
-const SUGGESTIONS = ["VO", "VOSTFR", "VF", "Anglais", "Japonais"];
+const SUGGESTIONS = ["VO", "VOSTFR", "Bande originale", "VF", "Anglais", "Japonais"];
 
 /** Pistes supplémentaires d'un titre ou d'un épisode : version originale, autre
  *  doublage. Même principe que la piste principale — un libellé, un fichier
