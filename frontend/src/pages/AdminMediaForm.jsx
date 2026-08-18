@@ -18,6 +18,7 @@ import Header from "@/components/Header";
 import BulkEpisodeUpload from "@/components/BulkEpisodeUpload";
 import { showError } from "@/lib/errors";
 import VerifierVideo from "@/components/VerifierVideo";
+import PistesLangues from "@/components/PistesLangues";
 
 const EMPTY = {
     title: "",
@@ -36,6 +37,7 @@ const EMPTY = {
     video_url: "",
     bunny_video_id: "",
     bunny_library_id: "",
+    language_tracks: [],
     qualities: [],
     cast: "",
     director: "",
@@ -438,6 +440,15 @@ export default function AdminMediaForm() {
             video_url: form.video_url || null,
             bunny_video_id: form.bunny_video_id || null,
             bunny_library_id: form.bunny_library_id || null,
+            // Une piste sans libelle serait inchoisissable, une piste sans
+            // fichier n'aurait rien a jouer : ni l'une ni l'autre n'est gardee.
+            language_tracks: (form.language_tracks || [])
+                .filter((piste) => (piste.label || "").trim() && piste.bunny_video_id)
+                .map((piste) => ({
+                    label: piste.label.trim(),
+                    bunny_video_id: piste.bunny_video_id,
+                    bunny_library_id: piste.bunny_library_id || null,
+                })),
             qualities: (form.qualities || []).filter((q) => q.quality && (q.url || q.file_path)),
             cast: form.cast ? form.cast.split(",").map((s) => s.trim()).filter(Boolean) : [],
             director: form.director || null,
@@ -1074,6 +1085,15 @@ export default function AdminMediaForm() {
                                         <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo ici, ou clique pour choisir</div>
                                     )}
                                 </label>
+                                <PistesLangues
+                                    pistes={form.language_tracks || []}
+                                    onChange={(pistes) => setForm((f) => ({ ...f, language_tracks: pistes }))}
+                                    uploadToBunny={uploadToBunny}
+                                    activeUpload={activeUpload}
+                                    uploadProgress={uploadProgress}
+                                    clePrefixe="film"
+                                    titreMedia={form.title}
+                                />
                                 {form.bunny_video_id && (
                                     <>
                                         <VerifierVideo videoId={form.bunny_video_id} libraryId={form.bunny_library_id} />
@@ -1187,6 +1207,16 @@ export default function AdminMediaForm() {
                                                             {ep.bunny_video_id && (
                                                                 <VerifierVideo videoId={ep.bunny_video_id} libraryId={ep.bunny_library_id} compact />
                                                             )}
+                                                            <PistesLangues
+                                                                pistes={ep.language_tracks || []}
+                                                                onChange={(pistes) => updateEpisode(i, j, { language_tracks: pistes })}
+                                                                uploadToBunny={uploadToBunny}
+                                                                activeUpload={activeUpload}
+                                                                uploadProgress={uploadProgress}
+                                                                clePrefixe={episodeKey}
+                                                                titreMedia={`${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`}
+                                                                compact
+                                                            />
                                                             {ep.air_date && <div className="text-[11px] text-neutral-600">Diffusé le {ep.air_date}</div>}
                                                         </div>
                                                     );

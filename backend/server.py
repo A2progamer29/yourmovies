@@ -170,6 +170,15 @@ class TimelineEntry(BaseModel):
     poster_url: Optional[str] = Field(default=None, max_length=2048)
 
 
+class PisteLangue(BaseModel):
+    """Version supplementaire d'un titre : version originale, autre doublage.
+    Meme principe que la piste principale — un fichier chez l'hebergeur — avec un
+    libelle pour que le spectateur sache ce qu'il choisit."""
+    label: str = Field(min_length=1, max_length=40)
+    bunny_video_id: Optional[str] = Field(default=None, max_length=80)
+    bunny_library_id: Optional[str] = Field(default=None, max_length=20)
+
+
 class MediaBase(BaseModel):
     title: str
     description: str = ""
@@ -187,6 +196,7 @@ class MediaBase(BaseModel):
     video_url: Optional[str] = None  # external MP4/HLS URL alternative to upload
     bunny_video_id: Optional[str] = None  # vidéo hébergée sur Bunny Stream
     bunny_library_id: Optional[str] = None  # bibliothèque Bunny associée à la vidéo
+    language_tracks: List[PisteLangue] = Field(default_factory=list, max_length=8)
     qualities: List[dict] = []  # [{quality: "720p"|"1080p"|"4k", url: "https://...", file_path: "..."}]
     cast: List[str] = []
     director: Optional[str] = None
@@ -220,6 +230,7 @@ class MediaUpdate(BaseModel):
     video_url: Optional[str] = None
     bunny_video_id: Optional[str] = None
     bunny_library_id: Optional[str] = None
+    language_tracks: Optional[List[PisteLangue]] = Field(default=None, max_length=8)
     qualities: Optional[List[dict]] = None
     cast: Optional[List[str]] = None
     director: Optional[str] = None
@@ -1166,6 +1177,7 @@ def serialize_media(doc) -> dict:
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
         "bunny_video_id": doc.get("bunny_video_id"),
+        "language_tracks": doc.get("language_tracks", []),
         "bunny_library_id": doc.get("bunny_library_id"),
         "qualities": doc.get("qualities", []),
         "title_logo_url": doc.get("title_logo_url"),
@@ -4259,11 +4271,18 @@ def _bunny_references_of(media: dict) -> list:
         library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
         trouvees.append((video_id, library_id))
 
-    ajouter(media)
+    def ajouter_tout(doc):
+        ajouter(doc)
+        # Sans cette boucle, une piste supplementaire echapperait a la
+        # suppression, au menage des orphelines et a l'inventaire des couts.
+        for piste in (doc.get("language_tracks") or []) if isinstance(doc, dict) else []:
+            ajouter(piste)
+
+    ajouter_tout(media)
     for season in media.get("seasons") or []:
         if isinstance(season, dict):
             for episode in season.get("episodes") or []:
-                ajouter(episode)
+                ajouter_tout(episode)
     return trouvees
 
 
@@ -4437,6 +4456,7 @@ async def bunny_playback(
     media_id: str,
     season_number: Optional[str] = Query(None),
     episode_number: Optional[str] = Query(None),
+    track: Optional[str] = Query(None),
     direct: int = Query(0),
     x_playback_pass: Optional[str] = Header(None),
     viewer: Optional[dict] = Depends(get_optional_user),
@@ -4484,6 +4504,19 @@ async def bunny_playback(
         playback_doc = requested_episode
 
     library_id, video_id = _resolve_bunny_reference(playback_doc)
+
+    # Piste demandee : version originale ou autre doublage. Un libelle inconnu
+    # retombe sur la piste principale plutot que de refuser la lecture — le
+    # spectateur garde une video, meme si ce n'est pas celle qu'il visait.
+    if track:
+        for piste in playback_doc.get("language_tracks") or []:
+            if not isinstance(piste, dict) or piste.get("label") != track:
+                continue
+            piste_library, piste_video = _resolve_bunny_reference(piste)
+            if piste_library and piste_video:
+                library_id, video_id = piste_library, piste_video
+            break
+
     if not library_id or not video_id:
         raise HTTPException(status_code=404, detail="Aucun fichier vidéo associé à ce contenu")
 

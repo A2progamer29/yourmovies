@@ -313,6 +313,7 @@ export default function WatchPage() {
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [manifestUrl, setManifestUrl] = useState(null);
+    const [piste, setPiste] = useState(null);
     // Seul le franchissement du seuil change de lecteur. Faire dépendre l'appel
     // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
     const lecteurAvanceDemande = (Number(user?.audio_boost) || 1) > 1;
@@ -366,6 +367,7 @@ export default function WatchPage() {
 
     useEffect(() => {
         setPlaybackActive(false);
+        setPiste(null);
         setFinAtteinte(false);
         suiteRefusee.current = false;
     }, [id, selectedEpisodeKey]);
@@ -520,6 +522,11 @@ export default function WatchPage() {
     // Déclaré après bunnySource, dont il dépend.
     const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
 
+    // Les pistes appartiennent au fichier joue : celles de l'episode en cours pour
+    // une serie, celles de la fiche pour un film.
+    const pistesDisponibles = ((media?.type === "movie" ? media : selectedEpisode)?.language_tracks || [])
+        .filter((p) => p && p.label && p.bunny_video_id);
+
     useEffect(() => {
         // Sans la preuve de vérification, le serveur refuserait l'URL : on
         // n'appelle donc pas tant qu'elle n'a pas été franchie.
@@ -540,6 +547,7 @@ export default function WatchPage() {
                 episode_number: selectedEpisode?.ep_number,
             }),
             ...(amplification > 1 ? { direct: 1 } : {}),
+            ...(piste ? { track: piste } : {}),
         };
         api.get(`/bunny/playback/${id}`, {
             params: playbackParams,
@@ -581,6 +589,7 @@ export default function WatchPage() {
         bunnySource?.videoId,
         bunnySource?.libraryId,
         verifie,
+        piste,
         // Changer de lecteur, oui ; changer de niveau, non : le niveau est suivi
         // en direct par le lecteur lui-même.
         lecteurAvanceDemande,
@@ -1063,6 +1072,34 @@ export default function WatchPage() {
                                 runAds={false}
                                 videoRefOut={videoElRef}
                             />
+                            )}
+
+                            {pistesDisponibles.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 border-t border-[#1a1a1a] px-4 py-3" data-testid="choix-piste">
+                                    <span className="text-[10px] uppercase tracking-widest text-neutral-500">Version</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPiste(null)}
+                                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === null
+                                            ? "bg-[#E8D2A6] text-black"
+                                            : "bg-[#161616] text-neutral-300 hover:bg-[#1f1f1f]"}`}
+                                    >
+                                        Principale
+                                    </button>
+                                    {pistesDisponibles.map((p) => (
+                                        <button
+                                            key={p.label}
+                                            type="button"
+                                            onClick={() => setPiste(p.label)}
+                                            data-testid={`piste-${p.label}`}
+                                            className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === p.label
+                                                ? "bg-[#E8D2A6] text-black"
+                                                : "bg-[#161616] text-neutral-300 hover:bg-[#1f1f1f]"}`}
+                                        >
+                                            {p.label}
+                                        </button>
+                                    ))}
+                                </div>
                             )}
 
                             {afficherSuite && (
