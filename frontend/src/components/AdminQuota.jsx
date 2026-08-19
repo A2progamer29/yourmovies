@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, RefreshCw, Target, Check, Save } from "lucide-react";
+import { Loader2, RefreshCw, Target, Check, X, Save } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -174,8 +174,11 @@ export default function AdminQuota() {
                                 <div className="flex items-center gap-2 text-sm text-white">
                                     {a.name}
                                     {a.atteint && (
-                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                                            <Check size={10} /> Fait
+                                        <span
+                                            title="Quota du jour atteint"
+                                            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-300"
+                                        >
+                                            <Check size={12} strokeWidth={3} />
                                         </span>
                                     )}
                                 </div>
@@ -243,15 +246,31 @@ export default function AdminQuota() {
                         <div className="mt-3 flex items-end gap-1">
                             {a.historique.map((j) => {
                                 const part = Math.min(1, j.total / a.cible);
+                                const atteint = j.total >= a.cible;
+                                // La croix ne tombe qu'une fois la journee close :
+                                // marquer le jour en cours comme manque serait faux
+                                // tant qu'il reste des heures pour le remplir.
+                                const enCours = j.date === donnees.date;
                                 return (
-                                    <div key={j.date} className="flex-1 text-center" title={`${j.date} — ${j.total} contenu(s)`}>
+                                    <div
+                                        key={j.date}
+                                        className="flex-1 text-center"
+                                        title={`${j.date} — ${j.total} / ${a.cible}${enCours ? " (journée en cours)" : ""}`}
+                                    >
                                         <div className="mx-auto flex h-10 w-full items-end">
                                             <div
-                                                className={`w-full rounded-sm ${j.total >= a.cible ? "bg-emerald-400/70" : j.total > 0 ? "bg-[#E8D2A6]/60" : "bg-[#1a1a1a]"}`}
+                                                className={`w-full rounded-sm ${atteint ? "bg-emerald-400/70" : j.total > 0 ? "bg-[#E8D2A6]/60" : "bg-[#1a1a1a]"}`}
                                                 style={{ height: `${Math.max(6, part * 100)}%` }}
                                             />
                                         </div>
-                                        <div className="mt-1 text-[9px] text-neutral-600">{jourCourt(j.date)}</div>
+                                        <div className="mt-1 flex h-3.5 items-center justify-center">
+                                            {atteint
+                                                ? <Check size={11} strokeWidth={3} className="text-emerald-400" />
+                                                : enCours
+                                                    ? <span className="h-1 w-1 rounded-full bg-neutral-700" />
+                                                    : <X size={11} strokeWidth={3} className="text-red-400" />}
+                                        </div>
+                                        <div className="text-[9px] text-neutral-600">{jourCourt(j.date)}</div>
                                     </div>
                                 );
                             })}
