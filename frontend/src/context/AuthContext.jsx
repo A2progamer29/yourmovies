@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { ecrireLocal } from "@/lib/stockage";
+import { ecrireLocal, lireLocal, supprimerLocal } from "@/lib/stockage";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { refCode, clearRef } from "@/lib/referral";
@@ -29,13 +29,13 @@ function applyAccent(color) {
 
 function readActiveProfile() {
     try {
-        const id = localStorage.getItem("ym_profile_id");
+        const id = lireLocal("ym_profile_id");
         if (!id) return null;
         return {
             id,
-            name: localStorage.getItem("ym_profile_name") || "",
-            emoji: localStorage.getItem("ym_profile_emoji") || "🎬",
-            color: localStorage.getItem("ym_profile_color") || "#E8D2A6",
+            name: lireLocal("ym_profile_name") || "",
+            emoji: lireLocal("ym_profile_emoji") || "🎬",
+            color: lireLocal("ym_profile_color") || "#E8D2A6",
         };
     } catch { return null; }
 }
@@ -47,7 +47,7 @@ export function AuthProvider({ children }) {
 
     const selectProfile = (p) => {
         if (!p) {
-            ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+            ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
             setActiveProfileState(null);
             return;
         }
@@ -81,7 +81,7 @@ export function AuthProvider({ children }) {
         // A visitor without a token is a valid anonymous session. Avoid probing
         // /auth/me in that case: the endpoint is protected and would correctly
         // answer 401 even though public playback remains available.
-        const token = localStorage.getItem("ym_token");
+        const token = lireLocal("ym_token");
         if (!token) {
             setUser(null);
             setLoading(false);
@@ -98,8 +98,8 @@ export function AuthProvider({ children }) {
             // 403 : appareil bloqué depuis le compte. Le jeton ne servira plus,
             // autant le jeter comme un jeton expiré.
             if (e?.response?.status === 401 || e?.response?.status === 403) {
-                localStorage.removeItem("ym_token");
-                ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+                supprimerLocal("ym_token");
+                ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
                 setActiveProfileState(null);
             }
             setUser(null);
@@ -173,8 +173,8 @@ export function AuthProvider({ children }) {
         } catch (e) {
             // ignore logout errors
         }
-        localStorage.removeItem("ym_token");
-        ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+        supprimerLocal("ym_token");
+        ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
         setActiveProfileState(null);
         setUser(null);
         // Rechargement complet : repart d'un état propre (favoris, profils, pubs)

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { lireSession, ecrireSession } from "@/lib/stockage";
+import { lireSession, ecrireSession, supprimerSession } from "@/lib/stockage";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch, CheckCircle2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -490,7 +490,10 @@ export default function AdminMediaForm() {
                 }
             }
             if (!isEdit) {
-                window.sessionStorage.removeItem("yourmovies_admin_media_draft_scope");
+                // Par le module, et non par le stockage brut : le relais en memoire
+                // garderait sinon l'ancienne portee, et le contenu suivant
+                // heriterait du televersement du precedent.
+                supprimerSession("yourmovies_admin_media_draft_scope");
             }
             navigate("/admin?tab=media");
         } catch (e) {
