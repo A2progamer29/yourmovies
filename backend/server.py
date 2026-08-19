@@ -490,16 +490,18 @@ ALL_PERMS = [
     "users.view", "users.block", "users.edit", "users.delete", "users.premium", "users.coins",
     "reviews.moderate", "announcements.manage", "polls.manage",
     "pricing.manage", "ads.manage", "cagnotte.manage", "keys.manage",
+    "quota.view", "quota.manage",
     "roles.manage",
 ]
 
 ROLE_PRESETS = {
-    "editor": ["content.add", "wishboard.view", "wishboard.approve", "users.view"],
+    "editor": ["content.add", "wishboard.view", "wishboard.approve", "users.view", "quota.view"],
     "moderator": [
         "content.add", "content.edit", "content.publish",
         "wishboard.view", "wishboard.approve", "wishboard.moderate",
         "users.view", "users.block", "users.coins",
         "reviews.moderate", "announcements.manage", "polls.manage",
+        "quota.view", "quota.manage",
     ],
     "super": list(ALL_PERMS),
 }
@@ -4733,7 +4735,7 @@ async def site_ping(inp: VisitPing):
     return {"ok": True}
 
 # ---------- Quota quotidien de publication ----------
-QUOTA_DEFAUT = {"enabled": True, "cible": 10}
+QUOTA_DEFAUT = {"enabled": True, "cible": 10, "cibles": {}}
 
 try:
     from zoneinfo import ZoneInfo
@@ -4751,6 +4753,15 @@ async def _config_quota() -> dict:
     cible = doc.get("cible")
     if isinstance(cible, (int, float)):
         config["cible"] = int(max(1, min(200, cible)))
+    # Objectifs personnels : quelqu'un qui debute ou qui revient n'a pas a porter
+    # la meme charge que les autres.
+    individuels = doc.get("cibles")
+    if isinstance(individuels, dict):
+        config["cibles"] = {
+            str(identifiant): int(max(1, min(200, valeur)))
+            for identifiant, valeur in individuels.items()
+            if isinstance(valeur, (int, float))
+        }
     return config
 
 
@@ -4762,10 +4773,18 @@ def _journee_locale(moment: datetime) -> str:
 async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(require_admin)):
     """Ou en est chaque administrateur sur son quota du jour.
 
+    Sans « quota.manage », on ne voit que sa propre ligne : connaitre le retard
+    des autres n'aide personne a faire son travail, et le filtrage se fait ici et
+    non a l'affichage, sinon la reponse porterait quand meme l'information.
+
     Seuls les depots comptent : un ajout direct ou une proposition. Publier la
     proposition d'un autre est un geste de validation, pas de depot — le compter
     recompenserait deux fois le meme contenu."""
     config = await _config_quota()
+    droits = _admin_perms(admin)
+    voit_tout = "quota.manage" in droits
+    if not voit_tout and "quota.view" not in droits and "content.add" not in droits:
+        raise HTTPException(status_code=403, detail="Accès au quota non autorisé")
     maintenant = datetime.now(timezone.utc)
     aujourdhui = _journee_locale(maintenant)
     depuis = maintenant - timedelta(days=jours + 1)
@@ -4777,6 +4796,8 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
 
     comptes = await db.users.find({}, {"_id": 0}).to_list(100000)
     administrateurs = [c for c in comptes if "content.add" in _admin_perms(c)]
+    if not voit_tout:
+        administrateurs = [c for c in administrateurs if c["user_id"] == admin["user_id"]]
 
     par_personne = {c["user_id"]: {} for c in administrateurs}
     for evenement in evenements:
@@ -4804,19 +4825,23 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
     for compte in administrateurs:
         par_jour = par_personne.get(compte["user_id"], {})
         deposes = par_jour.get(aujourdhui, [])
+        objectif = config["cibles"].get(compte["user_id"], config["cible"])
         lignes.append({
             "user_id": compte["user_id"],
             "name": compte.get("name") or "Sans nom",
             "picture": compte.get("picture"),
             "role": _admin_role(compte),
+            "cible": objectif,
+            "personnalise": compte["user_id"] in config["cibles"],
             "aujourdhui": len(deposes),
-            "manquants": max(0, config["cible"] - len(deposes)),
-            "atteint": len(deposes) >= config["cible"],
+            "manquants": max(0, objectif - len(deposes)),
+            "atteint": len(deposes) >= objectif,
             "titres": deposes[:10],
             "historique": [
                 {"date": journee, "total": len(par_jour.get(journee, []))}
                 for journee in journees
             ],
+            "cible_du_jour": objectif,
         })
 
     # Les retardataires d'abord : c'est la question posee a cette page.
@@ -4828,19 +4853,40 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
         "fuseau": str(FUSEAU_QUOTA),
         "jours": journees,
         "admins": lignes,
+        "peut_gerer": voit_tout,
+        "moi": admin["user_id"],
         "total_du_jour": sum(l["aujourdhui"] for l in lignes),
-        "objectif_collectif": config["cible"] * len(lignes),
+        "objectif_collectif": sum(l["cible"] for l in lignes),
     }
 
 
 class QuotaInput(BaseModel):
     enabled: Optional[bool] = None
     cible: Optional[int] = Field(default=None, ge=1, le=200)
+    user_id: Optional[str] = Field(default=None, max_length=80)
+    reinitialiser: bool = False
 
 
 @api_router.post("/admin/quota")
-async def admin_set_quota(inp: QuotaInput, admin: dict = Depends(require_perm("roles.manage"))):
-    update = {k: v for k, v in inp.model_dump(exclude_unset=True).items() if v is not None}
+async def admin_set_quota(inp: QuotaInput, admin: dict = Depends(require_perm("quota.manage"))):
+    """Regle l'objectif general, ou celui d'une personne quand user_id est fourni."""
+    if inp.user_id:
+        cle = f"cibles.{inp.user_id}"
+        if inp.reinitialiser:
+            await db.settings.update_one(
+                {"id": "quota_publication"}, {"$unset": {cle: ""}}, upsert=True,
+            )
+        elif inp.cible is not None:
+            await db.settings.update_one(
+                {"id": "quota_publication"}, {"$set": {cle: int(inp.cible)}}, upsert=True,
+            )
+        return await _config_quota()
+
+    update = {}
+    if inp.enabled is not None:
+        update["enabled"] = bool(inp.enabled)
+    if inp.cible is not None:
+        update["cible"] = int(inp.cible)
     if update:
         await db.settings.update_one({"id": "quota_publication"}, {"$set": update}, upsert=True)
     return await _config_quota()

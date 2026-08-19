@@ -45,6 +45,13 @@ export const PERM_GROUPS = [
         ],
     },
     {
+        group: "Quota du jour",
+        perms: [
+            { id: "quota.view", label: "Voir son propre quota", hint: "Ce qu'il reste a deposer aujourd'hui, pour soi seulement" },
+            { id: "quota.manage", label: "Voir et regler celui de tous", hint: "Le quota de chacun, l'objectif general et les objectifs individuels" },
+        ],
+    },
+    {
         group: "Administration",
         perms: [
             { id: "roles.manage", label: "Gérer les permissions", hint: "Permet d'accorder n'importe quel accès — à réserver aux personnes de confiance" },
@@ -55,12 +62,13 @@ export const PERM_GROUPS = [
 export const ALL_PERMS = PERM_GROUPS.flatMap((g) => g.perms.map((p) => p.id));
 
 export const ROLE_PRESETS = {
-    editor: ["content.add", "wishboard.view", "wishboard.approve", "users.view"],
+    editor: ["content.add", "wishboard.view", "wishboard.approve", "users.view", "quota.view"],
     moderator: [
         "content.add", "content.edit",
         "wishboard.view", "wishboard.approve", "wishboard.moderate",
         "users.view", "users.block", "users.coins",
         "reviews.moderate", "announcements.manage",
+        "quota.view", "quota.manage",
     ],
     super: [...ALL_PERMS],
 };

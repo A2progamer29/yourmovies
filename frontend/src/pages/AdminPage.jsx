@@ -479,7 +479,7 @@ export default function AdminPage() {
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
                 { value: "journal", label: "Journal", icon: <ScrollText size={14} />, perm: "content.add" },
                 { value: "statistiques", label: "Statistiques", icon: <ChartPie size={14} /> },
-                { value: "quota", label: "Quota du jour", icon: <Target size={14} />, perm: "content.add" },
+                { value: "quota", label: "Quota du jour", icon: <Target size={14} />, perm: "quota.view" },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
@@ -1432,13 +1432,13 @@ export default function AdminPage() {
                         <AdminPending onCount={setPendingCount} />
                     </TabsContent>
 
-                    {can(user, "content.add") && (
+                    {(can(user, "quota.view") || can(user, "quota.manage")) && (
                         <TabsContent value="quota" className="mt-0">
                             <SectionHeader
                                 titre="Quota du jour"
                                 description="Combien de contenus chaque administrateur a depose aujourd'hui, et ce qu'il lui reste a faire."
                             />
-                            <AdminQuota peutRegler={can(user, "roles.manage")} />
+                            <AdminQuota />
                         </TabsContent>
                     )}
 
