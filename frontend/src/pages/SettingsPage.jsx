@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, X } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, X, Users } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -53,6 +53,7 @@ const AUTOSAVE_FIELDS = [
     "name",
     "bio",
     "audio_boost",
+    "skip_profile_picker",
     "profile_public",
     "reviews_public",
     "history_public",
@@ -70,6 +71,7 @@ const AUTOSAVE_SUCCESS_MESSAGES = {
     name: "Nom enregistré",
     bio: "Bio enregistrée",
     audio_boost: "Amplification du son enregistrée",
+    skip_profile_picker: "Choix du profil enregistré",
     autoplay_next: "Lecture automatique enregistrée",
     nav_order: "Ordre du menu enregistré",
     profile_public: "Visibilité du profil enregistrée",
@@ -117,6 +119,7 @@ export default function SettingsPage() {
                 name: user.name || "",
                 bio: user.bio || "",
                 audio_boost: Number(user.audio_boost) || 1,
+                skip_profile_picker: !!user.skip_profile_picker,
                 autoplay_next: user.autoplay_next !== false,
                 nav_order: ordonnerLiens(user.nav_order).map((lien) => lien.id),
                 picture: user.picture || "",
@@ -672,6 +675,33 @@ export default function SettingsPage() {
                             </button>
                         </div>
 
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
+                            <div className="min-w-0">
+                                <div className="text-white flex items-center gap-2">
+                                    <Users size={14} className="text-[#E8D2A6]" />
+                                    Choix du profil à la connexion
+                                </div>
+                                <div className="text-xs text-neutral-500 mt-1">
+                                    Affiche l&apos;écran « Qui regarde ? » à chaque connexion. Sans profils,
+                                    cet écran ne s&apos;affiche pas de toute façon.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!form.skip_profile_picker}
+                                data-testid="settings-profile-picker"
+                                onClick={() => setForm((current) => ({ ...current, skip_profile_picker: !current.skip_profile_picker }))}
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white ${!form.skip_profile_picker
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                    : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                    }`}
+                            >
+                                {!form.skip_profile_picker ? <Check size={14} /> : <X size={14} />}
+                                {!form.skip_profile_picker ? "Affiché" : "Masqué"}
+                            </button>
+                        </div>
+
                         <div className="pt-1 text-[10px] uppercase tracking-widest text-neutral-500">
                             Apparence
                         </div>
@@ -801,19 +831,19 @@ export default function SettingsPage() {
                                 <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">Voir les plans</Button>
                             </div>
                         ) : (
-                            <div className="rounded-2xl border border-[#262626] bg-[#0a0a0a] p-8">
-                                <div className="flex items-center justify-between gap-4 mb-6">
-                                    <div>
+                            <div className="rounded-2xl border border-[#262626] bg-[#0a0a0a] p-5 sm:p-8">
+                                <div className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+                                    <div className="min-w-0">
                                         <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Plan actuel</div>
-                                        <div className="font-display text-3xl capitalize mt-1" data-testid="sub-plan">{user.premium_plan || sub?.plan || "premium"}</div>
+                                        <div className="mt-1 break-words font-display text-2xl capitalize sm:text-3xl" data-testid="sub-plan">{user.premium_plan || sub?.plan || "premium"}</div>
                                         <div className="text-sm text-neutral-400 mt-1">Facturation {sub?.interval === "yearly" ? "annuelle" : "mensuelle"}</div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="font-display text-3xl">{fmtMoney(sub?.amount, sub?.currency)}</div>
+                                    <div className="shrink-0 text-left sm:text-right">
+                                        <div className="font-display text-2xl sm:text-3xl">{fmtMoney(sub?.amount, sub?.currency)}</div>
                                         <div className="text-xs text-neutral-500">/ {sub?.interval === "yearly" ? "an" : "mois"}</div>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-6 py-6 border-y border-[#262626]">
+                                <div className="grid grid-cols-1 gap-4 border-y border-[#262626] py-6 sm:grid-cols-2 sm:gap-6">
                                     <div>
                                         <div className="text-xs uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1"><Calendar size={12} /> Prochaine facture</div>
                                         <div className="text-white">{fmtDate(sub?.next_billing_date || user.premium_until)}</div>

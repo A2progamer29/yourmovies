@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Chargement from "@/components/Chargement";
 import { Megaphone, Save, Plus, Trash2, PlayCircle, LayoutPanelTop, ExternalLink, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -55,7 +56,7 @@ export default function AdminAds() {
         finally { setBusy(false); }
     };
 
-    if (!cfg) return <div className="text-neutral-500 text-sm">Chargement…</div>;
+    if (!cfg) return <Chargement />;
 
     return (
         <div className="space-y-8 max-w-4xl">

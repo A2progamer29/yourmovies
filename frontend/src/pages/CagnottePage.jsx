@@ -167,8 +167,8 @@ export default function CagnottePage() {
                             </button>
                         ))}
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className="relative flex-1 max-w-[180px]">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="relative w-full min-w-[130px] sm:w-auto sm:max-w-[180px] sm:flex-1">
                             <Input
                                 type="number"
                                 min="1"
@@ -178,7 +178,7 @@ export default function CagnottePage() {
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500">€</span>
                         </div>
-                        <Button asChild className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-11 px-6">
+                        <Button asChild className="h-11 flex-1 rounded-full bg-[#E8D2A6] px-5 font-semibold text-black hover:bg-[#D4BB8B] sm:flex-none sm:px-6">
                             <a href={SELLAUTH_DON} target="_blank" rel="noopener noreferrer">
                                 <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
                             </a>
@@ -186,7 +186,7 @@ export default function CagnottePage() {
                         <Button
                             variant="outline"
                             onClick={contribute}
-                            className="h-11 rounded-full border-[#262626] bg-transparent px-6 text-white hover:bg-white/5"
+                            className="h-11 flex-1 rounded-full border-[#262626] bg-transparent px-5 text-white hover:bg-white/5 sm:flex-none sm:px-6"
                         >
                             <MessageCircle size={16} className="mr-2" /> Via Discord
                         </Button>

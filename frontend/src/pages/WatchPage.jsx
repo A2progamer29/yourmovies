@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import Chargement from "@/components/Chargement";
 import { lireLocal } from "@/lib/stockage";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
@@ -913,7 +914,7 @@ export default function WatchPage() {
         return (
             <div className="min-h-screen bg-[#050505] text-white">
                 <Header />
-                <div className="max-w-7xl mx-auto px-6 py-20">Chargement...</div>
+                <div className="max-w-7xl mx-auto px-6"><Chargement pleinePage /></div>
             </div>
         );
     }

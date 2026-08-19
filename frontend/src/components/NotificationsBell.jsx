@@ -64,8 +64,10 @@ export default function NotificationsBell() {
                 )}
             </button>
 
+            {/* Sous 640 px le panneau se detache du bouton et se cale sur l'ecran :
+                ancre a droite du bouton, sa largeur le faisait sortir par la gauche. */}
             {open && (
-                <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-[#0a0a0a] border border-[#262626] rounded-xl shadow-2xl overflow-hidden z-50">
+                <div className="fixed inset-x-3 top-16 z-50 overflow-hidden rounded-xl border border-[#262626] bg-[#0a0a0a] shadow-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
                     <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between">
                         <span className="text-sm font-medium text-white">Notifications</span>
                         <button onClick={() => setOpen(false)} className="text-neutral-500 hover:text-white"><X size={16} /></button>

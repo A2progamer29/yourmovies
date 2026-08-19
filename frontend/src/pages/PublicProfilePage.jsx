@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Chargement from "@/components/Chargement";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Star, Crown, Shield, Calendar, MessageSquare, Send, UserPlus, UserCheck, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -54,7 +55,7 @@ export default function PublicProfilePage() {
         return (
             <div className="min-h-screen bg-[#050505] text-white">
                 <Header />
-                <div className="max-w-3xl mx-auto px-6 py-20 text-neutral-500">Chargement...</div>
+                <div className="max-w-3xl mx-auto px-6"><Chargement pleinePage /></div>
             </div>
         );
     }

@@ -7,6 +7,7 @@ import { FavoritesProvider } from "@/context/FavoritesContext";
 import { UploadProvider } from "@/context/UploadContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Splash from "@/components/Splash";
+import EtatConnexion from "@/components/EtatConnexion";
 import HomePage from "@/pages/HomePage";
 import BrowsePage from "@/pages/BrowsePage";
 import MediaDetailPage from "@/pages/MediaDetailPage";
@@ -114,6 +115,7 @@ function App() {
 
     return (
         <div className="App">
+            <EtatConnexion />
             <Splash />
             <BrowserRouter>
                 <ErrorBoundary>

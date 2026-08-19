@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,12 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [name, setName] = useState("");
     const [loading, setLoading] = useState(false);
+    /** Un compte pouvant avoir plusieurs profils arrive sur leur choix, sauf s'il
+     *  a demandé à ne plus le voir. Sans profils, la question ne se pose pas. */
+    const apresConnexion = useCallback((compte) => {
+        const choixUtile = compte?.premium && !compte?.skip_profile_picker;
+        navigate(choixUtile ? "/profiles" : "/");
+    }, [navigate]);
     const [parrainage, setParrainage] = useState(null);
     const [codeParrain, setCodeParrain] = useState(() => refCodeCourant());
     // Un code arrivé par lien vaut invitation : on le dit plutôt que de le
@@ -54,22 +60,20 @@ export default function LoginPage() {
         window.history.replaceState(null, "", window.location.pathname);
         (async () => {
             try {
-                await loginWithGoogle(idToken);
+                apresConnexion(await loginWithGoogle(idToken));
                 toast.success("Connecté");
-                navigate("/");
             } catch (err) {
                 showError(toast, err, "Connexion Google impossible");
             }
         })();
-    }, [loginWithGoogle, navigate]);
+    }, [loginWithGoogle, apresConnexion]);
 
     const doLogin = async (e) => {
         e.preventDefault();
         setLoading(true);
         try {
-            await login(email, password);
+            apresConnexion(await login(email, password));
             toast.success("Connecté");
-            navigate("/");
         } catch (err) {
             showError(toast, err, "Connexion impossible");
         } finally {
@@ -81,9 +85,9 @@ export default function LoginPage() {
         e.preventDefault();
         setLoading(true);
         try {
-            await register(email, password, name);
+            const cree = await register(email, password, name);
+            apresConnexion(cree);
             toast.success("Compte créé");
-            navigate("/");
         } catch (err) {
             showError(toast, err, "Inscription impossible");
         } finally {

@@ -143,6 +143,7 @@ class UserPublic(BaseModel):
     autoplay_next: bool = True
     audio_boost: float = 1.0
     nav_order: List[str] = Field(default_factory=list)
+    skip_profile_picker: bool = False
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     has_pin: bool = False
@@ -669,6 +670,7 @@ def user_public_dict(user: dict) -> dict:
         "autoplay_next": bool(user.get("autoplay_next", True)) if premium_active else False,
         "audio_boost": float(user.get("audio_boost", 1.0) or 1.0),
         "nav_order": (user.get("nav_order") or []) if premium_active else [],
+        "skip_profile_picker": bool(user.get("skip_profile_picker", False)),
         "accent_color": user.get("accent_color") if premium_active else None,
         "profile_background_color": user.get("profile_background_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
@@ -6296,6 +6298,7 @@ class SettingsInput(BaseModel):
     autoplay_next: Optional[bool] = None
     audio_boost: Optional[float] = None
     nav_order: Optional[List[str]] = Field(default=None, max_length=40)
+    skip_profile_picker: Optional[bool] = None
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     profile_public: Optional[bool] = None
@@ -6327,6 +6330,8 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Bande-annonce cinéma réservée aux abonnés Premium")
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
+    if inp.skip_profile_picker is not None:
+        upd["skip_profile_picker"] = bool(inp.skip_profile_picker)
     if inp.nav_order is not None:
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Ordre du menu réservé aux abonnés Premium")
