@@ -58,6 +58,7 @@ export default function PistesLangues({
                                     className="hidden"
                                     onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0], {
                                         key: cle,
+                                        precedent: { bunny_video_id: piste.bunny_video_id, bunny_library_id: piste.bunny_library_id },
                                         title: `${titreMedia || "Piste"} — ${piste.label || "autre piste"}`,
                                         onReference: (reference) => modifier(index, reference),
                                     })}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { lireSession, ecrireSession, supprimerSession } from "@/lib/stockage";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch, CheckCircle2, CircleAlert } from "lucide-react";
@@ -172,6 +172,10 @@ export default function AdminMediaForm() {
         return scope;
     });
     const scopedUploadKey = (key) => `${uploadScope}:${key}`;
+    // Fichiers remplaces au cours de la session. Ils ne sont supprimes qu'apres
+    // l'enregistrement : les effacer des le nouveau televersement laisserait la
+    // fiche pointer dans le vide si la personne quittait sans enregistrer.
+    const remplacees = useRef([]);
     const activeUpload = (key) => findActiveUpload(scopedUploadKey(key));
     const [dragTrailer, setDragTrailer] = useState(false);
     const [dragBunny, setDragBunny] = useState(false);
@@ -269,6 +273,7 @@ export default function AdminMediaForm() {
     const uploadToBunny = async (file, options = {}) => {
         const {
             key = "bunny",
+            precedent = null,
             title = form.title || file.name,
             onReference = (reference) => setForm((f) => ({ ...f, ...reference })),
             // Signalé dès la fin du transfert, avant la préparation de la vidéo : permet à une
@@ -295,6 +300,13 @@ export default function AdminMediaForm() {
                 video_url: "",
                 video_file_path: "",
             };
+            const ancien = String(precedent?.bunny_video_id || "").trim();
+            if (ancien && ancien !== videoId) {
+                remplacees.current.push({
+                    video_id: ancien,
+                    library_id: String(precedent.bunny_library_id || libraryId),
+                });
+            }
             onReference(reference);
             updateUpload(uploadId, {
                 stage: "Envoi de la vidéo",
@@ -423,6 +435,26 @@ export default function AdminMediaForm() {
         }
     };
 
+    /** Supprime chez l'hebergeur les fichiers que l'enregistrement vient de
+     *  rendre inutiles. Un echec ne doit rien interrompre : la fiche est deja
+     *  enregistree, et une video oubliee se rattrape par le menage des orphelines. */
+    const purgerRemplacees = async () => {
+        const aPurger = remplacees.current;
+        remplacees.current = [];
+        for (const ancienne of aPurger) {
+            try {
+                await api.delete(`/bunny/videos/${ancienne.video_id}`, {
+                    params: { library_id: ancienne.library_id },
+                });
+            } catch {
+                // sans effet sur l'enregistrement
+            }
+        }
+        if (aPurger.length) {
+            toast.success(`${aPurger.length} ancien${aPurger.length > 1 ? "s" : ""} fichier${aPurger.length > 1 ? "s" : ""} supprimé${aPurger.length > 1 ? "s" : ""} de l'hébergeur`);
+        }
+    };
+
     const save = async () => {
         if (hasUploadWithoutReference) {
             toast.error("Le fichier n'a pas fini d'être envoyé. Enregistrer maintenant laisserait une vidéo vide chez l'hébergeur.");
@@ -495,6 +527,7 @@ export default function AdminMediaForm() {
                 // heriterait du televersement du precedent.
                 supprimerSession("yourmovies_admin_media_draft_scope");
             }
+            await purgerRemplacees();
             navigate("/admin?tab=media");
         } catch (e) {
             showError(toast, e, "Enregistrement impossible");
@@ -1104,10 +1137,10 @@ export default function AdminMediaForm() {
                                 <label
                                     onDragOver={(e) => { e.preventDefault(); setDragBunny(true); }}
                                     onDragLeave={() => setDragBunny(false)}
-                                    onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f); }}
+                                    onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f, { precedent: { bunny_video_id: form.bunny_video_id, bunny_library_id: form.bunny_library_id } }); }}
                                     className={`block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragBunny ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
                                 >
-                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
+                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0], { precedent: { bunny_video_id: form.bunny_video_id, bunny_library_id: form.bunny_library_id } })} />
                                     {activeUpload("bunny") ? (
                                         <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadStage("bunny")} {uploadProgress("bunny")}%</div>
                                     ) : form.bunny_video_id ? (
@@ -1217,6 +1250,7 @@ export default function AdminMediaForm() {
                                                                             e.target.files[0],
                                                                             {
                                                                                 key: episodeKey,
+                                                                                precedent: { bunny_video_id: ep.bunny_video_id, bunny_library_id: ep.bunny_library_id },
                                                                                 title: `${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`,
                                                                                 onReference: (reference) => updateEpisode(i, j, reference),
                                                                             },

@@ -77,7 +77,15 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
             // la piste entre donc dans l'identite de la ligne comme dans la cle
             // de suivi, sinon les deux envois se confondraient.
             const etiquette = pisteFichier || "principale";
+            // Fichier deja en place sur cette piste : reimporter une saison doit
+            // remplacer, pas empiler une seconde video facturee pour rien.
+            const ancienne = pisteFichier
+                ? (episode?.language_tracks || []).find((p) => p?.label === pisteFichier)
+                : episode;
             return {
+                precedent: ancienne
+                    ? { bunny_video_id: ancienne.bunny_video_id, bunny_library_id: ancienne.bunny_library_id }
+                    : null,
                 file, parsed, si, ei, season, episode, seasonNo, epNo,
                 piste: pisteFichier,
                 id: `${etiquette}|${file.name}`,
@@ -119,6 +127,7 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                         // La piste entre dans la cle : sans elle, importer la VO
                         // d'un episode ecraserait le suivi de sa piste principale.
                         key: row.key,
+                        precedent: row.precedent,
                         title: `${title || "Épisode"} — S${row.seasonNo}E${row.epNo}${row.piste ? ` (${row.piste})` : ""}`,
                         onReference: (reference) => (appliquerPisteEpisode
                             ? appliquerPisteEpisode(row.si, row.ei, row.piste, reference)
