@@ -237,11 +237,6 @@ export default function AdminQuota() {
                             />
                         </div>
 
-                        {a.titres.length > 0 && (
-                            <div className="mt-2 truncate text-xs text-neutral-600" title={a.titres.join(", ")}>
-                                {a.titres.join(" · ")}
-                            </div>
-                        )}
 
                         <div className="mt-3 flex items-end gap-1">
                             {a.historique.map((j) => {

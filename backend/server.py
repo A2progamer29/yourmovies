@@ -4791,7 +4791,7 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
 
     evenements = await db.media_events.find(
         {"action": {"$in": ["added", "proposed"]}, "created_at": {"$gte": depuis}},
-        {"_id": 0, "action": 1, "created_at": 1, "created_by": 1, "from_pending": 1, "media": 1},
+        {"_id": 0, "action": 1, "created_at": 1, "created_by": 1, "from_pending": 1},
     ).to_list(100000)
 
     comptes = await db.users.find({}, {"_id": 0}).to_list(100000)
@@ -4812,9 +4812,7 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
         if quand.tzinfo is None:
             quand = quand.replace(tzinfo=timezone.utc)
         journee = _journee_locale(quand)
-        par_personne[auteur].setdefault(journee, []).append(
-            (evenement.get("media") or {}).get("title") or "Sans titre"
-        )
+        par_personne[auteur][journee] = par_personne[auteur].get(journee, 0) + 1
 
     journees = [
         _journee_locale(maintenant - timedelta(days=i))
@@ -4824,7 +4822,7 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
     lignes = []
     for compte in administrateurs:
         par_jour = par_personne.get(compte["user_id"], {})
-        deposes = par_jour.get(aujourdhui, [])
+        deposes = par_jour.get(aujourdhui, 0)
         objectif = config["cibles"].get(compte["user_id"], config["cible"])
         lignes.append({
             "user_id": compte["user_id"],
@@ -4833,12 +4831,11 @@ async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(
             "role": _admin_role(compte),
             "cible": objectif,
             "personnalise": compte["user_id"] in config["cibles"],
-            "aujourdhui": len(deposes),
-            "manquants": max(0, objectif - len(deposes)),
-            "atteint": len(deposes) >= objectif,
-            "titres": deposes[:10],
+            "aujourdhui": deposes,
+            "manquants": max(0, objectif - deposes),
+            "atteint": deposes >= objectif,
             "historique": [
-                {"date": journee, "total": len(par_jour.get(journee, []))}
+                {"date": journee, "total": par_jour.get(journee, 0)}
                 for journee in journees
             ],
             "cible_du_jour": objectif,
