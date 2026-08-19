@@ -4,12 +4,25 @@ import { ChevronsLeft, ChevronsRight } from "lucide-react";
 const SAUT = 10;
 const DELAI_DOUBLE_TAP = 300;
 
-/** Commandes de navigation posées par-dessus le lecteur : barre d'espace, flèches
- *  du clavier, double appui à gauche ou à droite sur mobile. La barre de contrôle
- *  du lecteur reste libre, sinon on perdrait le plein écran et la qualité. */
+/** Commandes de navigation du lecteur.
+ *
+ *  Le clavier — barre d'espace et flèches — vaut sur tous les appareils. La
+ *  surcouche d'appui, elle, n'est posée qu'au doigt : à la souris elle privait le
+ *  lecteur des mouvements de pointeur, et ses contrôles ne sortaient plus que
+ *  dans la bande du bas laissée libre. */
 export default function PlayerGestures({ playerRef, disabled }) {
     const [signal, setSignal] = useState(null);
     const [pret, setPret] = useState(false);
+    // La surcouche ne sert qu'au doigt. A la souris, elle privait le lecteur des
+    // mouvements de pointeur : ses controles ne sortaient qu'en bas, la seule
+    // bande laissee libre. Le clavier, lui, reste actif partout.
+    const [tactile] = useState(() => {
+        try {
+            return window.matchMedia("(hover: none), (pointer: coarse)").matches;
+        } catch {
+            return false;
+        }
+    });
     const enLecture = useRef(true);
     const dernierTap = useRef({ moment: 0, cote: null });
     const minuterie = useRef(null);
@@ -20,6 +33,7 @@ export default function PlayerGestures({ playerRef, disabled }) {
     useEffect(() => {
         if (disabled) return undefined;
         if (playerRef?.current) { setPret(true); return undefined; }
+        if (!tactile) return undefined;
         const sonde = window.setInterval(() => {
             if (playerRef?.current) {
                 setPret(true);
@@ -28,7 +42,7 @@ export default function PlayerGestures({ playerRef, disabled }) {
         }, 400);
         const abandon = window.setTimeout(() => window.clearInterval(sonde), 20000);
         return () => { window.clearInterval(sonde); window.clearTimeout(abandon); };
-    }, [playerRef, disabled]);
+    }, [playerRef, disabled, tactile]);
 
     // L'état de lecture se suit par les événements du lecteur : lui demander à
     // chaque appui passerait par un aller-retour trop lent pour la barre d'espace.
@@ -101,15 +115,11 @@ export default function PlayerGestures({ playerRef, disabled }) {
         if (attenteTap.current) window.clearTimeout(attenteTap.current);
     }, []);
 
-    if (disabled || !pret) return null;
+    if (disabled || !pret || !tactile) return null;
 
-    /** À la souris, la pause est immédiate. Au doigt il faut attendre le second
-     *  appui, qui commande l'avance rapide : la pause est donc différée le temps
-     *  de savoir s'il vient. */
-    const auTap = (cote, evenement) => {
-        const tactile = evenement?.nativeEvent?.pointerType === "touch";
-        if (!tactile) { basculerLecture(); return; }
-
+    /** La pause est différée le temps de savoir si un second appui vient : c'est
+     *  lui qui commande l'avance rapide. */
+    const auTap = (cote) => {
         const maintenant = Date.now();
         const precedent = dernierTap.current;
         if (precedent.cote === cote && maintenant - precedent.moment < DELAI_DOUBLE_TAP) {
@@ -129,13 +139,13 @@ export default function PlayerGestures({ playerRef, disabled }) {
                 <button
                     type="button"
                     aria-label="Lecture ou pause, double appui pour reculer de 10 secondes"
-                    onClick={(evenement) => auTap("gauche", evenement)}
+                    onClick={() => auTap("gauche")}
                     className="pointer-events-auto h-full flex-1 cursor-pointer focus:outline-none"
                 />
                 <button
                     type="button"
                     aria-label="Lecture ou pause, double appui pour avancer de 10 secondes"
-                    onClick={(evenement) => auTap("droite", evenement)}
+                    onClick={() => auTap("droite")}
                     className="pointer-events-auto h-full flex-1 cursor-pointer focus:outline-none"
                 />
             </div>
