@@ -48,6 +48,7 @@ import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 import AideChargement from "@/components/AideChargement";
 import PopUnder from "@/components/PopUnder";
 import VisitTracker from "@/components/VisitTracker";
+import SettingsTabsRuntimeFix from "@/components/SettingsTabsRuntimeFix";
 
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -73,6 +74,7 @@ function AppRouter() {
         <>
         <SupportBanner />
         <ScrollToTop />
+        <SettingsTabsRuntimeFix />
         <main key={location.pathname} className="ym-page-enter">
         <Routes>
             <Route path="/" element={<HomePage />} />
