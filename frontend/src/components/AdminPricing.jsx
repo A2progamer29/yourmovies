@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Chargement from "@/components/Chargement";
 import { Crown, Coins, Gift, Save } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -58,7 +59,7 @@ export default function AdminPricing() {
         finally { setBusy(false); }
     };
 
-    if (!loaded) return <div className="text-neutral-500 text-sm">Chargement…</div>;
+    if (!loaded) return <Chargement />;
 
     return (
         <div className="space-y-8 max-w-4xl">

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Trophy, Eye, TriangleAlert, Flag } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -17,9 +17,12 @@ import AdminAds from "@/components/AdminAds";
 import AdminTraffic from "@/components/AdminTraffic";
 import AdminGuide from "@/components/AdminGuide";
 import AdminStorage from "@/components/AdminStorage";
+import AdminInventaire from "@/components/AdminInventaire";
+import AdminJournal from "@/components/AdminJournal";
+import AdminStatistiques from "@/components/AdminStatistiques";
+import AdminQuota from "@/components/AdminQuota";
 import AdminPolls from "@/components/AdminPolls";
 import AdminPending from "@/components/AdminPending";
-import AdminContributors from "@/components/AdminContributors";
 import AdminReferral from "@/components/AdminReferral";
 import AdminViews from "@/components/AdminViews";
 import AdminReports from "@/components/AdminReports";
@@ -466,7 +469,7 @@ export default function AdminPage() {
                 { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
                 { value: "players", label: "Signalements", icon: <Flag size={14} />, perm: "content.edit", badge: alertes },
                 { value: "pending", label: "Propositions", icon: <Inbox size={14} />, perm: "content.add", badge: pendingCount },
-                { value: "storage", label: "Stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
+                { value: "storage", label: "Coûts et stockage", icon: <HardDrive size={14} />, perm: "content.delete" },
             ],
         },
         {
@@ -474,7 +477,9 @@ export default function AdminPage() {
                 { value: "users", label: "Utilisateurs", icon: <Users size={14} /> },
                 { value: "comments", label: "Commentaires", icon: <MessageSquare size={14} />, perm: "reviews.moderate" },
                 { value: "wishboard", label: "Wishboard", icon: <ChevronUp size={14} />, badge: pendingWishes.length },
-                { value: "contributors", label: "Contributeurs", icon: <Trophy size={14} />, perm: "content.add" },
+                { value: "journal", label: "Journal", icon: <ScrollText size={14} />, perm: "content.add" },
+                { value: "statistiques", label: "Statistiques", icon: <ChartPie size={14} /> },
+                { value: "quota", label: "Quota du jour", icon: <Target size={14} />, perm: "quota.view" },
                 { value: "announcements", label: "Annonces", icon: <Megaphone size={14} />, perm: "announcements.manage" },
                 { value: "polls", label: "Sondages", icon: <BarChart3 size={14} />, perm: "polls.manage" },
             ],
@@ -653,27 +658,6 @@ export default function AdminPage() {
 
                         <AdminTraffic />
 
-                        <div>
-                            <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Catalogue en chiffres</div>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                                {[
-                                    { label: "Contenus", val: stats.total, icon: <Sparkles size={14} /> },
-                                    { label: "Films", val: stats.movies, icon: <Film size={14} /> },
-                                    { label: "Séries", val: stats.series, icon: <Tv size={14} /> },
-                                    { label: "Animes", val: stats.animes, icon: <Sparkles size={14} /> },
-                                    { label: "À l'affiche", val: stats.featured, icon: <Sparkles size={14} /> },
-                                    { label: "Au cinéma", val: stats.inTheaters, icon: <Film size={14} /> },
-                                    { label: "Utilisateurs", val: stats.users, icon: <Users size={14} /> },
-                                    { label: "Abonnés", val: stats.premium, icon: <Crown size={14} /> },
-                                    { label: "Commentaires", val: stats.comments, icon: <MessageSquare size={14} /> },
-                                ].map((c) => (
-                                    <div key={c.label} className="rounded-lg border border-[#262626] bg-[#0a0a0a] p-4">
-                                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-neutral-500">{c.icon} {c.label}</div>
-                                        <div className="mt-1.5 font-display text-2xl">{c.val}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
                     </TabsContent>
 
                     <TabsContent value="media" className="mt-0">
@@ -795,7 +779,7 @@ export default function AdminPage() {
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
                                         {can(user, "content.edit") && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
                                         {can(user, "content.delete") && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
-                                        {!can(user, "content.edit") && !can(user, "content.delete") && <span className="text-xs text-neutral-600">Lecture</span>}
+
                                     </div>
                                 </div>
                             ))}
@@ -1448,21 +1432,44 @@ export default function AdminPage() {
                         <AdminPending onCount={setPendingCount} />
                     </TabsContent>
 
-                    <TabsContent value="contributors" className="mt-0">
+                    {(can(user, "quota.view") || can(user, "quota.manage")) && (
+                        <TabsContent value="quota" className="mt-0">
+                            <SectionHeader
+                                titre="Quota du jour"
+                                description="Combien de contenus chaque administrateur a depose aujourd'hui, et ce qu'il lui reste a faire."
+                            />
+                            <AdminQuota />
+                        </TabsContent>
+                    )}
+
+                    <TabsContent value="statistiques" className="mt-0">
                         <SectionHeader
-                            titre="Contributeurs"
-                            description="Qui alimente le catalogue, et depuis combien de temps."
+                            titre="Statistiques"
+                            description="Qui regarde en ce moment, d'ou vient l'audience, et ce que le catalogue represente."
                         />
-                        <AdminContributors />
+                        <AdminStatistiques />
                     </TabsContent>
+
+                    {can(user, "content.add") && (
+                        <TabsContent value="journal" className="mt-0">
+                            <SectionHeader
+                                titre="Journal"
+                                description="Qui a ajoute, propose, valide, refuse ou supprime un contenu, et a quelle heure."
+                            />
+                            <AdminJournal />
+                        </TabsContent>
+                    )}
 
                     {can(user, "content.delete") && (
                         <TabsContent value="storage" className="mt-0">
                             <SectionHeader
-                                titre="Stockage"
-                                description="L'espace occupé par les vidéos et les fichiers restés en ligne sans contenu associé."
+                                titre="Coûts et stockage"
+                                description="Ce que chaque titre occupe et coûte chaque mois, ses vues, et les fichiers restés en ligne sans contenu associé."
                             />
-                            <AdminStorage />
+                            <AdminInventaire />
+                            <div className="mt-8 border-t border-[#1a1a1a] pt-8">
+                                <AdminStorage />
+                            </div>
                         </TabsContent>
                     )}
 

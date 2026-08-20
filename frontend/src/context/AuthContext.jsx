@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { ecrireLocal, lireLocal, supprimerLocal } from "@/lib/stockage";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { refCode, clearRef } from "@/lib/referral";
+import { clearPremiumOfflineSession, readPremiumOfflineSession, savePremiumOfflineSession } from "@/lib/offline";
 
 const AuthContext = createContext(null);
 
@@ -28,13 +30,13 @@ function applyAccent(color) {
 
 function readActiveProfile() {
     try {
-        const id = localStorage.getItem("ym_profile_id");
+        const id = lireLocal("ym_profile_id");
         if (!id) return null;
         return {
             id,
-            name: localStorage.getItem("ym_profile_name") || "",
-            emoji: localStorage.getItem("ym_profile_emoji") || "🎬",
-            color: localStorage.getItem("ym_profile_color") || "#E8D2A6",
+            name: lireLocal("ym_profile_name") || "",
+            emoji: lireLocal("ym_profile_emoji") || "🎬",
+            color: lireLocal("ym_profile_color") || "#E8D2A6",
         };
     } catch { return null; }
 }
@@ -46,14 +48,14 @@ export function AuthProvider({ children }) {
 
     const selectProfile = (p) => {
         if (!p) {
-            ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+            ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
             setActiveProfileState(null);
             return;
         }
-        localStorage.setItem("ym_profile_id", p.id);
-        localStorage.setItem("ym_profile_name", p.name || "");
-        localStorage.setItem("ym_profile_emoji", p.avatar_emoji || p.emoji || "🎬");
-        localStorage.setItem("ym_profile_color", p.avatar_color || p.color || "#E8D2A6");
+        ecrireLocal("ym_profile_id", p.id);
+        ecrireLocal("ym_profile_name", p.name || "");
+        ecrireLocal("ym_profile_emoji", p.avatar_emoji || p.emoji || "🎬");
+        ecrireLocal("ym_profile_color", p.avatar_color || p.color || "#E8D2A6");
         setActiveProfileState({
             id: p.id,
             name: p.name || "",
@@ -80,30 +82,53 @@ export function AuthProvider({ children }) {
         // A visitor without a token is a valid anonymous session. Avoid probing
         // /auth/me in that case: the endpoint is protected and would correctly
         // answer 401 even though public playback remains available.
-        const token = localStorage.getItem("ym_token");
+        const token = lireLocal("ym_token");
         if (!token) {
+            clearPremiumOfflineSession();
             setUser(null);
             setLoading(false);
             return;
         }
 
         try {
+            if (!navigator.onLine) {
+                setUser(readPremiumOfflineSession());
+                return;
+            }
             const res = await api.get("/auth/me", { silent: true });
             setUser(res.data);
+            savePremiumOfflineSession(res.data);
             claimDaily();
         } catch (e) {
             // Discard expired/revoked credentials so subsequent page loads stay
             // anonymous instead of repeatedly sending an invalid token.
-            if (e?.response?.status === 401) {
-                localStorage.removeItem("ym_token");
-                ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+            // 403 : appareil bloqué depuis le compte. Le jeton ne servira plus,
+            // autant le jeter comme un jeton expiré.
+            if (e?.response?.status === 401 || e?.response?.status === 403) {
+                supprimerLocal("ym_token");
+                clearPremiumOfflineSession();
+                ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
                 setActiveProfileState(null);
+                setUser(null);
+            } else {
+                // Sans réseau, seul un compte Premium déjà vérifié et non expiré
+                // retrouve sa session : les autres visiteurs restent anonymes.
+                setUser(readPremiumOfflineSession());
             }
-            setUser(null);
         } finally {
             setLoading(false);
         }
     }, [claimDaily]);
+
+    // Un réglage modifié dans un autre onglet doit valoir ici aussi : sans cela
+    // une vidéo en cours de lecture garderait les anciens réglages.
+    useEffect(() => {
+        const auChangement = (evenement) => {
+            if (evenement.key === "ym_reglages_touch") checkAuth();
+        };
+        window.addEventListener("storage", auChangement);
+        return () => window.removeEventListener("storage", auChangement);
+    }, [checkAuth]);
 
     useEffect(() => {
         if (window.location.hash?.includes("session_id=")) {
@@ -133,7 +158,7 @@ export function AuthProvider({ children }) {
 
     const login = async (email, password) => {
         const res = await api.post("/auth/login", { email, password });
-        localStorage.setItem("ym_token", res.data.token);
+        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -141,7 +166,7 @@ export function AuthProvider({ children }) {
     const register = async (email, password, name) => {
         const res = await api.post("/auth/register", { email, password, name, ref: refCode() });
         clearRef();
-        localStorage.setItem("ym_token", res.data.token);
+        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -149,7 +174,7 @@ export function AuthProvider({ children }) {
     const loginWithGoogle = async (credential) => {
         const res = await api.post("/auth/google", { credential, ref: refCode() });
         clearRef();
-        localStorage.setItem("ym_token", res.data.token);
+        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -160,8 +185,9 @@ export function AuthProvider({ children }) {
         } catch (e) {
             // ignore logout errors
         }
-        localStorage.removeItem("ym_token");
-        ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach((k) => localStorage.removeItem(k));
+        supprimerLocal("ym_token");
+        clearPremiumOfflineSession();
+        ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
         setActiveProfileState(null);
         setUser(null);
         // Rechargement complet : repart d'un état propre (favoris, profils, pubs)

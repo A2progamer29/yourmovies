@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/context/AuthContext";
 import { describeError, showError } from "@/lib/errors";
+import { api } from "@/lib/api";
+import { refCodeCourant, enregistrerRef } from "@/lib/referral";
+import { Gift } from "lucide-react";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 
@@ -17,6 +20,23 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [name, setName] = useState("");
     const [loading, setLoading] = useState(false);
+    /** Un compte pouvant avoir plusieurs profils arrive sur leur choix, sauf s'il
+     *  a demandé à ne plus le voir. Sans profils, la question ne se pose pas. */
+    const apresConnexion = useCallback((compte) => {
+        const choixUtile = compte?.premium && !compte?.skip_profile_picker;
+        navigate(choixUtile ? "/profiles" : "/");
+    }, [navigate]);
+    const [parrainage, setParrainage] = useState(null);
+    const [codeParrain, setCodeParrain] = useState(() => refCodeCourant());
+    // Un code arrivé par lien vaut invitation : on le dit plutôt que de le
+    // laisser agir en silence.
+    const [invite] = useState(() => Boolean(refCodeCourant()));
+
+    useEffect(() => {
+        api.get("/referral/config", { silent: true })
+            .then((r) => setParrainage(r.data?.enabled ? r.data : null))
+            .catch(() => setParrainage(null));
+    }, []);
     // Connexion Google par redirection pleine page (aucun popup).
     const startGoogleLogin = () => {
         const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -40,22 +60,20 @@ export default function LoginPage() {
         window.history.replaceState(null, "", window.location.pathname);
         (async () => {
             try {
-                await loginWithGoogle(idToken);
+                apresConnexion(await loginWithGoogle(idToken));
                 toast.success("Connecté");
-                navigate("/");
             } catch (err) {
                 showError(toast, err, "Connexion Google impossible");
             }
         })();
-    }, [loginWithGoogle, navigate]);
+    }, [loginWithGoogle, apresConnexion]);
 
     const doLogin = async (e) => {
         e.preventDefault();
         setLoading(true);
         try {
-            await login(email, password);
+            apresConnexion(await login(email, password));
             toast.success("Connecté");
-            navigate("/");
         } catch (err) {
             showError(toast, err, "Connexion impossible");
         } finally {
@@ -67,9 +85,9 @@ export default function LoginPage() {
         e.preventDefault();
         setLoading(true);
         try {
-            await register(email, password, name);
+            const cree = await register(email, password, name);
+            apresConnexion(cree);
             toast.success("Compte créé");
-            navigate("/");
         } catch (err) {
             showError(toast, err, "Inscription impossible");
         } finally {
@@ -115,7 +133,32 @@ export default function LoginPage() {
                     </>
                 )}
 
-                <Tabs defaultValue="login">
+                {parrainage && (
+                    <div
+                        data-testid="parrainage-annonce"
+                        className="mb-6 flex gap-3 rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] p-4"
+                    >
+                        <Gift size={18} className="mt-0.5 shrink-0 text-[#E8D2A6]" />
+                        <div className="min-w-0 text-sm leading-relaxed text-neutral-300">
+                            {invite ? (
+                                <>
+                                    <span className="text-white">Tu as été invité.</span> En créant ton
+                                    compte, tu reçois {parrainage.coins_filleul} Freemium, et la personne
+                                    qui t&apos;a invité en reçoit {parrainage.coins_parrain}.
+                                </>
+                            ) : (
+                                <>
+                                    <span className="text-white">Quelqu&apos;un t&apos;a parrainé ?</span> Renseigne
+                                    son code à l&apos;inscription : tu repars avec {parrainage.coins_filleul} Freemium,
+                                    et lui {parrainage.coins_parrain}. Une fois inscrit, tu auras ton propre code à
+                                    partager.
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                <Tabs defaultValue={invite ? "register" : "login"}>
                     <TabsList className="grid grid-cols-2 bg-[#111] border border-[#262626]">
                         <TabsTrigger value="login" data-testid="tab-login" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">Connexion</TabsTrigger>
                         <TabsTrigger value="register" data-testid="tab-register" className="data-[state=active]:bg-[#E8D2A6] data-[state=active]:text-black">Inscription</TabsTrigger>
@@ -149,6 +192,28 @@ export default function LoginPage() {
                                 <Label htmlFor="rpassword" className="text-neutral-300">Mot de passe</Label>
                                 <Input id="rpassword" data-testid="register-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="bg-[#111] border-[#262626] text-white mt-1.5 focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50 focus-visible:border-[#E8D2A6]" />
                             </div>
+                            {parrainage && (
+                                <div>
+                                    <Label htmlFor="rref" className="flex items-center gap-2 text-neutral-300">
+                                        Code de parrainage
+                                        <span className="text-xs text-neutral-500">facultatif</span>
+                                    </Label>
+                                    <Input
+                                        id="rref"
+                                        data-testid="register-ref"
+                                        value={codeParrain}
+                                        onChange={(e) => setCodeParrain(enregistrerRef(e.target.value))}
+                                        placeholder="Le code de la personne qui t'a invité"
+                                        className="mt-1.5 bg-[#111] border-[#262626] uppercase text-white focus-visible:border-[#E8D2A6] focus-visible:ring-1 focus-visible:ring-[#E8D2A6]/50"
+                                    />
+                                    {codeParrain && (
+                                        <div className="mt-1.5 text-xs text-[#E8D2A6]">
+                                            {parrainage.coins_filleul} Freemium te seront crédités à la création du compte.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <Button type="submit" disabled={loading} data-testid="submit-register-btn" className="w-full bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 font-semibold">
                                 {loading ? "..." : "Créer mon compte"}
                             </Button>

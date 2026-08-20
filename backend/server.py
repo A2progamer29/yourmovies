@@ -13,6 +13,8 @@ import uuid
 import io
 import secrets
 import hashlib
+import base64
+from urllib.parse import quote
 import time
 import unicodedata
 import requests
@@ -139,6 +141,9 @@ class UserPublic(BaseModel):
     preferred_quality: Optional[str] = None  # user's default choice ("4k","1080p","720p","auto")
     autoplay_hero: bool = True
     autoplay_next: bool = True
+    audio_boost: float = 1.0
+    nav_order: List[str] = Field(default_factory=list)
+    skip_profile_picker: bool = False
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     has_pin: bool = False
@@ -166,6 +171,15 @@ class TimelineEntry(BaseModel):
     poster_url: Optional[str] = Field(default=None, max_length=2048)
 
 
+class PisteLangue(BaseModel):
+    """Version supplementaire d'un titre : version originale, autre doublage.
+    Meme principe que la piste principale — un fichier chez l'hebergeur — avec un
+    libelle pour que le spectateur sache ce qu'il choisit."""
+    label: str = Field(min_length=1, max_length=40)
+    bunny_video_id: Optional[str] = Field(default=None, max_length=80)
+    bunny_library_id: Optional[str] = Field(default=None, max_length=20)
+
+
 class MediaBase(BaseModel):
     title: str
     description: str = ""
@@ -183,6 +197,7 @@ class MediaBase(BaseModel):
     video_url: Optional[str] = None  # external MP4/HLS URL alternative to upload
     bunny_video_id: Optional[str] = None  # vidéo hébergée sur Bunny Stream
     bunny_library_id: Optional[str] = None  # bibliothèque Bunny associée à la vidéo
+    language_tracks: List[PisteLangue] = Field(default_factory=list, max_length=8)
     qualities: List[dict] = []  # [{quality: "720p"|"1080p"|"4k", url: "https://...", file_path: "..."}]
     cast: List[str] = []
     director: Optional[str] = None
@@ -216,6 +231,7 @@ class MediaUpdate(BaseModel):
     video_url: Optional[str] = None
     bunny_video_id: Optional[str] = None
     bunny_library_id: Optional[str] = None
+    language_tracks: Optional[List[PisteLangue]] = Field(default=None, max_length=8)
     qualities: Optional[List[dict]] = None
     cast: Optional[List[str]] = None
     director: Optional[str] = None
@@ -475,16 +491,18 @@ ALL_PERMS = [
     "users.view", "users.block", "users.edit", "users.delete", "users.premium", "users.coins",
     "reviews.moderate", "announcements.manage", "polls.manage",
     "pricing.manage", "ads.manage", "cagnotte.manage", "keys.manage",
+    "quota.view", "quota.manage",
     "roles.manage",
 ]
 
 ROLE_PRESETS = {
-    "editor": ["content.add", "wishboard.view", "wishboard.approve", "users.view"],
+    "editor": ["content.add", "wishboard.view", "wishboard.approve", "users.view", "quota.view"],
     "moderator": [
         "content.add", "content.edit", "content.publish",
         "wishboard.view", "wishboard.approve", "wishboard.moderate",
         "users.view", "users.block", "users.coins",
         "reviews.moderate", "announcements.manage", "polls.manage",
+        "quota.view", "quota.manage",
     ],
     "super": list(ALL_PERMS),
 }
@@ -650,6 +668,9 @@ def user_public_dict(user: dict) -> dict:
         "preferred_quality": user.get("preferred_quality"),
         "autoplay_hero": user.get("autoplay_hero", True),
         "autoplay_next": bool(user.get("autoplay_next", True)) if premium_active else False,
+        "audio_boost": float(user.get("audio_boost", 1.0) or 1.0),
+        "nav_order": (user.get("nav_order") or []) if premium_active else [],
+        "skip_profile_picker": bool(user.get("skip_profile_picker", False)),
         "accent_color": user.get("accent_color") if premium_active else None,
         "profile_background_color": user.get("profile_background_color") if premium_active else None,
         "has_pin": bool(user.get("pin_hash")),
@@ -852,7 +873,7 @@ async def _effective_ads() -> dict:
         "reward": {
             "enabled": bool(reward.get("enabled")),
             "coins": round(_clamp_num(reward.get("coins"), 0.5, 50, 1), 1),
-            "watch_seconds": int(_clamp_num(reward.get("watch_seconds"), 5, 120, 20)),
+            "watch_seconds": int(_clamp_num(reward.get("watch_seconds"), 1, 120, 20)),
             "cooldown_minutes": int(_clamp_num(reward.get("cooldown_minutes"), 0, 1440, 10)),
             "daily_max": int(_clamp_num(reward.get("daily_max"), 1, 100, 10)),
         },
@@ -1119,6 +1140,8 @@ async def auth_google(inp: GoogleAuthInput, request: Request):
 async def me(request: Request, user: dict = Depends(get_current_user)):
     try:
         await _noter_appareil(user.get("user_id"), request.headers.get("user-agent"))
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.warning("Appareil non enregistré : %s", exc)
     return user_public_dict(user)
@@ -1158,6 +1181,7 @@ def serialize_media(doc) -> dict:
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
         "bunny_video_id": doc.get("bunny_video_id"),
+        "language_tracks": doc.get("language_tracks", []),
         "bunny_library_id": doc.get("bunny_library_id"),
         "qualities": doc.get("qualities", []),
         "title_logo_url": doc.get("title_logo_url"),
@@ -1235,8 +1259,18 @@ async def _record_catalog_history(doc: dict, *, active: bool, user_id: Optional[
         )
 
 
-async def _record_media_event(action: Literal["added", "deleted"], doc: dict, *, user_id: Optional[str]) -> None:
+async def _record_media_event(
+    action: Literal["added", "deleted", "proposed", "published", "rejected"],
+    doc: dict,
+    *,
+    user_id: Optional[str],
+    depuis_proposition: bool = False,
+) -> None:
     await db.media_events.insert_one({
+        # Publier une proposition inscrit un ajout au credit de son auteur. Sans
+        # cette marque, le quota du jour le compterait une seconde fois, alors
+        # qu'il n'a rien depose ce jour-la.
+        "from_pending": depuis_proposition,
         "event_id": f"media_evt_{uuid.uuid4().hex}",
         "action": action,
         "media": {
@@ -1355,6 +1389,10 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_perm("conten
     if not _peut_publier(user):
         doc["proposed_by_name"] = user.get("name", "")
         await db.media_pending.insert_one(dict(doc))
+        try:
+            await _record_media_event("proposed", doc, user_id=user.get("user_id"))
+        except Exception as exc:
+            logger.error("Journalisation de la proposition %s impossible : %s", media_id, exc)
         return {**serialize_media(doc), "pending": True}
     await db.media.insert_one(doc)
     try:
@@ -1491,6 +1529,159 @@ async def admin_bunny_views(
     }
 
 
+# Tarif de stockage de l'hébergeur, en dollars par gigaoctet et par mois. La
+# facture minimale mensuelle est indépendante de ce calcul.
+PRIX_STOCKAGE_GO_MOIS = 0.01
+FACTURE_MINIMALE_MOIS = 1.0
+
+
+async def _bande_passante_30j(library_id: str) -> Optional[int]:
+    """Octets diffusés sur trente jours, pour situer la diffusion face au stockage.
+
+    Renvoie None si la statistique est indisponible : elle éclaire le tableau
+    mais ne doit jamais empêcher l'inventaire de s'afficher."""
+    debut = (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
+    fin = datetime.now(timezone.utc).date().isoformat()
+    try:
+        r = await run_in_threadpool(lambda: requests.get(
+            f"https://video.bunnycdn.com/library/{library_id}/statistics",
+            headers={"AccessKey": BUNNY_API_KEY},
+            params={"dateFrom": debut, "dateTo": fin},
+            timeout=20,
+        ))
+        if not r.ok:
+            return None
+        return int(sum((r.json().get("bandwidthUsedChart") or {}).values()))
+    except Exception as exc:
+        logger.warning("Bande passante indisponible : %s", exc)
+        return None
+
+
+@api_router.get("/admin/storage/inventory")
+async def admin_storage_inventory(
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.delete")),
+):
+    """Ce que chaque titre occupe et coûte, avec ses vues.
+
+    Le poids se lit chez l'hébergeur et les vues aussi : un compteur maison ne
+    verrait pas les lectures faites avant sa mise en place."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Hébergeur vidéo non configuré")
+    library = _validated_bunny_library_id(library_id)
+    videos = await _bunny_library_videos(library)
+    par_guid = {str(v.get("guid")): v for v in videos if v.get("guid")}
+
+    docs = await db.media.find(
+        {}, {"_id": 0, "id": 1, "title": 1, "type": 1, "poster_url": 1,
+             "bunny_video_id": 1, "bunny_library_id": 1, "seasons": 1, "player_broken": 1},
+    ).to_list(100000)
+
+    items = []
+    rattachees = set()
+    for doc in docs:
+        octets = 0
+        secondes = 0
+        vues = 0
+        nombre = 0
+        for video_id, _ in _bunny_references_of(doc):
+            video = par_guid.get(video_id)
+            if not video:
+                continue
+            rattachees.add(video_id)
+            nombre += 1
+            octets += int(video.get("storageSize") or 0)
+            secondes += int(video.get("length") or 0)
+            vues += int(video.get("views") or 0)
+        if nombre == 0:
+            continue
+        items.append({
+            "id": doc["id"],
+            "title": doc.get("title", ""),
+            "type": doc.get("type", "movie"),
+            "poster_url": doc.get("poster_url"),
+            "videos": nombre,
+            "seconds": secondes,
+            "bytes": octets,
+            "views": vues,
+            "player_broken": bool(doc.get("player_broken")),
+        })
+
+    items.sort(key=lambda e: e["bytes"], reverse=True)
+    octets_total = sum(e["bytes"] for e in items)
+    orphelines = sum(
+        int(v.get("storageSize") or 0)
+        for v in videos
+        if str(v.get("guid") or "") not in rattachees
+    )
+    dormants = [e for e in items if e["views"] == 0]
+
+    return {
+        "library_id": library,
+        "items": items,
+        "price_per_gb": PRIX_STOCKAGE_GO_MOIS,
+        "minimum_monthly": FACTURE_MINIMALE_MOIS,
+        "total_bytes": octets_total + orphelines,
+        "attached_bytes": octets_total,
+        "orphan_bytes": orphelines,
+        "cold_bytes": sum(e["bytes"] for e in dormants),
+        "cold_count": len(dormants),
+        "titles": len(items),
+        "video_count": len(videos),
+        "bandwidth_30d_bytes": await _bande_passante_30j(library),
+    }
+
+
+class LiberationInput(BaseModel):
+    media_id: str
+    notice: Optional[str] = Field(default=None, max_length=300)
+
+
+@api_router.post("/admin/storage/release")
+async def admin_storage_release(
+    inp: LiberationInput,
+    user: dict = Depends(require_perm("content.delete")),
+):
+    """Supprime les vidéos d'un titre en gardant sa fiche.
+
+    Le contenu reste au catalogue, visible et demandable, mais cesse d'être
+    facturé. Supprimer la fiche entière ferait perdre l'affiche, le résumé, les
+    avis et les votes — alors que seul le fichier coûte."""
+    doc = await db.media.find_one({"id": inp.media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+
+    references = _bunny_references_of(doc)
+    if not references:
+        raise HTTPException(status_code=400, detail="Ce contenu n'a aucune vidéo hébergée")
+
+    supprimees = 0
+    for depart in range(0, len(references), 8):
+        lot = references[depart:depart + 8]
+        resultats = await asyncio.gather(
+            *(_delete_bunny_video(video_id, library_id) for video_id, library_id in lot),
+            return_exceptions=True,
+        )
+        supprimees += sum(1 for r in resultats if r is True)
+
+    saisons = doc.get("seasons") or []
+    for saison in saisons:
+        for episode in (saison.get("episodes") or []):
+            episode["bunny_video_id"] = None
+            episode["video_url"] = None
+
+    await db.media.update_one({"id": inp.media_id}, {"$set": {
+        "bunny_video_id": None,
+        "video_url": None,
+        "seasons": saisons,
+        "player_broken": True,
+        "player_notice": inp.notice or "Ce titre a été retiré de la lecture pour libérer de l'espace. Demande-le sur le Wishboard pour qu'il revienne.",
+        "storage_released_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    logger.info("Stockage libéré pour %s par %s : %d vidéos", inp.media_id, user.get("user_id"), supprimees)
+    return {"ok": True, "deleted": supprimees, "requested": len(references)}
+
+
 @api_router.get("/admin/bunny/orphans")
 async def admin_bunny_orphans(
     library_id: Optional[str] = Query(None),
@@ -1590,7 +1781,10 @@ async def admin_publish_pending(media_id: str, user: dict = Depends(require_perm
     await db.media_pending.delete_one({"id": media_id})
     try:
         await _record_catalog_history(doc, active=True, user_id=doc.get("created_by"))
-        await _record_media_event("added", doc, user_id=doc.get("created_by"))
+        await _record_media_event("added", doc, user_id=doc.get("created_by"), depuis_proposition=True)
+        # L'ajout reste porte au credit de la personne qui a propose ; la
+        # validation est un geste distinct, qui merite sa propre ligne.
+        await _record_media_event("published", doc, user_id=user.get("user_id"))
     except Exception as exc:
         logger.error("Journalisation de la publication de %s impossible : %s", media_id, exc)
     return serialize_media(doc)
@@ -1605,55 +1799,56 @@ async def admin_reject_pending(media_id: str, user: dict = Depends(require_perm(
     # Les fichiers ont bien ete televerses chez l'hebergeur : les laisser reviendrait a
     # payer le stockage d'une proposition refusee.
     supprimees = await _purge_bunny_of(doc)
+    try:
+        await _record_media_event("rejected", doc, user_id=user.get("user_id"))
+    except Exception as exc:
+        logger.error("Journalisation du refus de %s impossible : %s", media_id, exc)
     logger.info("Proposition %s refusee par %s (%s videos supprimees)", media_id, user.get("user_id"), supprimees)
     return {"ok": True, "bunny_deleted": supprimees}
 
 
-@api_router.get("/admin/contributors")
-async def admin_contributors(user: dict = Depends(require_perm("content.add"))):
-    """Qui a ajoute quoi : reconstruit depuis le journal deja tenu a chaque ajout."""
-    evenements = await db.media_events.find(
-        {"action": "added", "created_by": {"$ne": None}},
-        {"_id": 0, "created_by": 1, "created_at": 1, "media": 1},
-    ).to_list(100000)
-    par_personne = {}
-    for evenement in evenements:
-        identifiant = evenement.get("created_by")
-        entree = par_personne.setdefault(identifiant, {"user_id": identifiant, "total": 0, "dernier": None, "derniers_titres": []})
-        entree["total"] += 1
-        quand = evenement.get("created_at")
-        horodatage = quand.isoformat() if hasattr(quand, "isoformat") else str(quand or "")
-        if not entree["dernier"] or horodatage > entree["dernier"]:
-            entree["dernier"] = horodatage
-        if len(entree["derniers_titres"]) < 5:
-            entree["derniers_titres"].append((evenement.get("media") or {}).get("title", ""))
+@api_router.get("/admin/journal")
+async def admin_journal(
+    limit: int = Query(150, ge=1, le=500),
+    action: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.add")),
+):
+    """Qui a fait quoi, et quand, dans l'ordre. Les propositions encore en attente
+    y figurent aussi : sans elles, le travail de quelqu'un resterait invisible
+    tant que personne ne l'a validee."""
+    requete = {}
+    if action in {"added", "deleted", "proposed", "published", "rejected"}:
+        requete["action"] = action
+    evenements = await db.media_events.find(requete, {"_id": 0}).sort("created_at", -1).to_list(limit)
 
-    en_attente = await db.media_pending.find({}, {"_id": 0, "created_by": 1}).to_list(1000)
-    for proposition in en_attente:
-        identifiant = proposition.get("created_by")
-        if identifiant:
-            entree = par_personne.setdefault(identifiant, {"user_id": identifiant, "total": 0, "dernier": None, "derniers_titres": []})
-            entree["en_attente"] = entree.get("en_attente", 0) + 1
-
+    identifiants = {e.get("created_by") for e in evenements if e.get("created_by")}
     comptes = await db.users.find(
-        {"user_id": {"$in": [i for i in par_personne if i]}},
-        {"_id": 0, "user_id": 1, "name": 1, "avatar_url": 1},
+        {"user_id": {"$in": list(identifiants)}},
+        {"_id": 0, "user_id": 1, "name": 1, "picture": 1},
     ).to_list(1000)
     noms = {c["user_id"]: c for c in comptes}
+
     sortie = []
-    for identifiant, entree in par_personne.items():
-        compte = noms.get(identifiant) or {}
+    for evenement in evenements:
+        quand = evenement.get("created_at")
+        compte = noms.get(evenement.get("created_by")) or {}
+        media = evenement.get("media") or {}
         sortie.append({
-            **entree,
-            "en_attente": entree.get("en_attente", 0),
-            "name": compte.get("name") or "Compte supprimé",
-            "avatar_url": compte.get("avatar_url"),
+            "id": evenement.get("event_id"),
+            "action": evenement.get("action"),
+            "at": quand.isoformat() if hasattr(quand, "isoformat") else str(quand or ""),
+            "user_id": evenement.get("created_by"),
+            "user_name": compte.get("name") or ("Compte supprimé" if evenement.get("created_by") else "Système"),
+            "user_picture": compte.get("picture"),
+            "media_id": media.get("id"),
+            "title": media.get("title") or "",
+            "type": media.get("type") or "movie",
+            "poster_url": media.get("poster_url"),
+            "year": media.get("year"),
         })
-    sortie.sort(key=lambda e: e["total"], reverse=True)
-    return sortie
+    return {"items": sortie}
 
 
-# ---------- Trending / Genres ----------
 @api_router.get("/trending")
 async def trending(limit: int = 10):
     limit = max(1, min(limit, 30))
@@ -2241,14 +2436,35 @@ async def playback_verify(inp: TurnstileInput, request: Request):
     return {"ok": True, "pass": laissez_passer, "expires_in": PLAYBACK_PASS_MINUTES * 60}
 
 
+class ContournementInput(BaseModel):
+    code: Optional[str] = Field(default=None, max_length=20)
+
+
 @api_router.post("/playback/verify/skip")
-async def playback_verify_skip(request: Request):
+async def playback_verify_skip(request: Request, inp: Optional[ContournementInput] = None):
     """Filet de securite : un bloqueur ou un VPN empeche parfois Cloudflare de
     repondre. Plutot que d'enfermer quelqu'un de legitime devant un ecran vide,
-    on delivre un laissez-passer court, fortement limite et journalise."""
+    on delivre un laissez-passer court, fortement limite et journalise.
+
+    Les codes en 110 signalent une verification mal configuree — domaine absent
+    de la liste, cle invalide. La faute est alors de notre cote et frappe tout le
+    monde a la fois : la limite stricte n'y protegerait de rien et fermerait le
+    site a des visiteurs qui n'y peuvent rien. On l'assouplit, et on le dit
+    assez fort dans le journal pour que la cause soit corrigee."""
     if not TURNSTILE_CONFIGURED:
         return {"ok": True, "pass": None}
-    await _enforce_rate_limit(request, "turnstile-skip", 3, 3600)
+    code = (inp.code if inp else "") or ""
+    mauvaise_config = code.startswith("110")
+    if mauvaise_config:
+        logger.error(
+            "Verification anti-robots mal configuree (code %s) : la cle Cloudflare "
+            "n'accepte pas ce domaine. La lecture est ouverte sans verification "
+            "tant que ce n'est pas corrige.",
+            code,
+        )
+        await _enforce_rate_limit(request, "turnstile-skip-config", 30, 3600)
+    else:
+        await _enforce_rate_limit(request, "turnstile-skip", 3, 3600)
     ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
     logger.info("Laissez-passer de secours delivre a %s", ip)
     expire = datetime.now(timezone.utc) + timedelta(minutes=15)
@@ -2305,14 +2521,31 @@ def _decrire_appareil(agent: str) -> dict:
     }
 
 
-async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
-    """Enregistre l'appareil au passage sur /auth/me, appelé à chaque
-    chargement du site. Pas de session à révoquer — les jetons sont autonomes —
-    c'est une trace de connexion, pas un gestionnaire de sessions."""
+def _empreinte_appareil(user_id: str, agent: Optional[str]) -> Optional[str]:
+    """Identifiant stable d'un appareil pour un compte donné. Ni adresse IP ni
+    position : le système et le navigateur suffisent à s'y reconnaître."""
     if not user_id or not agent:
+        return None
+    return hashlib.sha256(f"{user_id}|{agent}".encode("utf-8")).hexdigest()[:16]
+
+
+async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
+    """Enregistre l'appareil au passage sur /auth/me, appelé à chaque chargement
+    du site, et refuse l'accès si le compte l'a bloqué.
+
+    C'est le seul endroit où le blocage peut mordre : les jetons sont autonomes,
+    aucune session n'existe à révoquer. Le contrôle se fait donc au moment où le
+    navigateur vient valider sa connexion."""
+    empreinte = _empreinte_appareil(user_id, agent)
+    if not empreinte:
         return
+    connu = await db.user_devices.find_one({"id": empreinte}, {"_id": 0, "blocked": 1})
+    if connu and connu.get("blocked"):
+        raise HTTPException(
+            status_code=403,
+            detail="Cet appareil a été bloqué depuis les paramètres de ce compte.",
+        )
     description = _decrire_appareil(agent)
-    empreinte = hashlib.sha256(f"{user_id}|{agent}".encode("utf-8")).hexdigest()[:16]
     maintenant = datetime.now(timezone.utc).isoformat()
     await db.user_devices.update_one(
         {"id": empreinte},
@@ -2325,11 +2558,44 @@ async def _noter_appareil(user_id: str, agent: Optional[str]) -> None:
 
 
 @api_router.get("/me/devices")
-async def mes_appareils(user: dict = Depends(get_current_user)):
+async def mes_appareils(request: Request, user: dict = Depends(get_current_user)):
     docs = await db.user_devices.find(
         {"user_id": user["user_id"]}, {"_id": 0},
     ).sort("last_seen", -1).to_list(50)
+    # Marquer l'appareil courant évite qu'on se bloque soi-même sans le voir.
+    actuel = _empreinte_appareil(user["user_id"], request.headers.get("user-agent"))
+    for doc in docs:
+        doc["current"] = doc.get("id") == actuel
+        doc["blocked"] = bool(doc.get("blocked"))
     return {"items": docs}
+
+
+class BlocageAppareilInput(BaseModel):
+    blocked: bool
+
+
+@api_router.patch("/me/devices/{device_id}")
+async def bloquer_appareil(
+    device_id: str,
+    inp: BlocageAppareilInput,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Bloque ou débloque un appareil. Un appareil bloqué ne peut plus valider sa
+    connexion : son jeton devient inutile tant que le blocage tient."""
+    actuel = _empreinte_appareil(user["user_id"], request.headers.get("user-agent"))
+    if inp.blocked and device_id == actuel:
+        raise HTTPException(
+            status_code=400,
+            detail="Impossible de bloquer l'appareil que tu utilises en ce moment.",
+        )
+    resultat = await db.user_devices.update_one(
+        {"id": device_id, "user_id": user["user_id"]},
+        {"$set": {"blocked": bool(inp.blocked)}},
+    )
+    if resultat.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Appareil introuvable")
+    return {"ok": True, "blocked": bool(inp.blocked)}
 
 
 @api_router.delete("/me/devices/{device_id}")
@@ -2566,13 +2832,37 @@ async def admin_delete_report(report_id: str, user: dict = Depends(require_perm(
     return {"ok": True}
 
 
+# Rubriques de la barre de navigation. La liste vit aussi côté client, qui les
+# affiche ; ici elle sert uniquement à refuser tout ce qui n'en fait pas partie.
+RUBRIQUES_MENU = {
+    "accueil", "films", "series", "animes",
+    "wishboard", "sondages", "cagnotte", "premium",
+}
+
+
 # ---------- Bandeau de soutien ----------
 BANNER_DEFAULTS = {
     "enabled": False,
     "always_show": False,
     "message": "Chaque visionnage a un coût, et YourMovie's ne rapporte rien pour l'instant. Un coup de main aide à garder les lecteurs allumés.",
     "cta_label": "Soutenir le site",
+    "cta_url": "/cagnotte",
 }
+
+
+def _lien_bandeau(valeur: Optional[str], defaut: str) -> str:
+    """Destination du bouton, restreinte à une page du site ou à une adresse
+    web. Tout le reste retombe sur la valeur par défaut : ce lien est écrit
+    depuis l'administration et finit dans un attribut de lien, où un schéma
+    comme « javascript: » exécuterait du code chez le visiteur."""
+    brut = (valeur or "").strip()
+    if not brut:
+        return defaut
+    if brut.startswith("//"):
+        return defaut
+    if brut.startswith("/") or re.match(r"^https?://", brut, re.IGNORECASE):
+        return brut[:300]
+    return defaut
 
 
 async def _effective_banner() -> dict:
@@ -2584,6 +2874,7 @@ async def _effective_banner() -> dict:
         valeur = doc.get(cle)
         if isinstance(valeur, str) and valeur.strip():
             config[cle] = valeur.strip()[:300]
+    config["cta_url"] = _lien_bandeau(doc.get("cta_url"), BANNER_DEFAULTS["cta_url"])
     return config
 
 
@@ -2592,6 +2883,7 @@ class BannerInput(BaseModel):
     always_show: Optional[bool] = None
     message: Optional[str] = Field(default=None, max_length=300)
     cta_label: Optional[str] = Field(default=None, max_length=40)
+    cta_url: Optional[str] = Field(default=None, max_length=300)
 
 
 @api_router.get("/support-banner")
@@ -2607,6 +2899,8 @@ async def admin_get_banner(user: dict = Depends(require_perm("cagnotte.manage"))
 @api_router.post("/admin/support-banner")
 async def admin_set_banner(inp: BannerInput, user: dict = Depends(require_perm("cagnotte.manage"))):
     update = {k: v for k, v in inp.model_dump(exclude_unset=True).items() if v is not None}
+    if "cta_url" in update:
+        update["cta_url"] = _lien_bandeau(update["cta_url"], BANNER_DEFAULTS["cta_url"])
     if update:
         await db.settings.update_one({"id": "support_banner"}, {"$set": update}, upsert=True)
     return await _effective_banner()
@@ -3927,6 +4221,30 @@ async def bunny_video_status(
     }
 
 
+@api_router.get("/admin/bunny/preview/{video_id}")
+async def admin_bunny_preview(
+    video_id: str,
+    library_id: Optional[str] = Query(None),
+    user: dict = Depends(require_perm("content.add")),
+):
+    """URL de lecture d'une video par son seul identifiant.
+
+    La lecture publique part d'une fiche du catalogue ; ici le fichier vient
+    d'etre depose et n'est encore rattache a rien, il faut donc pouvoir le
+    verifier avant meme d'enregistrer."""
+    if not BUNNY_CONFIGURED:
+        raise HTTPException(status_code=500, detail="Hebergeur video non configure")
+    bibliotheque = _validated_bunny_library_id(library_id)
+    if not re.fullmatch(r"[A-Za-z0-9-]{8,64}", video_id or ""):
+        raise HTTPException(status_code=400, detail="Identifiant de video invalide")
+    expires = int(time.time()) + 2 * 60 * 60
+    params = "autoplay=false&preload=true&responsive=true"
+    if BUNNY_TOKEN_AUTH_KEY:
+        jeton = hashlib.sha256(f"{BUNNY_TOKEN_AUTH_KEY}{video_id}{expires}".encode()).hexdigest()
+        params = f"token={jeton}&expires={expires}&{params}"
+    return {"url": f"https://iframe.mediadelivery.net/embed/{bibliotheque}/{video_id}?{params}"}
+
+
 @api_router.delete("/bunny/videos/{video_id}")
 async def bunny_delete_video(
     video_id: str,
@@ -3962,11 +4280,18 @@ def _bunny_references_of(media: dict) -> list:
         library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
         trouvees.append((video_id, library_id))
 
-    ajouter(media)
+    def ajouter_tout(doc):
+        ajouter(doc)
+        # Sans cette boucle, une piste supplementaire echapperait a la
+        # suppression, au menage des orphelines et a l'inventaire des couts.
+        for piste in (doc.get("language_tracks") or []) if isinstance(doc, dict) else []:
+            ajouter(piste)
+
+    ajouter_tout(media)
     for season in media.get("seasons") or []:
         if isinstance(season, dict):
             for episode in season.get("episodes") or []:
-                ajouter(episode)
+                ajouter_tout(episode)
     return trouvees
 
 
@@ -4031,6 +4356,28 @@ async def _referenced_bunny_ids() -> set:
     return utilises
 
 
+def _premiere_piste_jouable(doc: dict) -> tuple[Optional[str], Optional[str]]:
+    """Reference de la premiere piste utilisable d'un fichier.
+
+    Une VO importee seule est une video a part entiere : sans ce repli, un
+    episate n'ayant qu'une piste supplementaire serait declare introuvable."""
+    for piste in (doc.get("language_tracks") or []) if isinstance(doc, dict) else []:
+        if not isinstance(piste, dict):
+            continue
+        bibliotheque, video = _resolve_bunny_reference(piste)
+        if bibliotheque and video:
+            return bibliotheque, video
+    return None, None
+
+
+def _a_une_video(doc: dict) -> bool:
+    if not isinstance(doc, dict):
+        return False
+    if _resolve_bunny_reference(doc)[1]:
+        return True
+    return bool(_premiere_piste_jouable(doc)[1])
+
+
 def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
     """Normalise un GUID ou une URL d'embed sans faire confiance au client."""
     library_id = str(doc.get("bunny_library_id") or BUNNY_LIBRARY_ID or "").strip()
@@ -4045,11 +4392,103 @@ def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
             return library_id or None, raw
     return None, None
 
+# ---------- Lecture directe du flux ----------
+# L'iframe de l'hébergeur est un document d'un autre domaine : rien dans la page
+# ne peut atteindre son élément vidéo, donc ni amplification du son, ni contrôle
+# réel de la lecture. Servir le manifeste nous-mêmes lève cette barrière.
+
+_format_jeton_cdn = {"choisi": None, "teste": False, "expire": 0.0}
+
+
+def _signer_dossier_cdn(video_id: str, expires: int, encoder_chemin: bool) -> str:
+    """URL signée couvrant tout le dossier d'une vidéo.
+
+    Un jeton par fichier ne suffirait pas : le manifeste HLS renvoie vers des
+    dizaines de segments, qui seraient tous refusés. Le jeton de dossier les
+    couvre d'un coup.
+
+    base64(sha256(clé + chemin + expiration + paramètres triés)), rendu compatible
+    URL. Les deux écritures du chemin circulent selon les implémentations, d'où
+    le paramètre : celle qui répond est retenue une fois pour toutes."""
+    dossier = f"/{video_id}/"
+    chemin_parametre = quote(dossier, safe="") if encoder_chemin else dossier
+    a_hacher = f"{BUNNY_TOKEN_AUTH_KEY}{dossier}{expires}token_path={chemin_parametre}"
+    empreinte = hashlib.sha256(a_hacher.encode()).digest()
+    jeton = (
+        base64.b64encode(empreinte).decode()
+        .replace("+", "-").replace("/", "_").replace("=", "")
+    )
+    return (
+        f"https://{BUNNY_CDN_HOST}/{video_id}/playlist.m3u8"
+        f"?token={jeton}&token_path={chemin_parametre}&expires={expires}"
+    )
+
+
+def _url_nue(video_id: str, _expires: int) -> str:
+    return f"https://{BUNNY_CDN_HOST}/{video_id}/playlist.m3u8"
+
+
+# Le CDN filtre sur le domaine référent, pas sur un jeton : une page servie
+# depuis le site est acceptée telle quelle. Les variantes signées restent
+# essayées ensuite, au cas où l'authentification par jeton serait activée un jour.
+FORMULES_DIRECTES = (
+    ("referent", _url_nue),
+    ("jeton-encode", lambda v, e: _signer_dossier_cdn(v, e, True)),
+    ("jeton-brut", lambda v, e: _signer_dossier_cdn(v, e, False)),
+)
+
+
+async def _manifeste_lisible(url: str) -> bool:
+    """Le référent est envoyé par le navigateur du spectateur : le test doit
+    l'imiter, sinon il conclurait à tort que la lecture directe est fermée."""
+    try:
+        r = await run_in_threadpool(lambda: requests.get(
+            url, timeout=12, stream=True, headers={
+                "Referer": "https://yourmovies.space/",
+                "Origin": "https://yourmovies.space",
+            },
+        ))
+        r.close()
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+async def _url_directe(video_id: str) -> Optional[str]:
+    """URL du manifeste si la lecture directe fonctionne, sinon None.
+
+    La formule retenue est vérifiée une fois puis mémorisée. Si aucune ne passe,
+    l'URL d'intégration est renvoyée comme avant : la fonction devient
+    indisponible, jamais la lecture."""
+    if not BUNNY_CDN_HOST:
+        return None
+    expires = int(time.time()) + 4 * 60 * 60
+
+    if _format_jeton_cdn["teste"] and time.time() < _format_jeton_cdn["expire"]:
+        choisi = _format_jeton_cdn["choisi"]
+        return choisi(video_id, expires) if choisi is not None else None
+
+    for nom, formule in FORMULES_DIRECTES:
+        if nom != "referent" and not BUNNY_TOKEN_AUTH_KEY:
+            continue
+        url = formule(video_id, expires)
+        if await _manifeste_lisible(url):
+            _format_jeton_cdn.update({"choisi": formule, "teste": True, "expire": time.time() + 3600})
+            logger.info("Lecture directe active (%s)", nom)
+            return url
+
+    _format_jeton_cdn.update({"choisi": None, "teste": True, "expire": time.time() + 900})
+    logger.info("Lecture directe indisponible, le lecteur intégré prend le relais")
+    return None
+
+
 @api_router.get("/bunny/playback/{media_id}")
 async def bunny_playback(
     media_id: str,
     season_number: Optional[str] = Query(None),
     episode_number: Optional[str] = Query(None),
+    track: Optional[str] = Query(None),
+    direct: int = Query(0),
     x_playback_pass: Optional[str] = Header(None),
     viewer: Optional[dict] = Depends(get_optional_user),
 ):
@@ -4087,7 +4526,7 @@ async def bunny_playback(
                     episode
                     for season in doc.get("seasons") or []
                     for episode in season.get("episodes") or []
-                    if _resolve_bunny_reference(episode)[1]
+                    if _a_une_video(episode)
                 ),
                 None,
             )
@@ -4096,6 +4535,22 @@ async def bunny_playback(
         playback_doc = requested_episode
 
     library_id, video_id = _resolve_bunny_reference(playback_doc)
+
+    # Piste demandee : version originale ou autre doublage. Un libelle inconnu
+    # retombe sur la piste principale plutot que de refuser la lecture — le
+    # spectateur garde une video, meme si ce n'est pas celle qu'il visait.
+    if track:
+        for piste in playback_doc.get("language_tracks") or []:
+            if not isinstance(piste, dict) or piste.get("label") != track:
+                continue
+            piste_library, piste_video = _resolve_bunny_reference(piste)
+            if piste_library and piste_video:
+                library_id, video_id = piste_library, piste_video
+            break
+
+    if not video_id:
+        library_id, video_id = _premiere_piste_jouable(playback_doc)
+
     if not library_id or not video_id:
         raise HTTPException(status_code=404, detail="Aucun fichier vidéo associé à ce contenu")
 
@@ -4106,8 +4561,13 @@ async def bunny_playback(
         params = f"token={token}&expires={expires}&{params}"
 
     playback_url = f"https://iframe.mediadelivery.net/embed/{library_id}/{video_id}?{params}"
+    # Sans demande explicite, rien ne change : ni sonde, ni URL de flux, et le
+    # client reçoit exactement ce qu'il recevait avant.
+    manifeste = await _url_directe(video_id) if direct else None
     return {
         "url": playback_url,
+        "manifest_url": manifeste,
+        "playback_type": "direct" if manifeste else "embed",
         "expires": expires if BUNNY_TOKEN_AUTH_KEY else None,
         "signed": bool(BUNNY_TOKEN_AUTH_KEY),
         "libraryId": library_id,
@@ -4116,6 +4576,93 @@ async def bunny_playback(
         "tokenAuthenticationConfigured": bool(BUNNY_TOKEN_AUTH_KEY),
         "libraryMatchesUploadConfig": str(library_id) == str(BUNNY_LIBRARY_ID or ""),
     }
+
+
+@api_router.get("/offline/{media_id}/source")
+async def offline_download_source(
+    media_id: str,
+    request: Request,
+    season_number: Optional[str] = Query(None),
+    episode_number: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """Autorise uniquement Premium à récupérer une source réellement stockable.
+
+    Une iframe protégée ne peut pas être lue sans réseau. Lorsqu’aucun manifeste
+    HLS ou fichier vidéo autorisé n’existe, la fonction est refusée proprement :
+    aucune protection du fournisseur n’est contournée.
+    """
+    entitlement = _effective_premium_entitlement(user)
+    if not entitlement or entitlement["level"] < PREMIUM_PLAN_LEVELS["premium"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Le téléchargement hors connexion est réservé à la formule Premium.",
+        )
+
+    doc = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+
+    playback_doc = doc
+    if doc.get("type") in {"series", "anime"}:
+        if season_number is None or episode_number is None:
+            raise HTTPException(status_code=400, detail="Choisissez l’épisode à télécharger.")
+        playback_doc = next(
+            (
+                episode
+                for season in doc.get("seasons") or []
+                if str(season.get("season_number")) == str(season_number)
+                for episode in season.get("episodes") or []
+                if str(episode.get("ep_number")) == str(episode_number)
+            ),
+            None,
+        )
+        if not playback_doc:
+            raise HTTPException(status_code=404, detail="Épisode introuvable")
+
+    _, video_id = _resolve_bunny_reference(playback_doc)
+    if not video_id:
+        _, video_id = _premiere_piste_jouable(playback_doc)
+    if video_id:
+        manifest_url = await _url_directe(video_id)
+        if not manifest_url:
+            raise HTTPException(
+                status_code=409,
+                detail="Ce lecteur ne permet pas encore le téléchargement sécurisé de ce contenu.",
+            )
+        source_url = manifest_url
+        source_kind = "hls"
+    else:
+        candidates = []
+        for quality in playback_doc.get("qualities") or []:
+            if not isinstance(quality, dict):
+                continue
+            value = quality.get("url")
+            if not value and quality.get("file_path"):
+                value = f"{str(request.base_url).rstrip('/')}/api/files/{quote(str(quality['file_path']), safe='/')}"
+            if value:
+                candidates.append((str(quality.get("quality") or ""), str(value)))
+
+        direct_url = playback_doc.get("video_url")
+        if direct_url and not re.search(r"/(?:embed|play)/\d+/", str(direct_url)):
+            candidates.append(("720p", str(direct_url)))
+        file_path = playback_doc.get("video_file_path")
+        if file_path:
+            candidates.append(("720p", f"{str(request.base_url).rstrip('/')}/api/files/{quote(str(file_path), safe='/')}"))
+        if not candidates:
+            raise HTTPException(status_code=404, detail="Aucun fichier vidéo téléchargeable n’est associé à ce contenu.")
+
+        source_url = next((url for quality, url in candidates if quality == "720p"), candidates[0][1])
+        source_kind = "hls" if ".m3u8" in source_url.lower().split("?", 1)[0] else "file"
+
+    return {
+        "source": {"url": source_url, "kind": source_kind},
+        "media_id": media_id,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "premium_until": entitlement["until"],
+    }
+
 
 # ---------- Plans (abonnements gérés manuellement via Discord) ----------
 
@@ -4158,7 +4705,7 @@ PLANS = [
     {
         "id": "premium",
         "name": "Premium",
-        "tagline": "Le même accès, pour ceux qui portent le site",
+        "tagline": "Tout votre cinéma, même sans connexion",
         "features": [
             "Aucune publicité, nulle part",
             "Jusqu'à 4 profils",
@@ -4166,6 +4713,8 @@ PLANS = [
             "Lecture automatique de la suite",
             "Bande-annonce cinéma sur l'accueil",
             "Couleur d'accent et fond de profil",
+            "Films, séries et animés disponibles hors connexion",
+            "Téléchargements privés directement dans le navigateur",
             "Tu fais tourner le site à toi seul",
         ],
         "prices": {
@@ -4276,6 +4825,295 @@ async def site_ping(inp: VisitPing):
     await db.site_stats.update_one({"id": today}, {"$inc": inc, "$set": {"date": today}}, upsert=True)
     return {"ok": True}
 
+# ---------- Quota quotidien de publication ----------
+QUOTA_DEFAUT = {"enabled": True, "cible": 10, "cibles": {}}
+
+try:
+    from zoneinfo import ZoneInfo
+    FUSEAU_QUOTA = ZoneInfo("Europe/Paris")
+except Exception:  # pragma: no cover - image sans base de fuseaux
+    # Le quota se compte en journees vecues, pas en journees UTC : sans le fuseau,
+    # la remise a zero tomberait en pleine soiree. A defaut, on l'assume en UTC.
+    FUSEAU_QUOTA = timezone.utc
+
+
+async def _config_quota() -> dict:
+    doc = await db.settings.find_one({"id": "quota_publication"}, {"_id": 0}) or {}
+    config = dict(QUOTA_DEFAUT)
+    config["enabled"] = bool(doc.get("enabled", config["enabled"]))
+    cible = doc.get("cible")
+    if isinstance(cible, (int, float)):
+        config["cible"] = int(max(1, min(200, cible)))
+    # Objectifs personnels : quelqu'un qui debute ou qui revient n'a pas a porter
+    # la meme charge que les autres.
+    individuels = doc.get("cibles")
+    if isinstance(individuels, dict):
+        config["cibles"] = {
+            str(identifiant): int(max(1, min(200, valeur)))
+            for identifiant, valeur in individuels.items()
+            if isinstance(valeur, (int, float))
+        }
+    return config
+
+
+def _journee_locale(moment: datetime) -> str:
+    return moment.astimezone(FUSEAU_QUOTA).date().isoformat()
+
+
+@api_router.get("/admin/quota")
+async def admin_quota(jours: int = Query(7, ge=1, le=30), admin: dict = Depends(require_admin)):
+    """Ou en est chaque administrateur sur son quota du jour.
+
+    Sans « quota.manage », on ne voit que sa propre ligne : connaitre le retard
+    des autres n'aide personne a faire son travail, et le filtrage se fait ici et
+    non a l'affichage, sinon la reponse porterait quand meme l'information.
+
+    Seuls les depots comptent : un ajout direct ou une proposition. Publier la
+    proposition d'un autre est un geste de validation, pas de depot — le compter
+    recompenserait deux fois le meme contenu."""
+    config = await _config_quota()
+    droits = _admin_perms(admin)
+    voit_tout = "quota.manage" in droits
+    if not voit_tout and "quota.view" not in droits and "content.add" not in droits:
+        raise HTTPException(status_code=403, detail="Accès au quota non autorisé")
+    maintenant = datetime.now(timezone.utc)
+    aujourdhui = _journee_locale(maintenant)
+    depuis = maintenant - timedelta(days=jours + 1)
+
+    evenements = await db.media_events.find(
+        {"action": {"$in": ["added", "proposed"]}, "created_at": {"$gte": depuis}},
+        {"_id": 0, "action": 1, "created_at": 1, "created_by": 1, "from_pending": 1},
+    ).to_list(100000)
+
+    comptes = await db.users.find({}, {"_id": 0}).to_list(100000)
+    administrateurs = [c for c in comptes if "content.add" in _admin_perms(c)]
+    if not voit_tout:
+        administrateurs = [c for c in administrateurs if c["user_id"] == admin["user_id"]]
+
+    par_personne = {c["user_id"]: {} for c in administrateurs}
+    for evenement in evenements:
+        if evenement.get("action") == "added" and evenement.get("from_pending"):
+            continue
+        auteur = evenement.get("created_by")
+        if auteur not in par_personne:
+            continue
+        quand = evenement.get("created_at")
+        if not hasattr(quand, "astimezone"):
+            continue
+        if quand.tzinfo is None:
+            quand = quand.replace(tzinfo=timezone.utc)
+        journee = _journee_locale(quand)
+        par_personne[auteur][journee] = par_personne[auteur].get(journee, 0) + 1
+
+    journees = [
+        _journee_locale(maintenant - timedelta(days=i))
+        for i in range(jours - 1, -1, -1)
+    ]
+
+    lignes = []
+    for compte in administrateurs:
+        par_jour = par_personne.get(compte["user_id"], {})
+        deposes = par_jour.get(aujourdhui, 0)
+        objectif = config["cibles"].get(compte["user_id"], config["cible"])
+        lignes.append({
+            "user_id": compte["user_id"],
+            "name": compte.get("name") or "Sans nom",
+            "picture": compte.get("picture"),
+            "role": _admin_role(compte),
+            "cible": objectif,
+            "personnalise": compte["user_id"] in config["cibles"],
+            "aujourdhui": deposes,
+            "manquants": max(0, objectif - deposes),
+            "atteint": deposes >= objectif,
+            "historique": [
+                {"date": journee, "total": par_jour.get(journee, 0)}
+                for journee in journees
+            ],
+            "cible_du_jour": objectif,
+        })
+
+    # Les retardataires d'abord : c'est la question posee a cette page.
+    lignes.sort(key=lambda l: (l["atteint"], -l["manquants"], l["name"].lower()))
+
+    return {
+        **config,
+        "date": aujourdhui,
+        "fuseau": str(FUSEAU_QUOTA),
+        "jours": journees,
+        "admins": lignes,
+        "peut_gerer": voit_tout,
+        "moi": admin["user_id"],
+        "total_du_jour": sum(l["aujourdhui"] for l in lignes),
+        "objectif_collectif": sum(l["cible"] for l in lignes),
+    }
+
+
+class QuotaInput(BaseModel):
+    enabled: Optional[bool] = None
+    cible: Optional[int] = Field(default=None, ge=1, le=200)
+    user_id: Optional[str] = Field(default=None, max_length=80)
+    reinitialiser: bool = False
+
+
+@api_router.post("/admin/quota")
+async def admin_set_quota(inp: QuotaInput, admin: dict = Depends(require_perm("quota.manage"))):
+    """Regle l'objectif general, ou celui d'une personne quand user_id est fourni."""
+    if inp.user_id:
+        cle = f"cibles.{inp.user_id}"
+        if inp.reinitialiser:
+            await db.settings.update_one(
+                {"id": "quota_publication"}, {"$unset": {cle: ""}}, upsert=True,
+            )
+        elif inp.cible is not None:
+            await db.settings.update_one(
+                {"id": "quota_publication"}, {"$set": {cle: int(inp.cible)}}, upsert=True,
+            )
+        return await _config_quota()
+
+    update = {}
+    if inp.enabled is not None:
+        update["enabled"] = bool(inp.enabled)
+    if inp.cible is not None:
+        update["cible"] = int(inp.cible)
+    if update:
+        await db.settings.update_one({"id": "quota_publication"}, {"$set": update}, upsert=True)
+    return await _config_quota()
+
+
+@api_router.get("/admin/statistiques")
+async def admin_statistiques(admin: dict = Depends(require_admin)):
+    """Tableau de bord chiffre du site.
+
+    Le direct vient de deux sources distinctes : « en ligne » suit la derniere
+    requete d'un compte, « en train de regarder » suit les battements envoyes par
+    le lecteur. Les confondre gonflerait le second, quelqu'un pouvant naviguer
+    sans rien lire."""
+    maintenant = datetime.now(timezone.utc)
+    aujourdhui = maintenant.date()
+
+    # ---------- en direct ----------
+    limite_lecture = maintenant - timedelta(seconds=WATCH_ACTIVITY_TTL_SECONDS)
+    activites = await db.watch_activity.find({}, {"_id": 0}).to_list(2000)
+    en_lecture = []
+    for a in activites:
+        try:
+            vu = datetime.fromisoformat(a.get("updated_at"))
+            if vu.tzinfo is None:
+                vu = vu.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if vu >= limite_lecture:
+            en_lecture.append(a)
+
+    comptes = await db.users.find(
+        {}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "last_seen": 1, "created_at": 1,
+             "premium_plan": 1, "premium_until": 1, "discord_premium_plan": 1,
+             "discord_premium_until": 1, "license_entitlements": 1},
+    ).to_list(100000)
+    par_id = {c["user_id"]: c for c in comptes}
+    fiches = await _fiches_par_id([a.get("media_id") for a in en_lecture if a.get("media_id")])
+
+    spectateurs = []
+    for a in en_lecture:
+        fiche = fiches.get(a.get("media_id")) or {}
+        compte = par_id.get(a.get("user_id")) or {}
+        spectateurs.append({
+            "name": compte.get("name") or "Compte supprimé",
+            "picture": compte.get("picture"),
+            "media_id": a.get("media_id"),
+            "title": fiche.get("title") or "Titre retiré",
+            "poster_url": fiche.get("poster_url"),
+            "season_number": a.get("season_number"),
+            "episode_number": a.get("episode_number"),
+            "since": a.get("updated_at"),
+        })
+    spectateurs.sort(key=lambda x: x.get("since") or "", reverse=True)
+
+    en_ligne = sum(1 for c in comptes if _is_online(c))
+    abonnes = sum(1 for c in comptes if _is_premium(c))
+
+    def nes_depuis(jours):
+        seuil = (maintenant - timedelta(days=jours)).isoformat()
+        return sum(1 for c in comptes if (c.get("created_at") or "") >= seuil)
+
+    # ---------- audience ----------
+    visites = await db.site_stats.find({}, {"_id": 0}).to_list(1000)
+    par_jour = {d.get("date") or d.get("id"): d for d in visites}
+
+    def cumul(jours, champ):
+        return sum(
+            int((par_jour.get((aujourdhui - timedelta(days=i)).isoformat()) or {}).get(champ, 0) or 0)
+            for i in range(jours)
+        )
+
+    # ---------- catalogue et engagement ----------
+    medias = await db.media.find({}, {"_id": 0, "type": 1, "seasons": 1}).to_list(100000)
+    episodes = sum(
+        len(saison.get("episodes") or [])
+        for m in medias for saison in (m.get("seasons") or []) if isinstance(saison, dict)
+    )
+
+    progressions = await db.watch_progress.find({}, {"_id": 0, "media_id": 1, "seconds_watched": 1}).to_list(100000)
+    secondes_total = sum(int(p.get("seconds_watched") or 0) for p in progressions)
+    par_media = {}
+    for p in progressions:
+        if p.get("media_id"):
+            par_media[p["media_id"]] = par_media.get(p["media_id"], 0) + int(p.get("seconds_watched") or 0)
+    meilleurs = sorted(par_media.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    fiches_top = await _fiches_par_id([mid for mid, _ in meilleurs])
+
+    commentaires, souhaits, parrainages = await asyncio.gather(
+        db.reviews.count_documents({}),
+        db.wishboard.count_documents({}),
+        db.referrals.count_documents({}),
+    )
+
+    return {
+        "direct": {
+            "watching": len(spectateurs),
+            "online": en_ligne,
+            "viewers": spectateurs[:20],
+        },
+        "membres": {
+            "total": len(comptes),
+            "abonnes": abonnes,
+            "nouveaux_7j": nes_depuis(7),
+            "nouveaux_30j": nes_depuis(30),
+        },
+        "audience": {
+            "vues_jour": cumul(1, "views"),
+            "vues_7j": cumul(7, "views"),
+            "vues_30j": cumul(30, "views"),
+            "visiteurs_jour": cumul(1, "visitors"),
+            "visiteurs_7j": cumul(7, "visitors"),
+            "visiteurs_30j": cumul(30, "visitors"),
+        },
+        "catalogue": {
+            "total": len(medias),
+            "films": sum(1 for m in medias if m.get("type") == "movie"),
+            "series": sum(1 for m in medias if m.get("type") == "series"),
+            "animes": sum(1 for m in medias if m.get("type") == "anime"),
+            "episodes": episodes,
+        },
+        "engagement": {
+            "secondes_regardees": secondes_total,
+            "titres_commences": len(par_media),
+            "commentaires": commentaires,
+            "souhaits": souhaits,
+            "parrainages": parrainages,
+            "top": [
+                {
+                    "media_id": mid,
+                    "title": (fiches_top.get(mid) or {}).get("title") or "Titre retiré",
+                    "poster_url": (fiches_top.get(mid) or {}).get("poster_url"),
+                    "secondes": secondes,
+                }
+                for mid, secondes in meilleurs
+            ],
+        },
+    }
+
+
 @api_router.get("/admin/site-stats")
 async def admin_site_stats(admin: dict = Depends(require_admin)):
     today = datetime.now(timezone.utc).date()
@@ -4357,7 +5195,7 @@ async def set_admin_ads(inp: AdsInput, admin: dict = Depends(require_perm("ads.m
         update["reward"] = {
             "enabled": bool(r.get("enabled")),
             "coins": round(_clamp_num(r.get("coins"), 0.5, 50, 1), 1),
-            "watch_seconds": int(_clamp_num(r.get("watch_seconds"), 5, 120, 20)),
+            "watch_seconds": int(_clamp_num(r.get("watch_seconds"), 1, 120, 20)),
             "cooldown_minutes": int(_clamp_num(r.get("cooldown_minutes"), 0, 1440, 10)),
             "daily_max": int(_clamp_num(r.get("daily_max"), 1, 100, 10)),
         }
@@ -5406,6 +6244,32 @@ async def admin_set_role(user_id: str, inp: AdminRoleInput, admin: dict = Depend
         "is_admin": bool(_admin_perms(fresh)),
     }
 
+async def _retirer_tout_premium(user_id: str) -> dict:
+    """Coupe le Premium quelle que soit sa provenance.
+
+    Un compte peut le tenir de trois sources : une attribution directe, une
+    liaison Discord, ou une cle SellAuth. N'effacer que la premiere laissait le
+    Premium actif tout en affichant un retrait reussi — le bouton semblait sans
+    effet alors qu'il avait bien agi, mais sur la mauvaise source."""
+    avant = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    retirees = []
+    if avant.get("premium_plan") or avant.get("premium_until"):
+        retirees.append("compte")
+    if avant.get("discord_premium_plan") or avant.get("discord_premium_until"):
+        retirees.append("discord")
+    if avant.get("license_entitlements"):
+        retirees.append("licence")
+
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "premium_until": None,
+        "premium_plan": None,
+        "discord_premium_until": None,
+        "discord_premium_plan": None,
+        "license_entitlements": [],
+    }})
+    return {"premium": False, "sources_retirees": retirees}
+
+
 @api_router.post("/admin/users/{user_id}/toggle-premium")
 async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_perm("users.premium"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -5422,8 +6286,7 @@ async def admin_toggle_premium(user_id: str, admin: dict = Depends(require_perm(
         except Exception:
             active = False
     if active:
-        await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": None, "premium_plan": None}})
-        return {"premium": False}
+        return await _retirer_tout_premium(user_id)
     until = (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat()
     await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": "admin"}})
     return {"premium": True}
@@ -5434,9 +6297,9 @@ async def admin_set_premium(user_id: str, inp: AdminPremiumInput, admin: dict = 
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
     if inp.remove or not inp.plan:
-        await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": None, "premium_plan": None}})
-        return {"premium": False}
+        return await _retirer_tout_premium(user_id)
     until = (datetime.now(timezone.utc) + timedelta(days=max(1, inp.days))).isoformat()
+    await _retirer_tout_premium(user_id)
     await db.users.update_one({"user_id": user_id}, {"$set": {"premium_until": until, "premium_plan": inp.plan}})
     return {"premium": True, "plan": inp.plan, "premium_until": until}
 
@@ -5522,6 +6385,9 @@ class SettingsInput(BaseModel):
     preferred_quality: Optional[str] = None
     autoplay_hero: Optional[bool] = None
     autoplay_next: Optional[bool] = None
+    audio_boost: Optional[float] = None
+    nav_order: Optional[List[str]] = Field(default=None, max_length=40)
+    skip_profile_picker: Optional[bool] = None
     accent_color: Optional[str] = None
     profile_background_color: Optional[str] = None
     profile_public: Optional[bool] = None
@@ -5553,6 +6419,24 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Bande-annonce cinéma réservée aux abonnés Premium")
         upd["autoplay_hero"] = bool(inp.autoplay_hero)
+    if inp.skip_profile_picker is not None:
+        upd["skip_profile_picker"] = bool(inp.skip_profile_picker)
+    if inp.nav_order is not None:
+        if not user_public_dict(user)["premium"]:
+            raise HTTPException(status_code=403, detail="Ordre du menu réservé aux abonnés Premium")
+        # Seul l'ordre est libre : on ne retient que des rubriques connues, sans
+        # doublon. Impossible d'en inventer une ou d'en faire disparaître, les
+        # manquantes étant remises à la suite à l'affichage.
+        vus = []
+        for identifiant in inp.nav_order:
+            propre = str(identifiant or "").strip().lower()[:32]
+            if propre in RUBRIQUES_MENU and propre not in vus:
+                vus.append(propre)
+        upd["nav_order"] = vus
+    if inp.audio_boost is not None:
+        # Borné côté serveur : au-delà de 2,5 le son sature au point d'être
+        # inaudible, et rien n'empêcherait d'envoyer 50 depuis un client modifié.
+        upd["audio_boost"] = round(min(2.5, max(1.0, float(inp.audio_boost))), 2)
     if inp.autoplay_next is not None:
         if not user_public_dict(user)["premium"]:
             raise HTTPException(status_code=403, detail="Lecture automatique réservée aux abonnés Premium")

@@ -1,12 +1,16 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import Chargement from "@/components/Chargement";
+import { lireLocal } from "@/lib/stockage";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useOfflineDownloads } from "@/context/OfflineDownloadsContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
+import OfflineDownloadButton from "@/components/OfflineDownloadButton";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
@@ -54,7 +58,11 @@ function loadBunnyPlayerApi() {
 
 function resolveBunnySource(media) {
     if (!media) return null;
-    const candidates = [media.bunny_video_id, media.video_url].filter(Boolean);
+    // Une piste importee seule fait office de video principale : sinon un episode
+    // n'existant qu'en VO passerait pour depourvu de fichier.
+    const premierePiste = (media.language_tracks || []).find((p) => p?.bunny_video_id);
+    const candidates = [media.bunny_video_id, media.video_url, premierePiste?.bunny_video_id]
+        .filter(Boolean);
 
     for (const value of candidates) {
         const raw = String(value).trim();
@@ -85,6 +93,19 @@ function resolveBunnySource(media) {
     }
 
     return null;
+}
+
+/** Un fichier est jouable par sa piste principale ou par l'une de ses pistes de
+ *  langue. Ce test doit rester unique : reparti en plusieurs endroits, il en
+ *  restait toujours un qui ignorait les pistes et rejetait l'episode. */
+function estJouable(item) {
+    if (!item) return false;
+    return Boolean(
+        item.bunny_video_id
+        || item.video_url
+        || item.video_file_path
+        || (item.language_tracks || []).some((piste) => piste?.bunny_video_id),
+    );
 }
 
 function fallbackQualities(media) {
@@ -231,7 +252,7 @@ function EpisodeSelectorOverlay({
 
                             <ul className="mt-4 max-h-[38vh] divide-y divide-[#1a1a1a] overflow-y-auto border-t border-[#1a1a1a] pr-1 [scrollbar-color:#3a3a3a_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#3a3a3a] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:bg-transparent">
                                 {seasonEpisodes.map((episode) => {
-                                    const playable = Boolean(episode.bunny_video_id || episode.video_url || episode.video_file_path);
+                                    const playable = estJouable(episode);
                                     const isActive = selectedEpisode?._key === episode._key;
                                     const duration = formatEpisodeDuration(episode);
                                     const progress = getEpisodeProgress(episode, watchProgress);
@@ -294,6 +315,7 @@ export default function WatchPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user, loading: authEnCours, activeProfile } = useAuth();
+    const { downloads, eligible: offlineEligible } = useOfflineDownloads();
     const [searchParams, setSearchParams] = useSearchParams();
     const [media, setMedia] = useState(null);
     const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
@@ -311,6 +333,11 @@ export default function WatchPage() {
     const bunnyPlayerRef = useRef(null);
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
+    const [manifestUrl, setManifestUrl] = useState(null);
+    const [piste, setPiste] = useState(null);
+    // Seul le franchissement du seuil change de lecteur. Faire dépendre l'appel
+    // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
+    const lecteurAvanceDemande = (Number(user?.audio_boost) || 1) > 1;
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
     // En salon, la fin des publicités change la mise en page et reconstruit
     // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
@@ -338,7 +365,7 @@ export default function WatchPage() {
         }))
     ), [media]);
     const selectedEpisode = episodes.find((episode) => episode._key === selectedEpisodeKey)
-        || episodes.find((episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path)
+        || episodes.find(estJouable)
         || episodes[0]
         || null;
     const selectedSeasonNumber = selectedSeason
@@ -346,9 +373,7 @@ export default function WatchPage() {
     const seasonEpisodes = episodes.filter(
         (episode) => String(episode.season_number) === selectedSeasonNumber
     );
-    const playableEpisodes = episodes.filter(
-        (episode) => episode.bunny_video_id || episode.video_url || episode.video_file_path
-    );
+    const playableEpisodes = episodes.filter(estJouable);
     const selectedPlayableIndex = playableEpisodes.findIndex(
         (episode) => episode._key === selectedEpisode?._key
     );
@@ -360,7 +385,18 @@ export default function WatchPage() {
         : null;
 
     useEffect(() => {
+        if (navigator.onLine || !offlineEligible || !downloads.length) return;
+        const season = searchParams.get("season");
+        const episode = searchParams.get("episode");
+        const saved = downloads.find((item) => item.media_id === id
+            && (!season || String(item.season_number) === String(season))
+            && (!episode || String(item.episode_number) === String(episode)));
+        if (saved) navigate(`/offline/${encodeURIComponent(saved.id)}`, { replace: true });
+    }, [downloads, id, navigate, offlineEligible, searchParams]);
+
+    useEffect(() => {
         setPlaybackActive(false);
+        setPiste(null);
         setFinAtteinte(false);
         suiteRefusee.current = false;
     }, [id, selectedEpisodeKey]);
@@ -472,6 +508,25 @@ export default function WatchPage() {
         && Boolean(suiteDisponible)
         && !(partyOpen && !isPartyHost);
 
+    // Le flux direct peut être refusé une fois dans le navigateur ; on repasse
+    // alors définitivement sur le lecteur intégré pour ce titre.
+    const revenirAuLecteurIntegre = useCallback(() => setManifestUrl(null), []);
+
+    // Ce que le lecteur affiche à l'arrêt : pour une série, l'épisode en cours
+    // prime sur la fiche du titre, sinon on annoncerait le mauvais résumé.
+    const ficheLecteur = React.useMemo(() => {
+        if (!media) return null;
+        const episode = media.type === "movie" ? null : selectedEpisode;
+        return {
+            titre: media.title,
+            affiche: media.poster_url,
+            sousTitre: episode
+                ? `Saison ${episode.season_number} · Épisode ${episode.ep_number}${episode.title ? ` — ${episode.title}` : ""}`
+                : [media.year, media.duration_minutes ? `${media.duration_minutes} min` : null].filter(Boolean).join(" · "),
+            description: episode?.description || media.description,
+        };
+    }, [media, selectedEpisode]);
+
     const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
@@ -493,6 +548,14 @@ export default function WatchPage() {
 
     const bunnySource = resolveBunnySource(playbackMedia);
 
+    // Déclaré après bunnySource, dont il dépend.
+    const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
+
+    // Les pistes appartiennent au fichier joue : celles de l'episode en cours pour
+    // une serie, celles de la fiche pour un film.
+    const pistesDisponibles = ((media?.type === "movie" ? media : selectedEpisode)?.language_tracks || [])
+        .filter((p) => p && p.label && p.bunny_video_id);
+
     useEffect(() => {
         // Sans la preuve de vérification, le serveur refuserait l'URL : on
         // n'appelle donc pas tant qu'elle n'a pas été franchie.
@@ -502,10 +565,18 @@ export default function WatchPage() {
         }
         let active = true;
         setBunnyPlaybackUrl(null);
+        setManifestUrl(null);
         setBunnyPlaybackError(null);
-        const playbackParams = media?.type === "movie" ? undefined : {
-            season_number: selectedEpisode?.season_number,
-            episode_number: selectedEpisode?.ep_number,
+        // Le lecteur avancé n'est demandé que si l'amplification est réglée : sans
+        // elle il n'apporte rien, et le lecteur intégré reste le chemin éprouvé.
+        const amplification = lecteurAvanceDemande ? 2 : 1;
+        const playbackParams = {
+            ...(media?.type === "movie" ? {} : {
+                season_number: selectedEpisode?.season_number,
+                episode_number: selectedEpisode?.ep_number,
+            }),
+            ...(amplification > 1 ? { direct: 1 } : {}),
+            ...(piste ? { track: piste } : {}),
         };
         api.get(`/bunny/playback/${id}`, {
             params: playbackParams,
@@ -519,6 +590,9 @@ export default function WatchPage() {
                     setBunnyPlaybackError("Le backend n’a renvoyé aucune URL de lecture.");
                     return;
                 }
+                // Le flux servi en direct autorise nos propres contrôles, dont
+                // l’amplification du son. À défaut, le lecteur intégré prend le relais.
+                setManifestUrl(data.playback_type === "direct" ? data.manifest_url : null);
                 if (data.libraryMatchesUploadConfig === false) {
                     setBunnyPlaybackError(
                         `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
@@ -544,10 +618,15 @@ export default function WatchPage() {
         bunnySource?.videoId,
         bunnySource?.libraryId,
         verifie,
+        piste,
+        // Changer de lecteur, oui ; changer de niveau, non : le niveau est suivi
+        // en direct par le lecteur lui-même.
+        lecteurAvanceDemande,
     ]);
 
     useEffect(() => {
         (async () => {
+            if (!navigator.onLine) return;
             const r = await api.get(`/media/${id}`);
             setMedia(r.data);
             let initialEpisode = null;
@@ -560,11 +639,9 @@ export default function WatchPage() {
                 const requested = allEpisodes.find((episode) =>
                     String(episode.season_number) === String(requestedSeason)
                     && String(episode.ep_number) === String(requestedEpisode)
-                    && (episode.bunny_video_id || episode.video_url || episode.video_file_path)
+                    && estJouable(episode)
                 );
-                const firstPlayable = requested || allEpisodes.find((episode) =>
-                    episode.bunny_video_id || episode.video_url || episode.video_file_path
-                );
+                const firstPlayable = requested || allEpisodes.find(estJouable);
                 if (firstPlayable) {
                     initialEpisode = firstPlayable;
                     setSelectedEpisodeKey(`${firstPlayable.season_number}:${firstPlayable.ep_number}`);
@@ -851,7 +928,7 @@ export default function WatchPage() {
         return (
             <div className="min-h-screen bg-[#050505] text-white">
                 <Header />
-                <div className="max-w-7xl mx-auto px-6 py-20">Chargement...</div>
+                <div className="max-w-7xl mx-auto px-6"><Chargement pleinePage /></div>
             </div>
         );
     }
@@ -865,7 +942,7 @@ export default function WatchPage() {
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
     const adsDone = !runAds || adDone;
-    const token = typeof window !== "undefined" ? localStorage.getItem("ym_token") : null;
+    const token = lireLocal("ym_token");
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -879,7 +956,12 @@ export default function WatchPage() {
                     <ChevronLeft size={16} /> Retour
                 </button>
                 <div className="flex items-baseline justify-between gap-4 mb-6 flex-wrap">
-                    <h1 className="font-display text-3xl sm:text-4xl">{media.title}</h1>
+                    {/* Le titre passe dans le lecteur, où il s'affiche à l'arrêt avec
+                        l'affiche et le résumé. Il reste ici quand le lecteur intégré
+                        prend le relais, faute de pouvoir y incruster quoi que ce soit. */}
+                    <h1 className={`font-display text-3xl sm:text-4xl ${lecteurDirectActif ? "sr-only" : ""}`}>
+                        {media.title}
+                    </h1>
                     <div className="flex items-center gap-2">
                         {!partyOpen ? (
                             <>
@@ -942,6 +1024,22 @@ export default function WatchPage() {
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
+                        ) : bunnySource && manifestUrl && !partyOpen ? (
+                            /* En salon, le lecteur intégré reste seul : c'est lui que le
+                               masque de l'invité neutralise pour laisser l'hôte diriger. */
+                            <VideoPlayer
+                                key={manifestUrl}
+                                manifestUrl={manifestUrl}
+                                poster={media.banner_url || media.poster_url}
+                                onProgress={suivreProgression}
+                                startAt={resumeAt}
+                                userMaxQuality={userMaxQuality}
+                                runAds={false}
+                                videoRefOut={videoElRef}
+                                onFluxImpossible={revenirAuLecteurIntegre}
+                                fiche={ficheLecteur}
+                                boostInitial={Number(user?.audio_boost) || 1}
+                            />
                         ) : bunnySource ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 {bunnyPlaybackError ? (
@@ -1002,6 +1100,34 @@ export default function WatchPage() {
                                 runAds={false}
                                 videoRefOut={videoElRef}
                             />
+                            )}
+
+                            {pistesDisponibles.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 border-t border-[#1a1a1a] px-4 py-3" data-testid="choix-piste">
+                                    <span className="text-[10px] uppercase tracking-widest text-neutral-500">Version</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPiste(null)}
+                                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === null
+                                            ? "bg-[#E8D2A6] text-black"
+                                            : "bg-[#161616] text-neutral-300 hover:bg-[#1f1f1f]"}`}
+                                    >
+                                        Principale
+                                    </button>
+                                    {pistesDisponibles.map((p) => (
+                                        <button
+                                            key={p.label}
+                                            type="button"
+                                            onClick={() => setPiste(p.label)}
+                                            data-testid={`piste-${p.label}`}
+                                            className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === p.label
+                                                ? "bg-[#E8D2A6] text-black"
+                                                : "bg-[#161616] text-neutral-300 hover:bg-[#1f1f1f]"}`}
+                                        >
+                                            {p.label}
+                                        </button>
+                                    ))}
+                                </div>
                             )}
 
                             {afficherSuite && (
@@ -1093,7 +1219,9 @@ export default function WatchPage() {
                         )}
                         </div>
 
-                        <div className="mt-3 flex justify-end">
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                            <OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} className="h-10" />
+                            <div className="flex items-center">
                             <AvertissementContenu media={media} />
                             <ReportDialog
                                 mediaId={media.id}
@@ -1103,6 +1231,7 @@ export default function WatchPage() {
                                     episode_number: selectedEpisode.ep_number,
                                 } : null}
                             />
+                            </div>
                         </div>
 
                         {resumeAt > 0 && !bunnySource && (

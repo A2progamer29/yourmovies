@@ -53,8 +53,13 @@ export function matchFileToEpisode(fileName, seasons) {
     return { parsed, si, ei };
 }
 
-export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updateEpisode, activeUpload, scopedUploadKey }) {
+const PISTES = ["", "VO", "VOSTFR", "Bande originale"];
+
+export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updateEpisode, appliquerPisteEpisode, activeUpload, scopedUploadKey }) {
     const [files, setFiles] = useState([]);
+    // Piste de destination du lot. Vide = piste principale. Choisir ici plutot
+    // que fichier par fichier : une saison entiere arrive dans une seule langue.
+    const [piste, setPiste] = useState("");
     const [dragging, setDragging] = useState(false);
     const [running, setRunning] = useState(false);
     const [current, setCurrent] = useState(null);
@@ -62,13 +67,30 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
     const inputRef = useRef(null);
 
     const rows = useMemo(() => {
-        const mapped = files.map((file) => {
+        const mapped = files.map(({ file, piste: pisteFichier }) => {
             const { parsed, si, ei } = matchFileToEpisode(file.name, seasons);
             const season = si >= 0 ? seasons[si] : null;
             const episode = si >= 0 && ei >= 0 ? season.episodes[ei] : null;
             const seasonNo = season ? (Number(season.season_number) || si + 1) : 9999;
             const epNo = episode ? (Number(episode.ep_number) || ei + 1) : 9999;
-            return { file, parsed, si, ei, season, episode, seasonNo, epNo, key: `bulk_s${si}_e${ei}` };
+            // Un meme episode peut recevoir plusieurs fichiers, un par langue :
+            // la piste entre donc dans l'identite de la ligne comme dans la cle
+            // de suivi, sinon les deux envois se confondraient.
+            const etiquette = pisteFichier || "principale";
+            // Fichier deja en place sur cette piste : reimporter une saison doit
+            // remplacer, pas empiler une seconde video facturee pour rien.
+            const ancienne = pisteFichier
+                ? (episode?.language_tracks || []).find((p) => p?.label === pisteFichier)
+                : episode;
+            return {
+                precedent: ancienne
+                    ? { bunny_video_id: ancienne.bunny_video_id, bunny_library_id: ancienne.bunny_library_id }
+                    : null,
+                file, parsed, si, ei, season, episode, seasonNo, epNo,
+                piste: pisteFichier,
+                id: `${etiquette}|${file.name}`,
+                key: `bulk_s${si}_e${ei}:${etiquette}`,
+            };
         });
         // Ordre logique S1E1 → S1E2 → S2E1, indépendant de l'ordre de dépôt.
         return mapped.sort((a, b) => (a.seasonNo - b.seasonNo) || (a.epNo - b.epNo) || a.file.name.localeCompare(b.file.name));
@@ -80,8 +102,14 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
     const addFiles = (list) => {
         const incoming = Array.from(list || []).filter((f) => f.type.startsWith("video/") || /\.(mp4|mkv|webm|mov)$/i.test(f.name));
         setFiles((current) => {
-            const names = new Set(current.map((f) => f.name));
-            return [...current, ...incoming.filter((f) => !names.has(f.name))];
+            // Le doublon se juge sur la piste ET le nom. Une VO porte les memes
+            // noms que la version principale : les ecarter sur le seul nom
+            // revenait a n'ajouter aucun fichier, sans le moindre message.
+            const vus = new Set(current.map((entree) => `${entree.piste || "principale"}|${entree.file.name}`));
+            const ajouts = incoming
+                .map((file) => ({ file, piste }))
+                .filter((entree) => !vus.has(`${entree.piste || "principale"}|${entree.file.name}`));
+            return [...current, ...ajouts];
         });
     };
 
@@ -89,22 +117,27 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
         setRunning(true);
         const queue = [...ready];
         for (const row of queue) {
-            if (done[row.file.name]) continue;
-            setCurrent(row.file.name);
+            if (done[row.id]) continue;
+            setCurrent(row.id);
             try {
                 // On attend la fin du *transfert* seulement : la préparation de la vidéo se
                 // poursuit en arrière-plan pendant que le fichier suivant démarre.
                 await new Promise((resolve, reject) => {
                     uploadToBunny(row.file, {
+                        // La piste entre dans la cle : sans elle, importer la VO
+                        // d'un episode ecraserait le suivi de sa piste principale.
                         key: row.key,
-                        title: `${title || "Épisode"} — S${row.seasonNo}E${row.epNo}`,
-                        onReference: (reference) => updateEpisode(row.si, row.ei, reference),
+                        precedent: row.precedent,
+                        title: `${title || "Épisode"} — S${row.seasonNo}E${row.epNo}${row.piste ? ` (${row.piste})` : ""}`,
+                        onReference: (reference) => (appliquerPisteEpisode
+                            ? appliquerPisteEpisode(row.si, row.ei, row.piste, reference)
+                            : updateEpisode(row.si, row.ei, reference)),
                         onTransferred: resolve,
                     }).then(resolve).catch(reject);
                 });
-                setDone((d) => ({ ...d, [row.file.name]: "ok" }));
+                setDone((d) => ({ ...d, [row.id]: "ok" }));
             } catch {
-                setDone((d) => ({ ...d, [row.file.name]: "error" }));
+                setDone((d) => ({ ...d, [row.id]: "error" }));
             }
             // Court répit entre deux envois : laisse l'hébergeur et la connexion respirer.
             await new Promise((r) => setTimeout(r, 1200));
@@ -124,6 +157,38 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                 (<span className="text-neutral-400">S01E02</span>, <span className="text-neutral-400">1x02</span>,
                 <span className="text-neutral-400"> Épisode 2</span>…) puis téléversés l&apos;un après l&apos;autre.
             </p>
+
+            <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="bulk-piste">
+                <span className="text-[10px] uppercase tracking-widest text-neutral-500">Piste de destination</span>
+                {PISTES.map((valeur) => (
+                    <button
+                        key={valeur || "principale"}
+                        type="button"
+                        disabled={running}
+                        onClick={() => setPiste(valeur)}
+                        data-testid={`bulk-piste-${valeur || "principale"}`}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${piste === valeur
+                            ? "bg-[#E8D2A6] text-black"
+                            : "bg-[#161616] text-neutral-300 hover:bg-[#1f1f1f]"}`}
+                    >
+                        {valeur || "Principale"}
+                    </button>
+                ))}
+                <input
+                    value={PISTES.includes(piste) ? "" : piste}
+                    onChange={(e) => setPiste(e.target.value.slice(0, 40))}
+                    disabled={running}
+                    placeholder="Autre langue…"
+                    data-testid="bulk-piste-libre"
+                    className="h-7 w-32 rounded-md border border-[#262626] bg-[#111] px-2 text-xs text-white outline-none focus:border-[#E8D2A6]/60 disabled:opacity-40"
+                />
+            </div>
+            {piste && (
+                <p className="mb-4 text-xs leading-relaxed text-[#E8D2A6]">
+                    Ces fichiers seront rangés en piste « {piste} ». La piste principale de chaque
+                    épisode reste intacte.
+                </p>
+            )}
 
             <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -150,12 +215,12 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                 <>
                     <div className="mt-4 space-y-1.5 max-h-72 overflow-y-auto">
                         {rows.map((r) => {
-                            const state = done[r.file.name];
+                            const state = done[r.id];
                             const matched = r.si >= 0 && r.ei >= 0;
                             const live = matched && activeUpload ? activeUpload(scopedUploadKey ? scopedUploadKey(r.key) : r.key) : null;
-                            const isCurrent = current === r.file.name;
+                            const isCurrent = current === r.id;
                             return (
-                                <div key={r.file.name} className={`rounded-lg border px-3 py-2 ${isCurrent ? "border-[#E8D2A6]/40 bg-[#111]" : "border-[#1a1a1a] bg-[#111]"}`}>
+                                <div key={r.id} className={`rounded-lg border px-3 py-2 ${isCurrent ? "border-[#E8D2A6]/40 bg-[#111]" : "border-[#1a1a1a] bg-[#111]"}`}>
                                     <div className="flex items-center gap-3">
                                         <span className="shrink-0">
                                             {state === "ok" ? <Check size={14} className="text-emerald-400" />
@@ -167,7 +232,12 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                                         <span className="min-w-0 flex-1 truncate text-xs text-neutral-300" title={r.file.name}>{r.file.name}</span>
                                         <span className="shrink-0 text-[11px]">
                                             {matched
-                                                ? <span className="text-[#E8D2A6]">S{r.seasonNo}E{r.epNo}</span>
+                                                ? (
+                                                    <span className="text-[#E8D2A6]">
+                                                        S{r.seasonNo}E{r.epNo}
+                                                        {r.piste && <span className="ml-1.5 rounded-full bg-[#E8D2A6]/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider">{r.piste}</span>}
+                                                    </span>
+                                                )
                                                 : r.parsed
                                                     ? <span className="text-amber-400">épisode introuvable</span>
                                                     : <span className="text-neutral-500">nom non reconnu</span>}
@@ -175,7 +245,7 @@ export default function BulkEpisodeUpload({ seasons, title, uploadToBunny, updat
                                         {!running && (
                                             <button
                                                 type="button"
-                                                onClick={() => setFiles((f) => f.filter((x) => x.name !== r.file.name))}
+                                                onClick={() => setFiles((f) => f.filter((entree) => `${entree.piste || "principale"}|${entree.file.name}` !== r.id))}
                                                 className="shrink-0 text-neutral-600 hover:text-red-400"
                                                 aria-label="Retirer"
                                             >

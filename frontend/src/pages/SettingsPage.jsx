@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, MonitorSmartphone, History, ChartPie } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X, Users, Download } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
 import { useAuth } from "@/context/AuthContext";
+import { LIENS_NAV, ORDRE_PAR_DEFAUT, ordonnerLiens } from "@/lib/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +16,7 @@ import MonActivite from "@/components/MonActivite";
 import MesStatistiques from "@/components/MesStatistiques";
 import SupportWithAds from "@/components/SupportWithAds";
 import ReferralCard from "@/components/ReferralCard";
+import OfflineDownloadsPanel from "@/components/OfflineDownloadsPanel";
 
 const ACCENT_PRESETS = [
     { name: "Or pâle (défaut)", value: "#E8D2A6" },
@@ -36,15 +38,30 @@ const PROFILE_BACKGROUND_PRESETS = [
     { name: "Violet nuit", value: "#120B1C" },
 ];
 
+/** Déplace une rubrique d'un cran. On repasse par la liste ordonnée plutôt que
+ *  par la valeur brute : celle-ci peut être incomplète, et les indices affichés
+ *  doivent correspondre à ce que la personne a sous les yeux. */
+function deplacerRubrique(ordre, index, sens) {
+    const identifiants = ordonnerLiens(ordre).map((lien) => lien.id);
+    const cible = index + sens;
+    if (cible < 0 || cible >= identifiants.length) return identifiants;
+    const copie = [...identifiants];
+    [copie[index], copie[cible]] = [copie[cible], copie[index]];
+    return copie;
+}
+
 const AUTOSAVE_FIELDS = [
     "name",
     "bio",
+    "audio_boost",
+    "skip_profile_picker",
     "profile_public",
     "reviews_public",
     "history_public",
 ];
 
 const PREMIUM_AUTOSAVE_FIELDS = [
+    "nav_order",
     "autoplay_next",
     "accent_color",
     "profile_background_color",
@@ -54,7 +71,10 @@ const PREMIUM_AUTOSAVE_FIELDS = [
 const AUTOSAVE_SUCCESS_MESSAGES = {
     name: "Nom enregistré",
     bio: "Bio enregistrée",
+    audio_boost: "Amplification du son enregistrée",
+    skip_profile_picker: "Choix du profil enregistré",
     autoplay_next: "Lecture automatique enregistrée",
+    nav_order: "Ordre du menu enregistré",
     profile_public: "Visibilité du profil enregistrée",
     reviews_public: "Visibilité des avis enregistrée",
     history_public: "Visibilité de l’historique enregistrée",
@@ -69,15 +89,18 @@ const getAutosaveSuccessMessage = (fields) => {
 };
 
 export default function SettingsPage() {
-    const { user, loading, refresh } = useAuth();
+    const { user, loading, refresh, setUser } = useAuth();
     const navigate = useNavigate();
-    const [tab, setTab] = useState("profile"); // profile | preferences | security
+    const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get("tab") === "downloads" ? "downloads" : "profile");
     const [form, setForm] = useState({});
     const [, setSaveStatus] = useState("idle");
     const lastSavedForm = useRef({});
     const formReady = useRef(false);
     const initializedUserId = useRef(null);
     const saveRequest = useRef(0);
+    const tabsRef = useRef(null);
+    const tabsDrag = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
+    const [tabsScroll, setTabsScroll] = useState({ left: false, right: false });
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
     const [sub, setSub] = useState(null);
@@ -91,15 +114,60 @@ export default function SettingsPage() {
     const [licenseVisible, setLicenseVisible] = useState(false);
 
     useEffect(() => {
-        if (user?.premium) api.get("/subscription/current").then((r) => setSub(r.data)).catch(() => {});
+        if (user?.premium && navigator.onLine) api.get("/subscription/current", { silent: true }).then((r) => setSub(r.data)).catch(() => {});
     }, [user]);
+
+    useEffect(() => {
+        if (loading) return undefined;
+        const tabs = tabsRef.current;
+        if (!tabs) return undefined;
+
+        const update = () => {
+            const maximum = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+            setTabsScroll({
+                left: tabs.scrollLeft > 4,
+                right: tabs.scrollLeft < maximum - 4,
+            });
+        };
+        const wheel = (event) => {
+            if (tabs.scrollWidth <= tabs.clientWidth) return;
+            const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+            if (!delta) return;
+            const maximum = tabs.scrollWidth - tabs.clientWidth;
+            const canMove = (delta > 0 && tabs.scrollLeft < maximum) || (delta < 0 && tabs.scrollLeft > 0);
+            if (!canMove) return;
+            event.preventDefault();
+            tabs.scrollLeft += delta;
+        };
+
+        update();
+        tabs.addEventListener("scroll", update, { passive: true });
+        tabs.addEventListener("wheel", wheel, { passive: false });
+        const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+        observer?.observe(tabs);
+        window.addEventListener("resize", update);
+        return () => {
+            tabs.removeEventListener("scroll", update);
+            tabs.removeEventListener("wheel", wheel);
+            observer?.disconnect();
+            window.removeEventListener("resize", update);
+        };
+    }, [loading]);
+
+    useEffect(() => {
+        const activeTab = tabsRef.current?.querySelector(`[data-settings-tab="${tab}"]`);
+        activeTab?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }, [tab]);
 
     useEffect(() => {
         if (user && initializedUserId.current !== user.user_id) {
             const nextForm = {
                 name: user.name || "",
                 bio: user.bio || "",
+                audio_boost: Number(user.audio_boost) || 1,
+                skip_profile_picker: !!user.skip_profile_picker,
                 autoplay_next: user.autoplay_next !== false,
+                nav_order: ordonnerLiens(user.nav_order).map((lien) => lien.id),
                 picture: user.picture || "",
                 banner: user.banner || "",
                 autoplay_hero: user.autoplay_hero !== false,
@@ -149,6 +217,10 @@ export default function SettingsPage() {
                     ]),
                 );
                 lastSavedForm.current = { ...lastSavedForm.current, ...confirmed };
+                // Sans cette ligne, le reste du site gardait l'ancienne valeur
+                // jusqu'au prochain rechargement complet de la page.
+                setUser((courant) => (courant ? { ...courant, ...confirmed } : courant));
+                try { localStorage.setItem("ym_reglages_touch", String(Date.now())); } catch { }
                 setForm((current) => {
                     const synchronized = { ...current };
                     changedFields.forEach((field) => {
@@ -403,16 +475,56 @@ export default function SettingsPage() {
     };
 
     const TABS = [
+        // Trois familles, dans cet ordre : qui je suis, ce que je fais,
+        // ce qui gère mon compte.
         { id: "profile", label: "Profil", icon: <UserIcon size={14} /> },
-        { id: "preferences", label: "Préférences", icon: <Play size={14} /> },
+        { id: "preferences", label: "Préférences", icon: <Sliders size={14} /> },
+        { id: "activity", label: "Activité", icon: <History size={14} /> },
+        { id: "downloads", label: "Téléchargements", icon: <Download size={14} /> },
+        { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
+        { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
+        { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
         { id: "subscription", label: "Abonnement", icon: <Crown size={14} /> },
         { id: "activation", label: "Activation", icon: <KeyRound size={14} /> },
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
-        { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
-        { id: "activity", label: "Activité", icon: <History size={14} /> },
-        { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
-        { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
     ];
+
+    const moveTabs = (direction) => {
+        tabsRef.current?.scrollBy({ left: direction * Math.max(220, tabsRef.current.clientWidth * 0.7), behavior: "smooth" });
+    };
+
+    const beginTabsDrag = (event) => {
+        if (event.pointerType !== "mouse" || event.button !== 0) return;
+        tabsDrag.current = {
+            active: true,
+            startX: event.clientX,
+            scrollLeft: event.currentTarget.scrollLeft,
+            moved: false,
+        };
+    };
+
+    const continueTabsDrag = (event) => {
+        const drag = tabsDrag.current;
+        if (!drag.active) return;
+        const distance = event.clientX - drag.startX;
+        if (Math.abs(distance) > 5) {
+            drag.moved = true;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            event.preventDefault();
+        }
+        if (drag.moved) event.currentTarget.scrollLeft = drag.scrollLeft - distance;
+    };
+
+    const endTabsDrag = () => {
+        tabsDrag.current.active = false;
+    };
+
+    const blockClickAfterDrag = (event) => {
+        if (!tabsDrag.current.moved) return;
+        event.preventDefault();
+        event.stopPropagation();
+        tabsDrag.current.moved = false;
+    };
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -423,21 +535,57 @@ export default function SettingsPage() {
                     <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Paramètres</h1>
                 </div>
 
-                <div className="flex gap-2 mb-8 overflow-x-auto no-scrollbar border-b border-[#262626]">
+                <div className="relative mb-8">
+                    {tabsScroll.left && (
+                        <button type="button" onClick={() => moveTabs(-1)} aria-label="Rubriques précédentes" className="absolute left-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-colors hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a]">
+                            <ChevronLeft size={16} />
+                        </button>
+                    )}
+                    <div
+                        ref={tabsRef}
+                        role="tablist"
+                        aria-label="Rubriques des paramètres"
+                        data-testid="settings-tabs-scroll"
+                        onPointerDown={beginTabsDrag}
+                        onPointerMove={continueTabsDrag}
+                        onPointerUp={endTabsDrag}
+                        onPointerCancel={() => { tabsDrag.current = { ...tabsDrag.current, active: false, moved: false }; }}
+                        onClickCapture={blockClickAfterDrag}
+                        className="flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth overscroll-x-contain touch-pan-x no-scrollbar border-b border-[#262626] px-10"
+                    >
                     {TABS.map((t) => (
                         <button
                             key={t.id}
-                            onClick={() => setTab(t.id)}
+                            onClick={() => {
+                                setTab(t.id);
+                                navigate(t.id === "downloads" ? "/settings?tab=downloads" : "/settings", { replace: true });
+                            }}
                             data-testid={`settings-tab-${t.id}`}
-                            className={`flex items-center gap-2 px-4 py-3 border-b-2 -mb-px text-sm transition-colors ${tab === t.id
+                            data-settings-tab={t.id}
+                            role="tab"
+                            aria-selected={tab === t.id}
+                            className={`flex shrink-0 snap-start items-center gap-2 whitespace-nowrap px-4 py-3 border-b-2 -mb-px text-sm transition-colors ${tab === t.id
                                 ? "border-[#E8D2A6] text-[#E8D2A6]"
                                 : "border-transparent text-neutral-400 hover:text-white"
                                 }`}
                         >
                             {t.icon} {t.label}
+                            {t.id === "downloads" && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[#E8D2A6] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-black">
+                                    <Crown size={9} fill="currentColor" /> Premium
+                                </span>
+                            )}
                         </button>
                     ))}
+                    </div>
+                    {tabsScroll.right && (
+                        <button type="button" onClick={() => moveTabs(1)} aria-label="Rubriques suivantes" className="absolute right-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-colors hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a]">
+                            <ChevronRight size={16} />
+                        </button>
+                    )}
                 </div>
+
+                {tab === "downloads" && <OfflineDownloadsPanel />}
 
                 {tab === "profile" && (
                     <div className="space-y-6">
@@ -583,9 +731,44 @@ export default function SettingsPage() {
 
                 {tab === "preferences" && (
                     <div className="space-y-6">
+                        <div className="text-[10px] uppercase tracking-widest text-neutral-500">
+                            Lecture
+                        </div>
+
+                        <div className="pb-5 border-b border-[#262626]">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-white flex items-center gap-2">
+                                    <Volume2 size={14} className="text-[#E8D2A6]" />
+                                    Amplification du son
+                                </div>
+                                <span className="rounded-full bg-[#E8D2A6]/10 px-3 py-1 text-xs font-semibold tabular-nums text-[#E8D2A6]">
+                                    {Math.round((form.audio_boost || 1) * 100)} %
+                                </span>
+                            </div>
+                            <input
+                                type="range"
+                                min="1"
+                                max="2.5"
+                                step="0.1"
+                                value={form.audio_boost || 1}
+                                data-testid="settings-audio-boost"
+                                onChange={(e) => setForm((current) => ({ ...current, audio_boost: Number(e.target.value) }))}
+                                className="mt-4 w-full cursor-pointer accent-[#E8D2A6]"
+                            />
+                            <div className="mt-1 flex justify-between text-[10px] uppercase tracking-widest text-neutral-600">
+                                <span>Normal</span>
+                                <span>250 %</span>
+                            </div>
+                            <div className="mt-3 text-xs leading-relaxed text-neutral-500">
+                                Pour les films dont la piste sonore est trop basse, même à fond.
+                                Au-delà de 100 %, le son peut saturer selon la piste.
+                            </div>
+                        </div>
+
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
+                                    <SkipForward size={14} className="text-[#E8D2A6]" />
                                     Lecture automatique de la suite
                                     {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </div>
@@ -607,7 +790,7 @@ export default function SettingsPage() {
                                     : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                     }`}
                             >
-                                <SkipForward size={14} />
+                                {form.autoplay_next ? <Check size={14} /> : <X size={14} />}
                                 {form.autoplay_next ? "Activée" : "Désactivée"}
                             </button>
                         </div>
@@ -615,6 +798,93 @@ export default function SettingsPage() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
                             <div className="min-w-0">
                                 <div className="text-white flex items-center gap-2">
+                                    <Users size={14} className="text-[#E8D2A6]" />
+                                    Choix du profil à la connexion
+                                </div>
+                                <div className="text-xs text-neutral-500 mt-1">
+                                    Affiche l&apos;écran « Qui regarde ? » à chaque connexion. Sans profils,
+                                    cet écran ne s&apos;affiche pas de toute façon.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={!form.skip_profile_picker}
+                                data-testid="settings-profile-picker"
+                                onClick={() => setForm((current) => ({ ...current, skip_profile_picker: !current.skip_profile_picker }))}
+                                className={`inline-flex h-10 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:border-white ${!form.skip_profile_picker
+                                    ? "border-[#E8D2A6] bg-[#E8D2A6] text-black hover:bg-[#D4BB8B]"
+                                    : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
+                                    }`}
+                            >
+                                {!form.skip_profile_picker ? <Check size={14} /> : <X size={14} />}
+                                {!form.skip_profile_picker ? "Affiché" : "Masqué"}
+                            </button>
+                        </div>
+
+                        <div className="pt-1 text-[10px] uppercase tracking-widest text-neutral-500">
+                            Apparence
+                        </div>
+
+                        <div className="pb-5 border-b border-[#262626]">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-white flex items-center gap-2">
+                                    <Menu size={14} className="text-[#E8D2A6]" />
+                                    Ordre du menu
+                                    {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={!user.premium}
+                                    onClick={() => setForm((current) => ({ ...current, nav_order: [...ORDRE_PAR_DEFAUT] }))}
+                                    className="text-xs text-neutral-400 underline-offset-4 hover:text-white hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Remettre dans l&apos;ordre d&apos;origine
+                                </button>
+                            </div>
+                            <div className="mt-1 text-xs text-neutral-500">
+                                {user.premium
+                                    ? "Range les rubriques de la barre de navigation comme tu veux. Elles restent toutes présentes : seul leur ordre change."
+                                    : "Ranger les rubriques de la barre de navigation est réservé aux abonnés Premium."}
+                            </div>
+
+                            <ul className="mt-4 overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
+                                {ordonnerLiens(form.nav_order).map((lien, index, liste) => (
+                                    <li
+                                        key={lien.id}
+                                        className="flex items-center gap-3 border-b border-[#1a1a1a] px-4 py-2.5 last:border-b-0"
+                                    >
+                                        <span className="w-5 shrink-0 text-xs tabular-nums text-neutral-600">{index + 1}</span>
+                                        <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">{lien.label}</span>
+                                        <button
+                                            type="button"
+                                            aria-label={`Monter ${lien.label}`}
+                                            data-testid={`nav-monter-${lien.id}`}
+                                            disabled={!user.premium || index === 0}
+                                            onClick={() => setForm((current) => ({ ...current, nav_order: deplacerRubrique(current.nav_order, index, -1) }))}
+                                            className="shrink-0 rounded p-1.5 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-25"
+                                        >
+                                            <ChevronUp size={15} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label={`Descendre ${lien.label}`}
+                                            data-testid={`nav-descendre-${lien.id}`}
+                                            disabled={!user.premium || index === liste.length - 1}
+                                            onClick={() => setForm((current) => ({ ...current, nav_order: deplacerRubrique(current.nav_order, index, 1) }))}
+                                            className="shrink-0 rounded p-1.5 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-25"
+                                        >
+                                            <ChevronDown size={15} />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#262626]">
+                            <div className="min-w-0">
+                                <div className="text-white flex items-center gap-2">
+                                    <Clapperboard size={14} className="text-[#E8D2A6]" />
                                     Bande-annonce cinéma sur l&apos;accueil
                                     {!user.premium && <Crown size={12} className="text-[#E8D2A6]" />}
                                 </div>
@@ -636,7 +906,7 @@ export default function SettingsPage() {
                                     : "border-[#343434] bg-[#111] text-neutral-300 hover:border-[#E8D2A6]/50 hover:text-white"
                                     }`}
                             >
-                                <Play size={14} fill={form.autoplay_hero ? "currentColor" : "none"} />
+                                {form.autoplay_hero ? <Check size={14} /> : <X size={14} />}
                                 {form.autoplay_hero ? "Activée" : "Désactivée"}
                             </button>
                         </div>
@@ -681,19 +951,19 @@ export default function SettingsPage() {
                                 <Button onClick={() => navigate("/pricing")} className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">Voir les plans</Button>
                             </div>
                         ) : (
-                            <div className="rounded-2xl border border-[#262626] bg-[#0a0a0a] p-8">
-                                <div className="flex items-center justify-between gap-4 mb-6">
-                                    <div>
+                            <div className="rounded-2xl border border-[#262626] bg-[#0a0a0a] p-5 sm:p-8">
+                                <div className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+                                    <div className="min-w-0">
                                         <div className="text-xs uppercase tracking-widest text-[#E8D2A6]">Plan actuel</div>
-                                        <div className="font-display text-3xl capitalize mt-1" data-testid="sub-plan">{user.premium_plan || sub?.plan || "premium"}</div>
+                                        <div className="mt-1 break-words font-display text-2xl capitalize sm:text-3xl" data-testid="sub-plan">{user.premium_plan || sub?.plan || "premium"}</div>
                                         <div className="text-sm text-neutral-400 mt-1">Facturation {sub?.interval === "yearly" ? "annuelle" : "mensuelle"}</div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="font-display text-3xl">{fmtMoney(sub?.amount, sub?.currency)}</div>
+                                    <div className="shrink-0 text-left sm:text-right">
+                                        <div className="font-display text-2xl sm:text-3xl">{fmtMoney(sub?.amount, sub?.currency)}</div>
                                         <div className="text-xs text-neutral-500">/ {sub?.interval === "yearly" ? "an" : "mois"}</div>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-6 py-6 border-y border-[#262626]">
+                                <div className="grid grid-cols-1 gap-4 border-y border-[#262626] py-6 sm:grid-cols-2 sm:gap-6">
                                     <div>
                                         <div className="text-xs uppercase tracking-widest text-neutral-500 flex items-center gap-1.5 mb-1"><Calendar size={12} /> Prochaine facture</div>
                                         <div className="text-white">{fmtDate(sub?.next_billing_date || user.premium_until)}</div>

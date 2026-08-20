@@ -3,14 +3,17 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
+import { OfflineDownloadsProvider } from "@/context/OfflineDownloadsContext";
 import { FavoritesProvider } from "@/context/FavoritesContext";
 import { UploadProvider } from "@/context/UploadContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Splash from "@/components/Splash";
+import EtatConnexion from "@/components/EtatConnexion";
 import HomePage from "@/pages/HomePage";
 import BrowsePage from "@/pages/BrowsePage";
 import MediaDetailPage from "@/pages/MediaDetailPage";
 import WatchPage from "@/pages/WatchPage";
+import OfflineWatchPage from "@/pages/OfflineWatchPage";
 import LoginPage from "@/pages/LoginPage";
 import ProfilePage from "@/pages/ProfilePage";
 import AdminPage from "@/pages/AdminPage";
@@ -45,6 +48,7 @@ import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 import AideChargement from "@/components/AideChargement";
 import PopUnder from "@/components/PopUnder";
 import VisitTracker from "@/components/VisitTracker";
+import SettingsTabsRuntimeFix from "@/components/SettingsTabsRuntimeFix";
 
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -64,18 +68,20 @@ function AppRouter() {
         return <AuthCallback />;
     }
     const p = location.pathname;
-    const noFooter = p.startsWith("/watch/") || p.startsWith("/messages") || p.startsWith("/login")
+    const noFooter = p.startsWith("/watch/") || p.startsWith("/offline/") || p.startsWith("/messages") || p.startsWith("/login")
         || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca" || p === "/documentation";
     return (
         <>
         <SupportBanner />
         <ScrollToTop />
+        <SettingsTabsRuntimeFix />
         <main key={location.pathname} className="ym-page-enter">
         <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/browse" element={<BrowsePage />} />
             <Route path="/media/:id" element={<MediaDetailPage />} />
             <Route path="/watch/:id" element={<WatchPage />} />
+            <Route path="/offline/:downloadId" element={<OfflineWatchPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/profiles" element={<ProfilesPage />} />
@@ -114,10 +120,12 @@ function App() {
 
     return (
         <div className="App">
+            <EtatConnexion />
             <Splash />
             <BrowserRouter>
                 <ErrorBoundary>
                     <AuthProvider>
+                        <OfflineDownloadsProvider>
                         <UploadProvider>
                             <FavoritesProvider>
                                 <AppRouter />
@@ -131,6 +139,7 @@ function App() {
                                 <Toaster theme="dark" richColors position="top-right" />
                             </FavoritesProvider>
                         </UploadProvider>
+                        </OfflineDownloadsProvider>
                     </AuthProvider>
                 </ErrorBoundary>
             </BrowserRouter>

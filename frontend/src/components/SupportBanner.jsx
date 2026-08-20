@@ -37,6 +37,11 @@ export default function SupportBanner() {
         }
     };
 
+    // Une adresse extérieure s'ouvre dans un onglet neuf : le routeur ne sait pas
+    // en sortir, et on ne coupe pas la lecture en cours.
+    const destination = config.cta_url || "/cagnotte";
+    const externe = /^https?:\/\//i.test(destination);
+
     return (
         <div className="ym-shimmer border-b border-[#E8D2A6]/20 bg-[#0c0c0c]" data-testid="support-banner">
             <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 py-2.5">
@@ -44,14 +49,26 @@ export default function SupportBanner() {
                 <p className="min-w-0 flex-1 text-xs leading-relaxed text-neutral-300 sm:text-sm">
                     {config.message}
                 </p>
-                <button
-                    type="button"
-                    onClick={() => navigate("/cagnotte")}
-                    data-testid="support-banner-cta"
-                    className="shrink-0 rounded-full bg-[#E8D2A6] px-4 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-[#D4BB8B]"
-                >
-                    {config.cta_label}
-                </button>
+                {externe ? (
+                    <a
+                        href={destination}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="support-banner-cta"
+                        className="shrink-0 rounded-full bg-[#E8D2A6] px-4 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-[#D4BB8B]"
+                    >
+                        {config.cta_label}
+                    </a>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => navigate(destination)}
+                        data-testid="support-banner-cta"
+                        className="shrink-0 rounded-full bg-[#E8D2A6] px-4 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-[#D4BB8B]"
+                    >
+                        {config.cta_label}
+                    </button>
+                )}
                 <button
                     type="button"
                     onClick={fermer}

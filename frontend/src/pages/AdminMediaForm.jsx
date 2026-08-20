@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { lireSession, ecrireSession, supprimerSession } from "@/lib/stockage";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowDown, ArrowUp, Upload, Plus, X, Save, Sparkles, Film, Tv, Loader2, Search, WandSparkles, GitBranch, CheckCircle2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -16,6 +17,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Header from "@/components/Header";
 import BulkEpisodeUpload from "@/components/BulkEpisodeUpload";
 import { showError } from "@/lib/errors";
+import VerifierVideo from "@/components/VerifierVideo";
+import PistesLangues from "@/components/PistesLangues";
 
 const EMPTY = {
     title: "",
@@ -34,6 +37,7 @@ const EMPTY = {
     video_url: "",
     bunny_video_id: "",
     bunny_library_id: "",
+    language_tracks: [],
     qualities: [],
     cast: "",
     director: "",
@@ -62,6 +66,11 @@ function parseYouTubeId(input) {
 
 function hasPlayableVideo(item = {}) {
     if (item.bunny_video_id || item.video_url || item.video_file_path) return true;
+    // Une piste importee seule — une saison en VO, par exemple — est une video a
+    // part entiere. Sans cette ligne, le diagnostic annoncait des episodes vides
+    // alors que leurs fichiers venaient d'etre deposes.
+    if (Array.isArray(item.language_tracks)
+        && item.language_tracks.some((piste) => piste?.bunny_video_id)) return true;
     return Array.isArray(item.qualities) && item.qualities.some((quality) =>
         quality?.url || quality?.video_url || quality?.file_path
     );
@@ -155,27 +164,42 @@ export default function AdminMediaForm() {
     const [uploadScope] = useState(() => {
         if (isEdit) return `media:${id}`;
         const storageKey = "yourmovies_admin_media_draft_scope";
-        let scope = window.sessionStorage.getItem(storageKey);
+        let scope = lireSession(storageKey);
         if (!scope) {
             scope = `draft:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-            window.sessionStorage.setItem(storageKey, scope);
+            ecrireSession(storageKey, scope);
         }
         return scope;
     });
     const scopedUploadKey = (key) => `${uploadScope}:${key}`;
+    // Fichiers remplaces au cours de la session. Ils ne sont supprimes qu'apres
+    // l'enregistrement : les effacer des le nouveau televersement laisserait la
+    // fiche pointer dans le vide si la personne quittait sans enregistrer.
+    const remplacees = useRef([]);
     const activeUpload = (key) => findActiveUpload(scopedUploadKey(key));
     const [dragTrailer, setDragTrailer] = useState(false);
     const [dragBunny, setDragBunny] = useState(false);
     const uploadProgress = (key) => activeUpload(key)?.progress || 0;
     const uploadStage = (key) => activeUpload(key)?.stage || "";
-    // L'enregistrement est bloqué uniquement pendant les quelques secondes avant
-    // que l'hébergeur fournisse une référence. Dès que videoId existe, le transfert peut
-    // continuer globalement pendant que l'admin crée un autre contenu.
-    const hasUploadWithoutReference = uploads.some((item) =>
+    // Le transfert doit etre termine avant d'enregistrer. Auparavant seule la
+    // reference etait attendue : la fiche partait avec un identifiant de video
+    // valide alors que pas un octet n'etait encore arrive, et quitter la page
+    // interrompait l'envoi. La video restait alors vide chez l'hebergeur, la
+    // fiche pointant sur un fichier qui n'existerait jamais.
+    const transfertEnCours = uploads.some((item) =>
         item.key?.startsWith(`${uploadScope}:`)
         && ["uploading", "cancelling"].includes(item.status)
-        && !item.videoId
     );
+    const hasUploadWithoutReference = transfertEnCours;
+
+    // Recharger ou fermer l'onglet coupe le transfert : le navigateur demande
+    // confirmation plutot que de le laisser mourir sans un mot.
+    useEffect(() => {
+        if (!transfertEnCours) return undefined;
+        const avertir = (evenement) => { evenement.preventDefault(); evenement.returnValue = ""; };
+        window.addEventListener("beforeunload", avertir);
+        return () => window.removeEventListener("beforeunload", avertir);
+    }, [transfertEnCours]);
     const [saving, setSaving] = useState(false);
     const [mediaFlagSaving, setMediaFlagSaving] = useState({});
     const [tmdbQuery, setTmdbQuery] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
@@ -249,6 +273,7 @@ export default function AdminMediaForm() {
     const uploadToBunny = async (file, options = {}) => {
         const {
             key = "bunny",
+            precedent = null,
             title = form.title || file.name,
             onReference = (reference) => setForm((f) => ({ ...f, ...reference })),
             // Signalé dès la fin du transfert, avant la préparation de la vidéo : permet à une
@@ -275,6 +300,13 @@ export default function AdminMediaForm() {
                 video_url: "",
                 video_file_path: "",
             };
+            const ancien = String(precedent?.bunny_video_id || "").trim();
+            if (ancien && ancien !== videoId) {
+                remplacees.current.push({
+                    video_id: ancien,
+                    library_id: String(precedent.bunny_library_id || libraryId),
+                });
+            }
             onReference(reference);
             updateUpload(uploadId, {
                 stage: "Envoi de la vidéo",
@@ -403,9 +435,29 @@ export default function AdminMediaForm() {
         }
     };
 
+    /** Supprime chez l'hebergeur les fichiers que l'enregistrement vient de
+     *  rendre inutiles. Un echec ne doit rien interrompre : la fiche est deja
+     *  enregistree, et une video oubliee se rattrape par le menage des orphelines. */
+    const purgerRemplacees = async () => {
+        const aPurger = remplacees.current;
+        remplacees.current = [];
+        for (const ancienne of aPurger) {
+            try {
+                await api.delete(`/bunny/videos/${ancienne.video_id}`, {
+                    params: { library_id: ancienne.library_id },
+                });
+            } catch {
+                // sans effet sur l'enregistrement
+            }
+        }
+        if (aPurger.length) {
+            toast.success(`${aPurger.length} ancien${aPurger.length > 1 ? "s" : ""} fichier${aPurger.length > 1 ? "s" : ""} supprimé${aPurger.length > 1 ? "s" : ""} de l'hébergeur`);
+        }
+    };
+
     const save = async () => {
         if (hasUploadWithoutReference) {
-            toast.error("Patiente quelques secondes, le temps que la référence vidéo soit créée.");
+            toast.error("Le fichier n'a pas fini d'être envoyé. Enregistrer maintenant laisserait une vidéo vide chez l'hébergeur.");
             return;
         }
         const payload = {
@@ -425,6 +477,15 @@ export default function AdminMediaForm() {
             video_url: form.video_url || null,
             bunny_video_id: form.bunny_video_id || null,
             bunny_library_id: form.bunny_library_id || null,
+            // Une piste sans libelle serait inchoisissable, une piste sans
+            // fichier n'aurait rien a jouer : ni l'une ni l'autre n'est gardee.
+            language_tracks: (form.language_tracks || [])
+                .filter((piste) => (piste.label || "").trim() && piste.bunny_video_id)
+                .map((piste) => ({
+                    label: piste.label.trim(),
+                    bunny_video_id: piste.bunny_video_id,
+                    bunny_library_id: piste.bunny_library_id || null,
+                })),
             qualities: (form.qualities || []).filter((q) => q.quality && (q.url || q.file_path)),
             cast: form.cast ? form.cast.split(",").map((s) => s.trim()).filter(Boolean) : [],
             director: form.director || null,
@@ -461,8 +522,12 @@ export default function AdminMediaForm() {
                 }
             }
             if (!isEdit) {
-                window.sessionStorage.removeItem("yourmovies_admin_media_draft_scope");
+                // Par le module, et non par le stockage brut : le relais en memoire
+                // garderait sinon l'ancienne portee, et le contenu suivant
+                // heriterait du televersement du precedent.
+                supprimerSession("yourmovies_admin_media_draft_scope");
             }
+            await purgerRemplacees();
             navigate("/admin?tab=media");
         } catch (e) {
             showError(toast, e, "Enregistrement impossible");
@@ -706,6 +771,29 @@ export default function AdminMediaForm() {
             return { ...f, seasons };
         });
     };
+    /** Range une reference video sur la piste demandee d'un episode. Un libelle
+     *  vide designe la piste principale ; sinon la piste est creee si besoin, ce
+     *  qui permet d'importer une saison entiere en VO d'un seul geste. */
+    const appliquerPisteEpisode = (i, j, label, reference) => {
+        const propre = (label || "").trim();
+        if (!propre) {
+            updateEpisode(i, j, reference);
+            return;
+        }
+        setForm((f) => {
+            const seasons = [...(f.seasons || [])];
+            const eps = [...(seasons[i].episodes || [])];
+            const pistes = [...(eps[j]?.language_tracks || [])];
+            const index = pistes.findIndex((piste) => piste.label === propre);
+            const fusion = { label: propre, ...reference };
+            if (index >= 0) pistes[index] = { ...pistes[index], ...fusion };
+            else pistes.push(fusion);
+            eps[j] = { ...eps[j], language_tracks: pistes };
+            seasons[i] = { ...seasons[i], episodes: eps };
+            return { ...f, seasons };
+        });
+    };
+
     const removeEpisode = (i, j) => {
         setForm((f) => {
             const seasons = [...(f.seasons || [])];
@@ -738,7 +826,7 @@ export default function AdminMediaForm() {
                         </h1>
                     </div>
                     <Button onClick={save} disabled={!form.title || saving || hasUploadWithoutReference} data-testid="save-media-btn" className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full h-11 px-6 font-semibold">
-                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Préparation…" : "Enregistrer"}
+                        <Save size={14} className="mr-2" /> {saving ? "..." : hasUploadWithoutReference ? "Téléversement en cours…" : "Enregistrer"}
                     </Button>
                 </div>
 
@@ -1049,10 +1137,10 @@ export default function AdminMediaForm() {
                                 <label
                                     onDragOver={(e) => { e.preventDefault(); setDragBunny(true); }}
                                     onDragLeave={() => setDragBunny(false)}
-                                    onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f); }}
+                                    onDrop={(e) => { e.preventDefault(); setDragBunny(false); const f = e.dataTransfer.files?.[0]; if (f) uploadToBunny(f, { precedent: { bunny_video_id: form.bunny_video_id, bunny_library_id: form.bunny_library_id } }); }}
                                     className={`block rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragBunny ? "border-[#E8D2A6] bg-[#E8D2A6]/5" : "border-[#262626] hover:border-[#E8D2A6]/50"}`}
                                 >
-                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0])} />
+                                    <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadToBunny(e.target.files[0], { precedent: { bunny_video_id: form.bunny_video_id, bunny_library_id: form.bunny_library_id } })} />
                                     {activeUpload("bunny") ? (
                                         <div className="flex items-center justify-center gap-2 text-[#E8D2A6]"><Loader2 size={18} className="animate-spin" /> {uploadStage("bunny")} {uploadProgress("bunny")}%</div>
                                     ) : form.bunny_video_id ? (
@@ -1061,8 +1149,20 @@ export default function AdminMediaForm() {
                                         <div className="text-sm text-neutral-300"><Upload size={16} className="inline mr-1.5" />Glisse le fichier vidéo ici, ou clique pour choisir</div>
                                     )}
                                 </label>
+                                <PistesLangues
+                                    pistes={form.language_tracks || []}
+                                    onChange={(pistes) => setForm((f) => ({ ...f, language_tracks: pistes }))}
+                                    uploadToBunny={uploadToBunny}
+                                    activeUpload={activeUpload}
+                                    uploadProgress={uploadProgress}
+                                    clePrefixe="film"
+                                    titreMedia={form.title}
+                                />
                                 {form.bunny_video_id && (
-                                    <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
+                                    <>
+                                        <VerifierVideo videoId={form.bunny_video_id} libraryId={form.bunny_library_id} />
+                                        <button type="button" onClick={() => setForm((f) => ({ ...f, bunny_video_id: "", bunny_library_id: "" }))} className="mt-2 text-xs text-neutral-500 hover:text-red-400">Retirer la vidéo</button>
+                                    </>
                                 )}
                                 <div className="text-xs text-neutral-500 mt-2">Streaming adaptatif automatique. Si présente, cette vidéo est utilisée en priorité.</div>
                             </div>
@@ -1092,6 +1192,7 @@ export default function AdminMediaForm() {
                                             title={form.title}
                                             uploadToBunny={uploadToBunny}
                                             updateEpisode={updateEpisode}
+                                            appliquerPisteEpisode={appliquerPisteEpisode}
                                             activeUpload={activeUpload}
                                             scopedUploadKey={scopedUploadKey}
                                         />
@@ -1114,7 +1215,8 @@ export default function AdminMediaForm() {
                                             <div className="space-y-2">
                                                 {(s.episodes || []).map((ep, j) => {
                                                     const episodeKey = `episode:${s.season_number || i + 1}:${ep.ep_number || j + 1}`;
-                                                    const hasEpisodeVideo = Boolean(
+                                                    const hasEpisodeVideo = hasPlayableVideo(ep);
+                                                    const aPistePrincipale = Boolean(
                                                         ep.bunny_video_id || ep.video_url || ep.video_file_path,
                                                     );
                                                     return (
@@ -1148,26 +1250,40 @@ export default function AdminMediaForm() {
                                                                             e.target.files[0],
                                                                             {
                                                                                 key: episodeKey,
+                                                                                precedent: { bunny_video_id: ep.bunny_video_id, bunny_library_id: ep.bunny_library_id },
                                                                                 title: `${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`,
                                                                                 onReference: (reference) => updateEpisode(i, j, reference),
                                                                             },
                                                                         )}
                                                                     />
                                                                     <span
-                                                                        className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${hasEpisodeVideo
+                                                                        className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border text-xs transition-colors ${aPistePrincipale
                                                                             ? "border-[#E8D2A6]/45 bg-[#E8D2A6]/[0.06] text-[#E8D2A6] hover:border-[#E8D2A6]/75"
                                                                             : "border-[#262626] text-neutral-300 hover:border-[#E8D2A6]/50"
                                                                         }`}
-                                                                        title={hasEpisodeVideo ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
+                                                                        title={aPistePrincipale ? "Cliquer pour remplacer le fichier de cet épisode" : "Ajouter le fichier de cet épisode"}
                                                                     >
                                                                         {activeUpload(episodeKey)
                                                                             ? <><Loader2 size={12} className="animate-spin" /> {uploadProgress(episodeKey)}%</>
-                                                                            : hasEpisodeVideo
+                                                                            : aPistePrincipale
                                                                                 ? <><Film size={12} /> Fichier déjà ajouté</>
                                                                                 : <><Upload size={12} /> Ajouter le MP4</>}
                                                                     </span>
                                                                 </label>
                                                             </div>
+                                                            {ep.bunny_video_id && (
+                                                                <VerifierVideo videoId={ep.bunny_video_id} libraryId={ep.bunny_library_id} compact />
+                                                            )}
+                                                            <PistesLangues
+                                                                pistes={ep.language_tracks || []}
+                                                                onChange={(pistes) => updateEpisode(i, j, { language_tracks: pistes })}
+                                                                uploadToBunny={uploadToBunny}
+                                                                activeUpload={activeUpload}
+                                                                uploadProgress={uploadProgress}
+                                                                clePrefixe={episodeKey}
+                                                                titreMedia={`${form.title || "Épisode"} — S${s.season_number || i + 1}E${ep.ep_number || j + 1}`}
+                                                                compact
+                                                            />
                                                             {ep.air_date && <div className="text-[11px] text-neutral-600">Diffusé le {ep.air_date}</div>}
                                                         </div>
                                                     );

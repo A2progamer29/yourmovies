@@ -4,19 +4,81 @@ import { ChevronsLeft, ChevronsRight } from "lucide-react";
 const SAUT = 10;
 const DELAI_DOUBLE_TAP = 300;
 
-/** Commandes de navigation posées par-dessus le lecteur : flèches du clavier,
- *  double appui à gauche ou à droite sur mobile. La barre de contrôle du lecteur
- *  reste libre, sinon on perdrait le plein écran et le réglage de qualité. */
+/** Commandes de navigation du lecteur.
+ *
+ *  Le clavier — barre d'espace et flèches — vaut sur tous les appareils. La
+ *  surcouche d'appui, elle, n'est posée qu'au doigt : à la souris elle privait le
+ *  lecteur des mouvements de pointeur, et ses contrôles ne sortaient plus que
+ *  dans la bande du bas laissée libre. */
 export default function PlayerGestures({ playerRef, disabled }) {
     const [signal, setSignal] = useState(null);
+    const [pret, setPret] = useState(false);
+    // La surcouche ne sert qu'au doigt. A la souris, elle privait le lecteur des
+    // mouvements de pointeur : ses controles ne sortaient qu'en bas, la seule
+    // bande laissee libre. Le clavier, lui, reste actif partout.
+    const [tactile] = useState(() => {
+        try {
+            return window.matchMedia("(hover: none), (pointer: coarse)").matches;
+        } catch {
+            return false;
+        }
+    });
+    const enLecture = useRef(true);
     const dernierTap = useRef({ moment: 0, cote: null });
     const minuterie = useRef(null);
+    const attenteTap = useRef(null);
+
+    // La surcouche masque le lecteur : tant que son interface n'est pas joignable,
+    // elle ne doit rien intercepter, sinon les clics se perdent dans le vide.
+    useEffect(() => {
+        if (disabled) return undefined;
+        if (playerRef?.current) { setPret(true); return undefined; }
+        if (!tactile) return undefined;
+        const sonde = window.setInterval(() => {
+            if (playerRef?.current) {
+                setPret(true);
+                window.clearInterval(sonde);
+            }
+        }, 400);
+        const abandon = window.setTimeout(() => window.clearInterval(sonde), 20000);
+        return () => { window.clearInterval(sonde); window.clearTimeout(abandon); };
+    }, [playerRef, disabled, tactile]);
+
+    // L'état de lecture se suit par les événements du lecteur : lui demander à
+    // chaque appui passerait par un aller-retour trop lent pour la barre d'espace.
+    useEffect(() => {
+        const p = playerRef?.current;
+        if (!pret || !p) return undefined;
+        const enMarche = () => { enLecture.current = true; };
+        const arrete = () => { enLecture.current = false; };
+        try {
+            p.on("play", enMarche);
+            p.on("pause", arrete);
+            p.on("ended", arrete);
+            // Si le navigateur a refusé le démarrage automatique, la vidéo est déjà
+            // en pause : sans cette lecture initiale, le premier appui la mettrait
+            // en pause une seconde fois et paraîtrait sans effet.
+            p.getPaused((enPause) => { enLecture.current = !enPause; });
+        } catch { }
+        return () => {
+            try { p.off("play", enMarche); p.off("pause", arrete); p.off("ended", arrete); } catch { }
+        };
+    }, [playerRef, pret]);
 
     const montrer = useCallback((type) => {
         setSignal({ type, id: Date.now() });
         if (minuterie.current) window.clearTimeout(minuterie.current);
         minuterie.current = window.setTimeout(() => setSignal(null), 600);
     }, []);
+
+    const basculerLecture = useCallback(() => {
+        const p = playerRef?.current;
+        if (!p) return;
+        try {
+            if (enLecture.current) { p.pause(); enLecture.current = false; }
+            else { p.play(); enLecture.current = true; }
+        } catch { }
+    }, [playerRef]);
 
     const deplacer = useCallback((sens) => {
         const p = playerRef?.current;
@@ -38,26 +100,37 @@ export default function PlayerGestures({ playerRef, disabled }) {
             if (saisie || evenement.metaKey || evenement.ctrlKey || evenement.altKey) return;
             if (evenement.key === "ArrowRight") { evenement.preventDefault(); deplacer(1); }
             else if (evenement.key === "ArrowLeft") { evenement.preventDefault(); deplacer(-1); }
+            else if (evenement.key === " " || evenement.code === "Space") {
+                // Sans cela la page défilerait à chaque pause.
+                evenement.preventDefault();
+                basculerLecture();
+            }
         };
         window.addEventListener("keydown", auClavier);
         return () => window.removeEventListener("keydown", auClavier);
-    }, [disabled, deplacer]);
+    }, [disabled, deplacer, basculerLecture]);
 
-    useEffect(() => () => { if (minuterie.current) window.clearTimeout(minuterie.current); }, []);
+    useEffect(() => () => {
+        if (minuterie.current) window.clearTimeout(minuterie.current);
+        if (attenteTap.current) window.clearTimeout(attenteTap.current);
+    }, []);
 
-    if (disabled) return null;
+    if (disabled || !pret || !tactile) return null;
 
-    // Seul le double appui agit : un appui simple ne fait rien, la lecture se
-    // met en pause avec le bouton du lecteur.
+    /** La pause est différée le temps de savoir si un second appui vient : c'est
+     *  lui qui commande l'avance rapide. */
     const auTap = (cote) => {
         const maintenant = Date.now();
         const precedent = dernierTap.current;
         if (precedent.cote === cote && maintenant - precedent.moment < DELAI_DOUBLE_TAP) {
+            if (attenteTap.current) window.clearTimeout(attenteTap.current);
             dernierTap.current = { moment: 0, cote: null };
             deplacer(cote === "droite" ? 1 : -1);
             return;
         }
         dernierTap.current = { moment: maintenant, cote };
+        if (attenteTap.current) window.clearTimeout(attenteTap.current);
+        attenteTap.current = window.setTimeout(basculerLecture, DELAI_DOUBLE_TAP);
     };
 
     return (
@@ -65,15 +138,15 @@ export default function PlayerGestures({ playerRef, disabled }) {
             <div className="flex h-full">
                 <button
                     type="button"
-                    aria-label="Reculer de 10 secondes"
+                    aria-label="Lecture ou pause, double appui pour reculer de 10 secondes"
                     onClick={() => auTap("gauche")}
-                    className="pointer-events-auto h-full flex-1 cursor-default focus:outline-none"
+                    className="pointer-events-auto h-full flex-1 cursor-pointer focus:outline-none"
                 />
                 <button
                     type="button"
-                    aria-label="Avancer de 10 secondes"
+                    aria-label="Lecture ou pause, double appui pour avancer de 10 secondes"
                     onClick={() => auTap("droite")}
-                    className="pointer-events-auto h-full flex-1 cursor-default focus:outline-none"
+                    className="pointer-events-auto h-full flex-1 cursor-pointer focus:outline-none"
                 />
             </div>
 

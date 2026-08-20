@@ -2,3 +2,31 @@
 .App {
     min-height: 100vh;
 }
+
+/* Paramètres : le libellé Téléchargements reste propre, sans badge Premium. */
+button[data-settings-tab="downloads"] > span {
+    display: none !important;
+}
+
+/*
+ * Évite que le scroll-snap et le scroll-smooth se battent avec les contrôles
+ * de navigation des rubriques. Le défilement reste libre à la molette,
+ * au trackpad et au doigt.
+ */
+[data-testid="settings-tabs-scroll"] {
+    scroll-snap-type: none !important;
+    scroll-behavior: auto !important;
+}
+
+/* Sur mobile, le swipe suffit : aucune flèche ne doit masquer les rubriques. */
+@media (max-width: 767px) {
+    button[aria-label="Rubriques précédentes"],
+    button[aria-label="Rubriques suivantes"] {
+        display: none !important;
+    }
+
+    [data-testid="settings-tabs-scroll"] {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}

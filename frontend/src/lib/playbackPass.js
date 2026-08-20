@@ -1,28 +1,23 @@
+import { lireSession, ecrireSession, supprimerSession } from "@/lib/stockage";
+
 const CLE = "ym_playback_pass";
 
 /** Preuve de vérification anti-robots. Elle vit le temps de la session : une
  *  personne ne repasse pas la vérification à chaque épisode, mais un robot qui
- *  ouvre une session neuve devra la franchir. */
+ *  ouvre une session neuve devra la franchir.
+ *
+ *  Le passage par le module de stockage n'est pas cosmétique : quand le
+ *  navigateur refuse les données de site, la preuve se perdait entre la
+ *  vérification et l'appel de lecture, et le serveur refusait la vidéo à
+ *  quelqu'un qui venait pourtant de la franchir. */
 export function lirePass() {
-    try {
-        return window.sessionStorage.getItem(CLE) || null;
-    } catch {
-        return null;
-    }
+    return lireSession(CLE);
 }
 
 export function ecrirePass(valeur) {
-    try {
-        if (valeur) window.sessionStorage.setItem(CLE, valeur);
-    } catch {
-        // sans effet
-    }
+    if (valeur) ecrireSession(CLE, valeur);
 }
 
 export function effacerPass() {
-    try {
-        window.sessionStorage.removeItem(CLE);
-    } catch {
-        // sans effet
-    }
+    supprimerSession(CLE);
 }

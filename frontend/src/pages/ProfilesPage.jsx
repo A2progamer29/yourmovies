@@ -17,7 +17,21 @@ const COLORS = ["#E8D2A6", "#8AB4F8", "#F28B82", "#81C995", "#C58AF9", "#FDD663"
 const EMOJIS = ["🎬", "🍿", "👑", "⭐", "🎭", "🚀", "🦄", "🐱", "🎨", "🎧"];
 
 export default function ProfilesPage() {
-    const { user, loading, selectProfile } = useAuth();
+    const { user, loading, selectProfile, setUser } = useAuth();
+
+    /** Ne plus passer par cet écran à la connexion. Le réglage suit le compte, et
+     *  non l'appareil : quelqu'un qui a fait ce choix ne veut pas le refaire sur
+     *  son téléphone. Il reste modifiable dans les préférences. */
+    const basculerAffichage = async () => {
+        const desormais = !user?.skip_profile_picker;
+        setUser((c) => (c ? { ...c, skip_profile_picker: desormais } : c));
+        try {
+            await api.patch("/settings", { skip_profile_picker: desormais });
+        } catch (e) {
+            setUser((c) => (c ? { ...c, skip_profile_picker: !desormais } : c));
+            showError(toast, e, "Préférence non enregistrée");
+        }
+    };
     const navigate = useNavigate();
     const [profiles, setProfiles] = useState([]);
     const [open, setOpen] = useState(false);
@@ -123,11 +137,24 @@ export default function ProfilesPage() {
             <div className="max-w-4xl mx-auto px-6 py-12">
                 <div className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Compte</div>
                 <h1 className="font-display text-4xl tracking-tighter mb-3">Qui regarde ?</h1>
-                <p className="text-neutral-400 mb-10">
+                <p className="text-neutral-400 mb-6">
                     {isPremium
                         ? "Créez jusqu'à 4 profils avec chacun leurs favoris, leur suivi de lecture et un PIN parental optionnel."
                         : "Les profils multiples sont réservés aux abonnés Premium."}
                 </p>
+
+                {isPremium && (
+                    <label className="mb-10 inline-flex cursor-pointer items-center gap-2.5 text-sm text-neutral-400 hover:text-neutral-200">
+                        <input
+                            type="checkbox"
+                            checked={!!user?.skip_profile_picker}
+                            onChange={basculerAffichage}
+                            data-testid="profils-ne-plus-afficher"
+                            className="h-4 w-4 accent-[#E8D2A6]"
+                        />
+                        Ne plus me demander à la connexion
+                    </label>
+                )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
                     {profiles.map((p) => (

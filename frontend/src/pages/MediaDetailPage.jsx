@@ -16,6 +16,8 @@ import { FicheSkeleton } from "@/components/Skeletons";
 import MediaCard from "@/components/MediaCard";
 import HScroller from "@/components/HScroller";
 import AvertissementContenu from "@/components/AvertissementContenu";
+import OfflineDownloadButton from "@/components/OfflineDownloadButton";
+import { findOfflineMedia, hasPremiumOfflineAccess } from "@/lib/offline";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 const BANNER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
@@ -40,6 +42,17 @@ export default function MediaDetailPage() {
     const formRef = useRef(null);
 
     const load = async () => {
+        if (!navigator.onLine) {
+            if (!hasPremiumOfflineAccess(user)) return;
+            const saved = await findOfflineMedia(id, user.user_id).catch(() => null);
+            if (saved) {
+                setMedia(saved);
+                setReviews([]);
+                setSimilar([]);
+                setTimeline({ title: "", items: [] });
+                return;
+            }
+        }
         const [m, r, s, t] = await Promise.all([
             api.get(`/media/${id}`),
             api.get(`/media/${id}/reviews`),
@@ -258,6 +271,7 @@ export default function MediaDetailPage() {
                                 >
                                     <Play size={16} className="mr-2" fill="currentColor" /> Regarder maintenant
                                 </Button>
+                                {media.type === "movie" && <OfflineDownloadButton media={media} />}
                                 <ReportDialog mediaId={media.id} />
                                 <AvertissementContenu media={media} />
                                 <Button
@@ -369,11 +383,11 @@ export default function MediaDetailPage() {
                                                     }
 
                                                     return (
-                                                        <li key={j}>
+                                                        <li key={j} className="flex items-center gap-2">
                                                             <Link
                                                                 to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}`}
                                                                 data-testid={`episode-play-${seasonNo}-${epNo}`}
-                                                                className="group -mx-3 flex items-center justify-between gap-4 border-l-2 border-transparent px-4 py-5 transition-[border-color,padding] duration-200 hover:border-[#E8D2A6] hover:pl-6"
+                                                                className="group -mx-3 flex min-w-0 flex-1 items-center justify-between gap-4 border-l-2 border-transparent px-4 py-5 transition-[border-color,padding] duration-200 hover:border-[#E8D2A6] hover:pl-6"
                                                             >
                                                                 <span className="flex min-w-0 items-center gap-3">
                                                                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#262626] text-neutral-400 transition-colors group-hover:border-[#E8D2A6] group-hover:bg-[#E8D2A6] group-hover:text-black">
@@ -389,6 +403,7 @@ export default function MediaDetailPage() {
                                                                 </span>
                                                                 <span className="shrink-0 text-[11px] text-neutral-600 transition-colors group-hover:text-[#E8D2A6]">Regarder</span>
                                                             </Link>
+                                                            <OfflineDownloadButton media={media} episode={{ ...ep, season_number: seasonNo, ep_number: epNo }} compact />
                                                         </li>
                                                     );
                                                 })}

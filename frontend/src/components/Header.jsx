@@ -14,17 +14,9 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ordonnerLiens } from "@/lib/navigation";
 
-const links = [
-    { to: "/", label: "Accueil" },
-    { to: "/browse?type=movie", label: "Films" },
-    { to: "/browse?type=series", label: "Séries" },
-    { to: "/browse?type=anime", label: "Animes" },
-    { to: "/wishboard", label: "Wishboard" },
-    { to: "/sondages", label: "Sondages" },
-    { to: "/cagnotte", label: "Cagnotte" },
-    { to: "/pricing", label: "Premium" },
-];
+
 
 export default function Header() {
     const { user, logout, activeProfile, selectProfile } = useAuth();
@@ -35,6 +27,7 @@ export default function Header() {
     const [searchQ, setSearchQ] = useState("");
     const [searchResults, setSearchResults] = useState([]);
     const [userResults, setUserResults] = useState([]);
+    const links = React.useMemo(() => ordonnerLiens(user?.nav_order), [user?.nav_order]);
 
     useEffect(() => {
         if (!searchOpen) return;

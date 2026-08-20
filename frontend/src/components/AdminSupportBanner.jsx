@@ -29,6 +29,7 @@ export default function AdminSupportBanner() {
                 always_show: !!config.always_show,
                 message: config.message,
                 cta_label: config.cta_label,
+                cta_url: config.cta_url,
             });
             setConfig(r.data);
             toast.success("Bandeau mis à jour");
@@ -98,6 +99,24 @@ export default function AdminSupportBanner() {
                     maxLength={40}
                     className="mt-1.5 border-[#262626] bg-[#111] text-white"
                 />
+            </label>
+
+            <label className="mt-4 block max-w-md">
+                <span className="text-[10px] uppercase tracking-widest text-neutral-500">Destination du bouton</span>
+                <Input
+                    value={config.cta_url || ""}
+                    onChange={(e) => setConfig((c) => ({ ...c, cta_url: e.target.value }))}
+                    maxLength={300}
+                    placeholder="/cagnotte"
+                    data-testid="banner-url"
+                    className="mt-1.5 border-[#262626] bg-[#111] text-white"
+                />
+                <span className="mt-1.5 block text-xs leading-relaxed text-neutral-500">
+                    Une page du site commence par une barre oblique — <code className="text-neutral-400">/cagnotte</code>,
+                    <code className="text-neutral-400"> /pricing</code>. Une adresse complète commençant par
+                    <code className="text-neutral-400"> https://</code> s&apos;ouvre dans un nouvel onglet.
+                    Toute autre écriture est refusée et le bouton retombe sur la cagnotte.
+                </span>
             </label>
 
             <Button
