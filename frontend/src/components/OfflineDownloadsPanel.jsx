@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Crown, Download, Film, HardDrive, Play, ShieldCheck, Trash2, WifiOff } from "lucide-react";
+import { Check, Crown, Download, Film, Gauge, HardDrive, Play, ShieldCheck, Trash2, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useOfflineDownloads } from "@/context/OfflineDownloadsContext";
-import { formatOfflineSize } from "@/lib/offline";
+import { formatOfflineRate, formatOfflineSize } from "@/lib/offline";
 
 function typeLabel(download) {
     if (download.type === "movie") return "Film";
@@ -17,6 +17,9 @@ function PremiumGate() {
         <section className="relative overflow-hidden rounded-3xl border border-[#E8D2A6]/25 bg-[#0a0a0a] px-6 py-9 sm:px-9" data-testid="offline-premium-required">
             <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
             <div className="relative max-w-xl">
+                <span className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[#E8D2A6] bg-[#E8D2A6] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-black" data-testid="offline-premium-badge">
+                    <Crown size={13} fill="currentColor" /> Premium
+                </span>
                 <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-[#E8D2A6]/30 bg-[#E8D2A6]/10 text-[#E8D2A6]">
                     <Crown size={21} />
                 </div>
@@ -71,8 +74,8 @@ export default function OfflineDownloadsPanel() {
                             Vos films et épisodes sont conservés uniquement dans ce navigateur et restent accessibles sans connexion.
                         </p>
                     </div>
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#E8D2A6]/25 bg-[#E8D2A6]/10 px-3 py-1.5 text-xs font-medium text-[#E8D2A6]">
-                        <ShieldCheck size={13} /> Premium
+                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#E8D2A6] bg-[#E8D2A6] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[0_0_24px_rgba(232,210,166,0.12)]" data-testid="offline-premium-badge">
+                        <ShieldCheck size={13} fill="currentColor" /> Premium
                     </span>
                 </div>
 
@@ -93,19 +96,48 @@ export default function OfflineDownloadsPanel() {
             </section>
 
             {activeDownloads.length > 0 && (
-                <div className="rounded-2xl border border-[#E8D2A6]/20 bg-[#E8D2A6]/[0.05] p-4">
-                    <div className="flex items-center gap-2 text-sm text-[#E8D2A6]"><Download size={15} /> {activeDownloads.length} téléchargement{activeDownloads.length > 1 ? "s" : ""} en cours</div>
-                </div>
+                <section className="space-y-3" data-testid="offline-active-downloads">
+                    <div className="flex items-center justify-between px-1">
+                        <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[#E8D2A6]"><Download size={13} /> Téléchargements en cours</span>
+                        <span className="text-xs tabular-nums text-neutral-500">{activeDownloads.length} actif{activeDownloads.length > 1 ? "s" : ""}</span>
+                    </div>
+                    {activeDownloads.map((current) => {
+                        const percent = Number.isFinite(current.percent) ? Math.max(0, Math.min(100, current.percent)) : null;
+                        return (
+                            <article key={current.id} className="overflow-hidden rounded-2xl border border-[#E8D2A6]/30 bg-[#0a0a0a] p-4" data-testid={`offline-active-${current.media_id}`}>
+                                <div className="flex items-center gap-4">
+                                    {current.poster_url ? (
+                                        <img src={current.poster_url} alt="" className="h-20 w-14 shrink-0 rounded-lg border border-[#262626] object-cover" />
+                                    ) : (
+                                        <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded-lg border border-[#262626] bg-[#111] text-[#E8D2A6]"><Film size={18} /></div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] uppercase tracking-[0.16em] text-[#E8D2A6]">{typeLabel(current)}</p>
+                                        <h3 className="mt-1 truncate font-display text-lg text-white">{current.title}</h3>
+                                        {current.episode_title && <p className="truncate text-xs text-neutral-400">{current.episode_title}</p>}
+                                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#262626]">
+                                            <div className={`h-full rounded-full bg-[#E8D2A6] transition-[width] duration-300 ${percent === null ? "w-1/3 animate-pulse" : ""}`} style={percent === null ? undefined : { width: `${percent}%` }} />
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs tabular-nums">
+                                            <span className="text-neutral-400">{percent === null ? "Préparation…" : `${Math.round(percent)} %`} · {formatOfflineSize(current.bytes)} reçus</span>
+                                            <span className="inline-flex items-center gap-1.5 font-medium text-[#E8D2A6]" title="Débit moyen depuis le début du téléchargement"><Gauge size={12} /> {formatOfflineRate(current.rate_bps)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </article>
+                        );
+                    })}
+                </section>
             )}
 
-            {downloads.length === 0 ? (
+            {downloads.length === 0 && activeDownloads.length === 0 ? (
                 <section className="flex flex-col items-center rounded-3xl border border-dashed border-[#343434] px-6 py-14 text-center">
                     <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#262626] bg-[#111] text-[#E8D2A6]"><Film size={23} /></div>
                     <h3 className="font-display text-2xl">Aucun téléchargement</h3>
                     <p className="mt-2 max-w-sm text-sm leading-relaxed text-neutral-500">Ouvrez un film, une série ou un animé, puis choisissez Télécharger pour l’emporter partout.</p>
                     <Button onClick={() => navigate("/browse")} variant="outline" className="mt-6 h-10 rounded-full border-[#262626] bg-transparent px-5 text-white hover:border-[#E8D2A6]/60 hover:bg-white/5">Explorer le catalogue</Button>
                 </section>
-            ) : (
+            ) : downloads.length > 0 ? (
                 <section className="space-y-3">
                     <div className="flex items-center justify-between px-1">
                         <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-500">Disponibles sur cet appareil</span>
@@ -141,7 +173,7 @@ export default function OfflineDownloadsPanel() {
                         </article>
                     ))}
                 </section>
-            )}
+            ) : null}
         </div>
     );
 }

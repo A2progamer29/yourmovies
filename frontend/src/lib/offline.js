@@ -456,8 +456,14 @@ export function offlinePlaybackUrl(download) {
 }
 
 export function formatOfflineSize(bytes) {
-    if (!bytes || bytes < 1024) return "0 o";
+    if (!bytes || bytes < 0) return "0 o";
+    if (bytes < 1024) return `${Math.round(bytes)} o`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
     if (bytes < 1024 * 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} Mo`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1).replace(".", ",")} Go`;
+}
+
+export function formatOfflineRate(bytesPerSecond) {
+    if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "Calcul du débit…";
+    return `${formatOfflineSize(bytesPerSecond)}/s`;
 }

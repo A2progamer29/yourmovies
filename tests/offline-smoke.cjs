@@ -272,6 +272,9 @@ async function main() {
     assert.equal(offline.hasPremiumOfflineAccess({ ...premium, premium_plan: "basic" }), false);
     assert.equal(offline.hasPremiumOfflineAccess({ ...premium, premium_plan: "standard" }), false);
     assert.equal(offline.hasPremiumOfflineAccess({ ...premium, premium_until: new Date(Date.now() - 1000).toISOString() }), false);
+    assert.equal(offline.formatOfflineSize(512), "512 o");
+    assert.equal(offline.formatOfflineRate(2 * 1024 * 1024), "2 Mo/s");
+    assert.equal(offline.formatOfflineRate(0), "Calcul du débit…");
     assert.equal(offline.savePremiumOfflineSession(premium), true);
     assert.equal(offline.readPremiumOfflineSession().user_id, premium.user_id);
 
@@ -345,11 +348,24 @@ async function main() {
     assert.ok(connectionState.includes("readPremiumOfflineSession()"));
     assert.ok(connectionState.includes("hors-ligne-premium"));
 
+    const downloadsContext = fs.readFileSync(path.join(root, "frontend/src/context/OfflineDownloadsContext.jsx"), "utf8");
+    const downloadsPanel = fs.readFileSync(path.join(root, "frontend/src/components/OfflineDownloadsPanel.jsx"), "utf8");
+    const settingsPage = fs.readFileSync(path.join(root, "frontend/src/pages/SettingsPage.jsx"), "utf8");
+    assert.ok(downloadsContext.includes("rate_bps"));
+    assert.ok(downloadsContext.includes("started_at"));
+    assert.ok(downloadsPanel.includes("offline-premium-badge"));
+    assert.ok(downloadsPanel.includes("offline-active-downloads"));
+    assert.ok(downloadsPanel.includes("formatOfflineRate(current.rate_bps)"));
+    assert.ok(settingsPage.includes('addEventListener("wheel", wheel, { passive: false })'));
+    assert.ok(settingsPage.includes("touch-pan-x"));
+    assert.ok(settingsPage.includes("shrink-0 snap-start"));
+
     process.stdout.write("12 fichiers React/JS analysés sans erreur\n");
     process.stdout.write("Accès Basic/Standard/expiré refusé ; accès Premium autorisé\n");
     process.stdout.write("Téléchargements HLS et MP4, segments signés, métadonnées locales : OK\n");
     process.stdout.write("Pages et catalogue hors connexion, lecture vidéo et requêtes Range : OK\n");
     process.stdout.write("Expiration Premium, cloisonnement des comptes et suppression : OK\n");
+    process.stdout.write("Badge Premium, débit en temps réel et rubriques défilables : OK\n");
 }
 
 main().catch((error) => {

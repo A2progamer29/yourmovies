@@ -60,14 +60,41 @@ export function OfflineDownloadsProvider({ children }) {
 
     const download = useCallback(async (media, episode = null) => {
         const id = makeDownloadId(media.id, episode, user?.user_id);
-        setProgress((current) => ({ ...current, [id]: { percent: 0, bytes: 0 } }));
+        const startedAt = Date.now();
+        const details = {
+            id,
+            media_id: media.id,
+            type: media.type,
+            title: media.title,
+            episode_title: episode?.title || null,
+            season_number: episode?.season_number ?? null,
+            episode_number: episode?.ep_number ?? episode?.episode_number ?? null,
+            poster_url: media.poster_url || media.banner_url || null,
+            started_at: startedAt,
+        };
+        setProgress((current) => ({
+            ...current,
+            [id]: { ...details, percent: 0, bytes: 0, rate_bps: 0 },
+        }));
         try {
             const result = await createOfflineDownload({
                 media,
                 episode,
                 user,
                 activeProfile,
-                onProgress: (value) => setProgress((current) => ({ ...current, [id]: value })),
+                onProgress: (value) => {
+                    const bytes = Number(value.bytes || 0);
+                    const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.25);
+                    setProgress((current) => ({
+                        ...current,
+                        [id]: {
+                            ...details,
+                            ...value,
+                            bytes,
+                            rate_bps: bytes / elapsedSeconds,
+                        },
+                    }));
+                },
             });
             await refresh();
             return result;

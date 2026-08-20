@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, X, Users, Download } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X, Users, Download } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -98,6 +98,9 @@ export default function SettingsPage() {
     const formReady = useRef(false);
     const initializedUserId = useRef(null);
     const saveRequest = useRef(0);
+    const tabsRef = useRef(null);
+    const tabsDrag = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
+    const [tabsScroll, setTabsScroll] = useState({ left: false, right: false });
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
     const [sub, setSub] = useState(null);
@@ -113,6 +116,48 @@ export default function SettingsPage() {
     useEffect(() => {
         if (user?.premium && navigator.onLine) api.get("/subscription/current", { silent: true }).then((r) => setSub(r.data)).catch(() => {});
     }, [user]);
+
+    useEffect(() => {
+        if (loading) return undefined;
+        const tabs = tabsRef.current;
+        if (!tabs) return undefined;
+
+        const update = () => {
+            const maximum = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+            setTabsScroll({
+                left: tabs.scrollLeft > 4,
+                right: tabs.scrollLeft < maximum - 4,
+            });
+        };
+        const wheel = (event) => {
+            if (tabs.scrollWidth <= tabs.clientWidth) return;
+            const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+            if (!delta) return;
+            const maximum = tabs.scrollWidth - tabs.clientWidth;
+            const canMove = (delta > 0 && tabs.scrollLeft < maximum) || (delta < 0 && tabs.scrollLeft > 0);
+            if (!canMove) return;
+            event.preventDefault();
+            tabs.scrollLeft += delta;
+        };
+
+        update();
+        tabs.addEventListener("scroll", update, { passive: true });
+        tabs.addEventListener("wheel", wheel, { passive: false });
+        const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+        observer?.observe(tabs);
+        window.addEventListener("resize", update);
+        return () => {
+            tabs.removeEventListener("scroll", update);
+            tabs.removeEventListener("wheel", wheel);
+            observer?.disconnect();
+            window.removeEventListener("resize", update);
+        };
+    }, [loading]);
+
+    useEffect(() => {
+        const activeTab = tabsRef.current?.querySelector(`[data-settings-tab="${tab}"]`);
+        activeTab?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }, [tab]);
 
     useEffect(() => {
         if (user && initializedUserId.current !== user.user_id) {
@@ -444,6 +489,43 @@ export default function SettingsPage() {
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
     ];
 
+    const moveTabs = (direction) => {
+        tabsRef.current?.scrollBy({ left: direction * Math.max(220, tabsRef.current.clientWidth * 0.7), behavior: "smooth" });
+    };
+
+    const beginTabsDrag = (event) => {
+        if (event.pointerType !== "mouse" || event.button !== 0) return;
+        tabsDrag.current = {
+            active: true,
+            startX: event.clientX,
+            scrollLeft: event.currentTarget.scrollLeft,
+            moved: false,
+        };
+    };
+
+    const continueTabsDrag = (event) => {
+        const drag = tabsDrag.current;
+        if (!drag.active) return;
+        const distance = event.clientX - drag.startX;
+        if (Math.abs(distance) > 5) {
+            drag.moved = true;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            event.preventDefault();
+        }
+        if (drag.moved) event.currentTarget.scrollLeft = drag.scrollLeft - distance;
+    };
+
+    const endTabsDrag = () => {
+        tabsDrag.current.active = false;
+    };
+
+    const blockClickAfterDrag = (event) => {
+        if (!tabsDrag.current.moved) return;
+        event.preventDefault();
+        event.stopPropagation();
+        tabsDrag.current.moved = false;
+    };
+
     return (
         <div className="min-h-screen bg-[#050505] text-white">
             <Header />
@@ -453,7 +535,24 @@ export default function SettingsPage() {
                     <h1 className="font-display text-4xl sm:text-5xl tracking-tighter">Paramètres</h1>
                 </div>
 
-                <div className="flex gap-2 mb-8 overflow-x-auto no-scrollbar border-b border-[#262626]">
+                <div className="relative mb-8">
+                    {tabsScroll.left && (
+                        <button type="button" onClick={() => moveTabs(-1)} aria-label="Rubriques précédentes" className="absolute left-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-colors hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a]">
+                            <ChevronLeft size={16} />
+                        </button>
+                    )}
+                    <div
+                        ref={tabsRef}
+                        role="tablist"
+                        aria-label="Rubriques des paramètres"
+                        data-testid="settings-tabs-scroll"
+                        onPointerDown={beginTabsDrag}
+                        onPointerMove={continueTabsDrag}
+                        onPointerUp={endTabsDrag}
+                        onPointerCancel={() => { tabsDrag.current = { ...tabsDrag.current, active: false, moved: false }; }}
+                        onClickCapture={blockClickAfterDrag}
+                        className="flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth overscroll-x-contain touch-pan-x no-scrollbar border-b border-[#262626] px-10"
+                    >
                     {TABS.map((t) => (
                         <button
                             key={t.id}
@@ -462,14 +561,28 @@ export default function SettingsPage() {
                                 navigate(t.id === "downloads" ? "/settings?tab=downloads" : "/settings", { replace: true });
                             }}
                             data-testid={`settings-tab-${t.id}`}
-                            className={`flex items-center gap-2 px-4 py-3 border-b-2 -mb-px text-sm transition-colors ${tab === t.id
+                            data-settings-tab={t.id}
+                            role="tab"
+                            aria-selected={tab === t.id}
+                            className={`flex shrink-0 snap-start items-center gap-2 whitespace-nowrap px-4 py-3 border-b-2 -mb-px text-sm transition-colors ${tab === t.id
                                 ? "border-[#E8D2A6] text-[#E8D2A6]"
                                 : "border-transparent text-neutral-400 hover:text-white"
                                 }`}
                         >
                             {t.icon} {t.label}
+                            {t.id === "downloads" && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[#E8D2A6] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-black">
+                                    <Crown size={9} fill="currentColor" /> Premium
+                                </span>
+                            )}
                         </button>
                     ))}
+                    </div>
+                    {tabsScroll.right && (
+                        <button type="button" onClick={() => moveTabs(1)} aria-label="Rubriques suivantes" className="absolute right-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-colors hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a]">
+                            <ChevronRight size={16} />
+                        </button>
+                    )}
                 </div>
 
                 {tab === "downloads" && <OfflineDownloadsPanel />}
