@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { WifiOff, Gauge, RefreshCw } from "lucide-react";
 import { surAttenteReseau } from "@/lib/api";
+import { readPremiumOfflineSession } from "@/lib/offline";
 
 // Une requête encore en attente au-delà de ce délai signe une liaison poussive.
 const SEUIL_LENTEUR_MS = 6000;
@@ -51,6 +52,25 @@ export default function EtatConnexion() {
     const reessayer = useCallback(() => window.location.reload(), []);
 
     if (horsLigne) {
+        if (readPremiumOfflineSession()) {
+            return (
+                <div
+                    className="fixed inset-x-3 bottom-3 z-[150] flex items-center justify-between gap-3 rounded-xl border border-[#E8D2A6]/30 bg-[#0c0c0c]/95 p-3.5 shadow-2xl backdrop-blur sm:left-auto sm:right-4 sm:max-w-sm"
+                    data-testid="hors-ligne-premium"
+                >
+                    <span className="flex min-w-0 items-center gap-2 text-xs text-neutral-300">
+                        <WifiOff size={15} className="shrink-0 text-[#E8D2A6]" /> Mode hors connexion
+                    </span>
+                    <a
+                        href="/settings?tab=downloads"
+                        className="shrink-0 text-xs font-medium text-[#E8D2A6] transition-colors hover:text-white"
+                    >
+                        Téléchargements
+                    </a>
+                </div>
+            );
+        }
+
         return (
             <div
                 className="fixed inset-0 z-[200] flex items-center justify-center bg-[#050505] px-6"

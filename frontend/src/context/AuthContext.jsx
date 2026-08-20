@@ -3,6 +3,7 @@ import { ecrireLocal, lireLocal, supprimerLocal } from "@/lib/stockage";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { refCode, clearRef } from "@/lib/referral";
+import { clearPremiumOfflineSession, readPremiumOfflineSession, savePremiumOfflineSession } from "@/lib/offline";
 
 const AuthContext = createContext(null);
 
@@ -83,14 +84,20 @@ export function AuthProvider({ children }) {
         // answer 401 even though public playback remains available.
         const token = lireLocal("ym_token");
         if (!token) {
+            clearPremiumOfflineSession();
             setUser(null);
             setLoading(false);
             return;
         }
 
         try {
+            if (!navigator.onLine) {
+                setUser(readPremiumOfflineSession());
+                return;
+            }
             const res = await api.get("/auth/me", { silent: true });
             setUser(res.data);
+            savePremiumOfflineSession(res.data);
             claimDaily();
         } catch (e) {
             // Discard expired/revoked credentials so subsequent page loads stay
@@ -99,10 +106,15 @@ export function AuthProvider({ children }) {
             // autant le jeter comme un jeton expiré.
             if (e?.response?.status === 401 || e?.response?.status === 403) {
                 supprimerLocal("ym_token");
+                clearPremiumOfflineSession();
                 ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
                 setActiveProfileState(null);
+                setUser(null);
+            } else {
+                // Sans réseau, seul un compte Premium déjà vérifié et non expiré
+                // retrouve sa session : les autres visiteurs restent anonymes.
+                setUser(readPremiumOfflineSession());
             }
-            setUser(null);
         } finally {
             setLoading(false);
         }
@@ -174,6 +186,7 @@ export function AuthProvider({ children }) {
             // ignore logout errors
         }
         supprimerLocal("ym_token");
+        clearPremiumOfflineSession();
         ["ym_profile_id", "ym_profile_name", "ym_profile_emoji", "ym_profile_color"].forEach(supprimerLocal);
         setActiveProfileState(null);
         setUser(null);

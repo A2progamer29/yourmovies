@@ -4577,6 +4577,93 @@ async def bunny_playback(
         "libraryMatchesUploadConfig": str(library_id) == str(BUNNY_LIBRARY_ID or ""),
     }
 
+
+@api_router.get("/offline/{media_id}/source")
+async def offline_download_source(
+    media_id: str,
+    request: Request,
+    season_number: Optional[str] = Query(None),
+    episode_number: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """Autorise uniquement Premium à récupérer une source réellement stockable.
+
+    Une iframe protégée ne peut pas être lue sans réseau. Lorsqu’aucun manifeste
+    HLS ou fichier vidéo autorisé n’existe, la fonction est refusée proprement :
+    aucune protection du fournisseur n’est contournée.
+    """
+    entitlement = _effective_premium_entitlement(user)
+    if not entitlement or entitlement["level"] < PREMIUM_PLAN_LEVELS["premium"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Le téléchargement hors connexion est réservé à la formule Premium.",
+        )
+
+    doc = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+
+    playback_doc = doc
+    if doc.get("type") in {"series", "anime"}:
+        if season_number is None or episode_number is None:
+            raise HTTPException(status_code=400, detail="Choisissez l’épisode à télécharger.")
+        playback_doc = next(
+            (
+                episode
+                for season in doc.get("seasons") or []
+                if str(season.get("season_number")) == str(season_number)
+                for episode in season.get("episodes") or []
+                if str(episode.get("ep_number")) == str(episode_number)
+            ),
+            None,
+        )
+        if not playback_doc:
+            raise HTTPException(status_code=404, detail="Épisode introuvable")
+
+    _, video_id = _resolve_bunny_reference(playback_doc)
+    if not video_id:
+        _, video_id = _premiere_piste_jouable(playback_doc)
+    if video_id:
+        manifest_url = await _url_directe(video_id)
+        if not manifest_url:
+            raise HTTPException(
+                status_code=409,
+                detail="Ce lecteur ne permet pas encore le téléchargement sécurisé de ce contenu.",
+            )
+        source_url = manifest_url
+        source_kind = "hls"
+    else:
+        candidates = []
+        for quality in playback_doc.get("qualities") or []:
+            if not isinstance(quality, dict):
+                continue
+            value = quality.get("url")
+            if not value and quality.get("file_path"):
+                value = f"{str(request.base_url).rstrip('/')}/api/files/{quote(str(quality['file_path']), safe='/')}"
+            if value:
+                candidates.append((str(quality.get("quality") or ""), str(value)))
+
+        direct_url = playback_doc.get("video_url")
+        if direct_url and not re.search(r"/(?:embed|play)/\d+/", str(direct_url)):
+            candidates.append(("720p", str(direct_url)))
+        file_path = playback_doc.get("video_file_path")
+        if file_path:
+            candidates.append(("720p", f"{str(request.base_url).rstrip('/')}/api/files/{quote(str(file_path), safe='/')}"))
+        if not candidates:
+            raise HTTPException(status_code=404, detail="Aucun fichier vidéo téléchargeable n’est associé à ce contenu.")
+
+        source_url = next((url for quality, url in candidates if quality == "720p"), candidates[0][1])
+        source_kind = "hls" if ".m3u8" in source_url.lower().split("?", 1)[0] else "file"
+
+    return {
+        "source": {"url": source_url, "kind": source_kind},
+        "media_id": media_id,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "premium_until": entitlement["until"],
+    }
+
+
 # ---------- Plans (abonnements gérés manuellement via Discord) ----------
 
 PLANS = [
@@ -4618,7 +4705,7 @@ PLANS = [
     {
         "id": "premium",
         "name": "Premium",
-        "tagline": "Le même accès, pour ceux qui portent le site",
+        "tagline": "Tout votre cinéma, même sans connexion",
         "features": [
             "Aucune publicité, nulle part",
             "Jusqu'à 4 profils",
@@ -4626,6 +4713,8 @@ PLANS = [
             "Lecture automatique de la suite",
             "Bande-annonce cinéma sur l'accueil",
             "Couleur d'accent et fond de profil",
+            "Films, séries et animés disponibles hors connexion",
+            "Téléchargements privés directement dans le navigateur",
             "Tu fais tourner le site à toi seul",
         ],
         "prices": {

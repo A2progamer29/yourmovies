@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, X, Users } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, X, Users, Download } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -16,6 +16,7 @@ import MonActivite from "@/components/MonActivite";
 import MesStatistiques from "@/components/MesStatistiques";
 import SupportWithAds from "@/components/SupportWithAds";
 import ReferralCard from "@/components/ReferralCard";
+import OfflineDownloadsPanel from "@/components/OfflineDownloadsPanel";
 
 const ACCENT_PRESETS = [
     { name: "Or pâle (défaut)", value: "#E8D2A6" },
@@ -90,7 +91,7 @@ const getAutosaveSuccessMessage = (fields) => {
 export default function SettingsPage() {
     const { user, loading, refresh, setUser } = useAuth();
     const navigate = useNavigate();
-    const [tab, setTab] = useState("profile"); // profile | preferences | security
+    const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get("tab") === "downloads" ? "downloads" : "profile");
     const [form, setForm] = useState({});
     const [, setSaveStatus] = useState("idle");
     const lastSavedForm = useRef({});
@@ -110,7 +111,7 @@ export default function SettingsPage() {
     const [licenseVisible, setLicenseVisible] = useState(false);
 
     useEffect(() => {
-        if (user?.premium) api.get("/subscription/current").then((r) => setSub(r.data)).catch(() => {});
+        if (user?.premium && navigator.onLine) api.get("/subscription/current", { silent: true }).then((r) => setSub(r.data)).catch(() => {});
     }, [user]);
 
     useEffect(() => {
@@ -434,6 +435,7 @@ export default function SettingsPage() {
         { id: "profile", label: "Profil", icon: <UserIcon size={14} /> },
         { id: "preferences", label: "Préférences", icon: <Sliders size={14} /> },
         { id: "activity", label: "Activité", icon: <History size={14} /> },
+        { id: "downloads", label: "Téléchargements", icon: <Download size={14} /> },
         { id: "stats", label: "Statistiques", icon: <ChartPie size={14} /> },
         { id: "devices", label: "Appareils", icon: <MonitorSmartphone size={14} /> },
         { id: "security", label: "Sécurité", icon: <Lock size={14} /> },
@@ -455,7 +457,10 @@ export default function SettingsPage() {
                     {TABS.map((t) => (
                         <button
                             key={t.id}
-                            onClick={() => setTab(t.id)}
+                            onClick={() => {
+                                setTab(t.id);
+                                navigate(t.id === "downloads" ? "/settings?tab=downloads" : "/settings", { replace: true });
+                            }}
                             data-testid={`settings-tab-${t.id}`}
                             className={`flex items-center gap-2 px-4 py-3 border-b-2 -mb-px text-sm transition-colors ${tab === t.id
                                 ? "border-[#E8D2A6] text-[#E8D2A6]"
@@ -466,6 +471,8 @@ export default function SettingsPage() {
                         </button>
                     ))}
                 </div>
+
+                {tab === "downloads" && <OfflineDownloadsPanel />}
 
                 {tab === "profile" && (
                     <div className="space-y-6">

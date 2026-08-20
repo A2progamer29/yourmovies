@@ -7,8 +7,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { api, API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useOfflineDownloads } from "@/context/OfflineDownloadsContext";
 import { showError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
+import OfflineDownloadButton from "@/components/OfflineDownloadButton";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
@@ -313,6 +315,7 @@ export default function WatchPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user, loading: authEnCours, activeProfile } = useAuth();
+    const { downloads, eligible: offlineEligible } = useOfflineDownloads();
     const [searchParams, setSearchParams] = useSearchParams();
     const [media, setMedia] = useState(null);
     const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
@@ -380,6 +383,16 @@ export default function WatchPage() {
     const nextEpisode = selectedPlayableIndex >= 0 && selectedPlayableIndex < playableEpisodes.length - 1
         ? playableEpisodes[selectedPlayableIndex + 1]
         : null;
+
+    useEffect(() => {
+        if (navigator.onLine || !offlineEligible || !downloads.length) return;
+        const season = searchParams.get("season");
+        const episode = searchParams.get("episode");
+        const saved = downloads.find((item) => item.media_id === id
+            && (!season || String(item.season_number) === String(season))
+            && (!episode || String(item.episode_number) === String(episode)));
+        if (saved) navigate(`/offline/${encodeURIComponent(saved.id)}`, { replace: true });
+    }, [downloads, id, navigate, offlineEligible, searchParams]);
 
     useEffect(() => {
         setPlaybackActive(false);
@@ -613,6 +626,7 @@ export default function WatchPage() {
 
     useEffect(() => {
         (async () => {
+            if (!navigator.onLine) return;
             const r = await api.get(`/media/${id}`);
             setMedia(r.data);
             let initialEpisode = null;
@@ -1205,7 +1219,9 @@ export default function WatchPage() {
                         )}
                         </div>
 
-                        <div className="mt-3 flex justify-end">
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                            <OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} className="h-10" />
+                            <div className="flex items-center">
                             <AvertissementContenu media={media} />
                             <ReportDialog
                                 mediaId={media.id}
@@ -1215,6 +1231,7 @@ export default function WatchPage() {
                                     episode_number: selectedEpisode.ep_number,
                                 } : null}
                             />
+                            </div>
                         </div>
 
                         {resumeAt > 0 && !bunnySource && (
