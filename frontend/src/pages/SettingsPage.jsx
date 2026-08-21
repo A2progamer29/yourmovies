@@ -536,11 +536,9 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="relative mb-8">
-                    {tabsScroll.left && (
-                        <button type="button" onClick={() => moveTabs(-1)} aria-label="Rubriques précédentes" className="absolute left-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-colors hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a]">
-                            <ChevronLeft size={16} />
-                        </button>
-                    )}
+                    <button type="button" onClick={() => moveTabs(-1)} aria-label="Rubriques précédentes" aria-hidden={!tabsScroll.left} tabIndex={tabsScroll.left ? 0 : -1} className={`absolute left-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-opacity duration-200 hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a] ${tabsScroll.left ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+                        <ChevronLeft size={16} />
+                    </button>
                     <div
                         ref={tabsRef}
                         role="tablist"
@@ -578,11 +576,9 @@ export default function SettingsPage() {
                         </button>
                     ))}
                     </div>
-                    {tabsScroll.right && (
-                        <button type="button" onClick={() => moveTabs(1)} aria-label="Rubriques suivantes" className="absolute right-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-colors hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a]">
-                            <ChevronRight size={16} />
-                        </button>
-                    )}
+                    <button type="button" onClick={() => moveTabs(1)} aria-label="Rubriques suivantes" aria-hidden={!tabsScroll.right} tabIndex={tabsScroll.right ? 0 : -1} className={`absolute right-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-opacity duration-200 hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a] ${tabsScroll.right ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+                        <ChevronRight size={16} />
+                    </button>
                 </div>
 
                 {tab === "downloads" && <OfflineDownloadsPanel />}
