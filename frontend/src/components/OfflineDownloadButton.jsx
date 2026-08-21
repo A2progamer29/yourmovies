@@ -31,6 +31,7 @@ export default function OfflineDownloadButton({ media, episode = null, compact =
             await download(media, episode);
             toast.success(episode ? "Épisode disponible hors connexion" : "Film disponible hors connexion");
         } catch (error) {
+            if (error?.name === "AbortError") return;
             toast.error(error?.response?.data?.detail || error?.message || "Téléchargement impossible");
         }
     };

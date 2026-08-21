@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import {
     clearOfflineDownloads,
@@ -22,6 +22,7 @@ export function OfflineDownloadsProvider({ children }) {
     const [progress, setProgress] = useState({});
     const [storage, setStorage] = useState({ usage: 0, quota: 0 });
     const [ready, setReady] = useState(false);
+    const controllers = useRef({});
 
     const refresh = useCallback(async () => {
         if (!eligible || !user?.user_id) {
@@ -61,6 +62,8 @@ export function OfflineDownloadsProvider({ children }) {
     const download = useCallback(async (media, episode = null) => {
         const id = makeDownloadId(media.id, episode, user?.user_id);
         const startedAt = Date.now();
+        const controller = new AbortController();
+        controllers.current[id] = controller;
         const details = {
             id,
             media_id: media.id,
@@ -82,6 +85,7 @@ export function OfflineDownloadsProvider({ children }) {
                 episode,
                 user,
                 activeProfile,
+                signal: controller.signal,
                 onProgress: (value) => {
                     const bytes = Number(value.bytes || 0);
                     const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.25);
@@ -99,6 +103,7 @@ export function OfflineDownloadsProvider({ children }) {
             await refresh();
             return result;
         } finally {
+            delete controllers.current[id];
             setProgress((current) => {
                 const next = { ...current };
                 delete next[id];
@@ -106,6 +111,10 @@ export function OfflineDownloadsProvider({ children }) {
             });
         }
     }, [activeProfile, refresh, user]);
+
+    const cancel = useCallback((downloadId) => {
+        controllers.current[downloadId]?.abort();
+    }, []);
 
     const remove = useCallback(async (downloadId) => {
         await removeOfflineDownload(downloadId, user?.user_id);
@@ -124,10 +133,11 @@ export function OfflineDownloadsProvider({ children }) {
         progress,
         storage,
         download,
+        cancel,
         remove,
         refresh,
         getDownload,
-    }), [eligible, ready, downloads, progress, storage, download, remove, refresh, getDownload]);
+    }), [eligible, ready, downloads, progress, storage, download, cancel, remove, refresh, getDownload]);
 
     return <OfflineDownloadsContext.Provider value={value}>{children}</OfflineDownloadsContext.Provider>;
 }

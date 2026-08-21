@@ -276,8 +276,8 @@ function fetchHeaders(url) {
     return headers;
 }
 
-async function fetchSource(url) {
-    const response = await fetch(url, { headers: fetchHeaders(url), cache: "no-store" });
+async function fetchSource(url, signal) {
+    const response = await fetch(url, { headers: fetchHeaders(url), cache: "no-store", signal });
     if (!response.ok) throw new Error(`La vidéo n’est pas téléchargeable pour le moment (${response.status}).`);
     return response;
 }
@@ -303,12 +303,12 @@ function choosePlaylist(master, masterUrl) {
     return candidates.sort((first, second) => (second.height - first.height) || (second.bandwidth - first.bandwidth))[0];
 }
 
-async function storePlaylist(downloadId, sourceUrl, notifyProgress) {
-    const initial = await fetchSource(sourceUrl);
+async function storePlaylist(downloadId, sourceUrl, notifyProgress, signal) {
+    const initial = await fetchSource(sourceUrl, signal);
     const initialText = await initial.text();
     const selected = choosePlaylist(initialText, sourceUrl);
     const playlistUrl = selected?.url || sourceUrl;
-    const playlistText = selected ? await (await fetchSource(playlistUrl)).text() : initialText;
+    const playlistText = selected ? await (await fetchSource(playlistUrl, signal)).text() : initialText;
 
     if (!playlistText.includes("#EXTM3U")) {
         throw new Error("Le lecteur n’a pas fourni une playlist vidéo valide.");
@@ -336,9 +336,10 @@ async function storePlaylist(downloadId, sourceUrl, notifyProgress) {
     let bytes = 0;
     const workers = Array.from({ length: Math.min(4, assets.length) }, async () => {
         while (nextAsset < assets.length) {
+            if (signal?.aborted) throw new DOMException("Téléchargement annulé", "AbortError");
             const current = assets[nextAsset];
             nextAsset += 1;
-            const response = await fetchSource(current.url);
+            const response = await fetchSource(current.url, signal);
             const blob = await response.blob();
             bytes += await saveAsset(downloadId, current.name, blob, response.headers.get("content-type") || blob.type);
             const localUrl = `${OFFLINE_PREFIX}${encodeURIComponent(downloadId)}/${current.name}`;
@@ -356,8 +357,8 @@ async function storePlaylist(downloadId, sourceUrl, notifyProgress) {
     return { kind: "hls", quality: selected?.height ? `${selected.height}p` : "720p", size_bytes: bytes };
 }
 
-async function storeVideoFile(downloadId, sourceUrl, notifyProgress) {
-    const response = await fetchSource(sourceUrl);
+async function storeVideoFile(downloadId, sourceUrl, notifyProgress, signal) {
+    const response = await fetchSource(sourceUrl, signal);
     const expected = Number(response.headers.get("content-length") || 0);
     let blob;
 
@@ -395,7 +396,7 @@ async function savePoster(downloadId, media) {
     }
 }
 
-export async function createOfflineDownload({ media, episode = null, user, activeProfile = null, onProgress = () => {} }) {
+export async function createOfflineDownload({ media, episode = null, user, activeProfile = null, onProgress = () => {}, signal = null }) {
     if (!hasPremiumOfflineAccess(user)) throw new Error("Le téléchargement est réservé à la formule Premium.");
     if (!navigator.onLine) throw new Error("Reconnectez-vous pour télécharger un contenu.");
 
@@ -415,8 +416,8 @@ export async function createOfflineDownload({ media, episode = null, user, activ
 
     try {
         const stored = payload.source.kind === "hls"
-            ? await storePlaylist(downloadId, payload.source.url, onProgress)
-            : await storeVideoFile(downloadId, payload.source.url, onProgress);
+            ? await storePlaylist(downloadId, payload.source.url, onProgress, signal)
+            : await storeVideoFile(downloadId, payload.source.url, onProgress, signal);
         const poster = await savePoster(downloadId, media);
         const download = {
             id: downloadId,

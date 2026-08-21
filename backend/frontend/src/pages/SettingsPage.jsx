@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, X, Users, Download } from "lucide-react";
+import { Upload, Palette, Lock, Crown, Play, Zap, User as UserIcon, Calendar, CreditCard, XCircle, RefreshCw, Link2, Copy, Unlink, Eye, EyeOff, KeyRound, SkipForward, Volume2, Sliders, Check, Clapperboard, MonitorSmartphone, History, ChartPie, Menu, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X, Users, Download } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/errors";
@@ -100,6 +100,7 @@ export default function SettingsPage() {
     const saveRequest = useRef(0);
     const tabsRef = useRef(null);
     const tabsDrag = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
+    const [tabsScroll, setTabsScroll] = useState({ left: false, right: false });
     const [pin, setPin] = useState("");
     const [currentPin, setCurrentPin] = useState("");
     const [sub, setSub] = useState(null);
@@ -121,6 +122,13 @@ export default function SettingsPage() {
         const tabs = tabsRef.current;
         if (!tabs) return undefined;
 
+        const update = () => {
+            const maximum = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+            setTabsScroll({
+                left: tabs.scrollLeft > 4,
+                right: tabs.scrollLeft < maximum - 4,
+            });
+        };
         const wheel = (event) => {
             if (tabs.scrollWidth <= tabs.clientWidth) return;
             const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
@@ -132,9 +140,17 @@ export default function SettingsPage() {
             tabs.scrollLeft += delta;
         };
 
+        update();
+        tabs.addEventListener("scroll", update, { passive: true });
         tabs.addEventListener("wheel", wheel, { passive: false });
+        const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+        observer?.observe(tabs);
+        window.addEventListener("resize", update);
         return () => {
+            tabs.removeEventListener("scroll", update);
             tabs.removeEventListener("wheel", wheel);
+            observer?.disconnect();
+            window.removeEventListener("resize", update);
         };
     }, [loading]);
 
@@ -473,6 +489,10 @@ export default function SettingsPage() {
         { id: "discord", label: "Discord", icon: <Link2 size={14} /> },
     ];
 
+    const moveTabs = (direction) => {
+        tabsRef.current?.scrollBy({ left: direction * Math.max(220, tabsRef.current.clientWidth * 0.7), behavior: "smooth" });
+    };
+
     const beginTabsDrag = (event) => {
         if (event.pointerType !== "mouse" || event.button !== 0) return;
         tabsDrag.current = {
@@ -516,6 +536,9 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="relative mb-8">
+                    <button type="button" onClick={() => moveTabs(-1)} aria-label="Rubriques précédentes" aria-hidden={!tabsScroll.left} tabIndex={tabsScroll.left ? 0 : -1} className={`absolute left-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-opacity duration-200 hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a] ${tabsScroll.left ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+                        <ChevronLeft size={16} />
+                    </button>
                     <div
                         ref={tabsRef}
                         role="tablist"
@@ -545,9 +568,17 @@ export default function SettingsPage() {
                                 }`}
                         >
                             {t.icon} {t.label}
+                            {t.id === "downloads" && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[#E8D2A6] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-black">
+                                    <Crown size={9} fill="currentColor" /> Premium
+                                </span>
+                            )}
                         </button>
                     ))}
                     </div>
+                    <button type="button" onClick={() => moveTabs(1)} aria-label="Rubriques suivantes" aria-hidden={!tabsScroll.right} tabIndex={tabsScroll.right ? 0 : -1} className={`absolute right-0 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#343434] bg-[#111] text-[#E8D2A6] shadow-xl transition-opacity duration-200 hover:border-[#E8D2A6]/60 hover:bg-[#1a1a1a] ${tabsScroll.right ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+                        <ChevronRight size={16} />
+                    </button>
                 </div>
 
                 {tab === "downloads" && <OfflineDownloadsPanel />}

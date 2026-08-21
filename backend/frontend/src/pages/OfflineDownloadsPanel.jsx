@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Crown, Download, Film, Gauge, HardDrive, Play, Trash2, WifiOff, X } from "lucide-react";
+import { Check, Crown, Download, Film, Gauge, HardDrive, Play, Trash2, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useOfflineDownloads } from "@/context/OfflineDownloadsContext";
@@ -17,6 +17,9 @@ function PremiumGate() {
         <section className="relative overflow-hidden rounded-3xl border border-[#E8D2A6]/25 bg-[#0a0a0a] px-6 py-9 sm:px-9" data-testid="offline-premium-required">
             <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#E8D2A6]/10 blur-3xl" />
             <div className="relative max-w-xl">
+                <span className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[#E8D2A6] bg-[#E8D2A6] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-black" data-testid="offline-premium-badge">
+                    <Crown size={13} fill="currentColor" /> Premium
+                </span>
                 <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-[#E8D2A6]/30 bg-[#E8D2A6]/10 text-[#E8D2A6]">
                     <Crown size={21} />
                 </div>
@@ -36,7 +39,7 @@ function PremiumGate() {
 
 export default function OfflineDownloadsPanel() {
     const navigate = useNavigate();
-    const { eligible, downloads, progress, storage, remove, cancel } = useOfflineDownloads();
+    const { eligible, downloads, progress, storage, remove } = useOfflineDownloads();
     const [removing, setRemoving] = useState(null);
     if (!eligible) return <PremiumGate />;
 
@@ -117,9 +120,6 @@ export default function OfflineDownloadsPanel() {
                                             <span className="inline-flex items-center gap-1.5 font-medium text-[#E8D2A6]" title="Débit moyen depuis le début du téléchargement"><Gauge size={12} /> {formatOfflineRate(current.rate_bps)}</span>
                                         </div>
                                     </div>
-                                    <Button onClick={() => cancel(current.id)} variant="outline" aria-label={`Annuler le téléchargement de ${current.title}`} className="h-9 w-9 shrink-0 self-start rounded-full border-[#262626] bg-transparent p-0 text-neutral-400 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400">
-                                        <X size={15} />
-                                    </Button>
                                 </div>
                             </article>
                         );
