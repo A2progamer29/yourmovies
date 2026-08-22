@@ -293,6 +293,26 @@ export default function MediaDetailPage() {
                                     {status.watchlist ? "Dans ma liste" : "À voir plus tard"}
                                 </Button>
                             </div>
+                            {media.type === "movie" && (media.language_tracks || []).some((p) => p?.label && p?.bunny_video_id) && (
+                                <div className="mt-3 flex flex-wrap items-center gap-1.5" data-testid="media-pistes">
+                                    <span className="mr-1 text-[10px] uppercase tracking-widest text-neutral-500">Version</span>
+                                    <Link
+                                        to={`/watch/${media.id}`}
+                                        className="rounded-full border border-[#262626] px-2.5 py-1 text-[11px] text-neutral-300 transition-colors hover:border-[#E8D2A6]/60 hover:text-[#E8D2A6]"
+                                    >
+                                        Principale
+                                    </Link>
+                                    {media.language_tracks.filter((p) => p?.label && p?.bunny_video_id).map((p) => (
+                                        <Link
+                                            key={p.label}
+                                            to={`/watch/${media.id}?piste=${encodeURIComponent(p.label)}`}
+                                            className="rounded-full border border-[#262626] px-2.5 py-1 text-[11px] text-neutral-300 transition-colors hover:border-[#E8D2A6]/60 hover:text-[#E8D2A6]"
+                                        >
+                                            {p.label}
+                                        </Link>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </motion.div>
@@ -387,6 +407,9 @@ export default function MediaDetailPage() {
                                                         );
                                                     }
 
+                                                    const pistesEp = (ep.language_tracks || []).filter((p) => p?.label && p?.bunny_video_id);
+                                                    const aPrincipale = Boolean(ep.bunny_video_id || ep.video_url || ep.video_file_path);
+
                                                     return (
                                                         <li key={j} className="flex items-center gap-2">
                                                             <Link
@@ -403,11 +426,35 @@ export default function MediaDetailPage() {
                                                                             <span className="text-neutral-500 mr-3">E{epNo}</span>
                                                                             {label}
                                                                         </span>
-                                                                        {ep.duration && <span className="block text-xs text-neutral-500 mt-0.5">{ep.duration} min</span>}
+                                                                        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+                                                                            {ep.duration && <span>{ep.duration} min</span>}
+                                                                            {!aPrincipale && pistesEp.length > 0 && (
+                                                                                <span className="text-[#E8D2A6]">{pistesEp[0].label}</span>
+                                                                            )}
+                                                                        </span>
                                                                     </span>
                                                                 </span>
                                                                 <span className="shrink-0 text-[11px] text-neutral-600 transition-colors group-hover:text-[#E8D2A6]">Regarder</span>
                                                             </Link>
+                                                            {(aPrincipale && pistesEp.length > 0) && (
+                                                                <div className="flex flex-wrap items-center gap-1.5" data-testid={`episode-pistes-${seasonNo}-${epNo}`}>
+                                                                    <Link
+                                                                        to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}`}
+                                                                        className="rounded-full border border-[#262626] px-2.5 py-1 text-[11px] text-neutral-300 transition-colors hover:border-[#E8D2A6]/60 hover:text-[#E8D2A6]"
+                                                                    >
+                                                                        Principale
+                                                                    </Link>
+                                                                    {pistesEp.map((p) => (
+                                                                        <Link
+                                                                            key={p.label}
+                                                                            to={`/watch/${media.id}?season=${seasonNo}&episode=${epNo}&piste=${encodeURIComponent(p.label)}`}
+                                                                            className="rounded-full border border-[#262626] px-2.5 py-1 text-[11px] text-neutral-300 transition-colors hover:border-[#E8D2A6]/60 hover:text-[#E8D2A6]"
+                                                                        >
+                                                                            {p.label}
+                                                                        </Link>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                             <OfflineDownloadButton media={media} episode={{ ...ep, season_number: seasonNo, ep_number: epNo }} compact />
                                                         </li>
                                                     );

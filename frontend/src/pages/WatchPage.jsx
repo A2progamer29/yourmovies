@@ -334,7 +334,7 @@ export default function WatchPage() {
     const bunnyLastProgressSave = useRef(0);
     const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [manifestUrl, setManifestUrl] = useState(null);
-    const [piste, setPiste] = useState(null);
+    const [piste, setPiste] = useState(() => searchParams.get("piste") || null);
     // Seul le franchissement du seuil change de lecteur. Faire dépendre l'appel
     // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
     const lecteurAvanceDemande = (Number(user?.audio_boost) || 1) > 1;
@@ -396,7 +396,7 @@ export default function WatchPage() {
 
     useEffect(() => {
         setPlaybackActive(false);
-        setPiste(null);
+        setPiste(searchParams.get("piste") || null);
         setFinAtteinte(false);
         suiteRefusee.current = false;
     }, [id, selectedEpisodeKey]);
