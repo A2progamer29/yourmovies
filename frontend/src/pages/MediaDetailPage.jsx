@@ -364,7 +364,12 @@ export default function MediaDetailPage() {
                                                 {(s.episodes || []).map((ep, j) => {
                                                     const seasonNo = s.season_number || i + 1;
                                                     const epNo = ep.ep_number || j + 1;
-                                                    const playable = Boolean(ep.bunny_video_id || ep.video_url || ep.video_file_path);
+                                                    const playable = Boolean(
+                                                        ep.bunny_video_id
+                                                        || ep.video_url
+                                                        || ep.video_file_path
+                                                        || (ep.language_tracks || []).some((piste) => piste?.bunny_video_id),
+                                                    );
                                                     const label = ep.title || "Épisode";
 
                                                     if (!playable) {
