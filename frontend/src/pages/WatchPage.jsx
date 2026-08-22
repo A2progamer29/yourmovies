@@ -527,7 +527,13 @@ export default function WatchPage() {
         };
     }, [media, selectedEpisode]);
 
-    const playbackMedia = media?.type === "movie" ? media : selectedEpisode;
+    const baseMedia = media?.type === "movie" ? media : selectedEpisode;
+    // Une piste choisie remplace la source principale : le lecteur doit
+    // vraiment changer de fichier, pas seulement l'affichage du bouton.
+    const pisteActive = piste ? (baseMedia?.language_tracks || []).find((p) => p?.label === piste) : null;
+    const playbackMedia = pisteActive
+        ? { ...baseMedia, bunny_video_id: pisteActive.bunny_video_id, bunny_library_id: pisteActive.bunny_library_id }
+        : baseMedia;
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
     useEffect(() => {
