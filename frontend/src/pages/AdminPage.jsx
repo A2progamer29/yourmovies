@@ -424,9 +424,13 @@ export default function AdminPage() {
     const filteredItems = items.filter((m) => {
         if (q && !m.title.toLowerCase().includes(q.toLowerCase())) return false;
         if (mediaFilter === "incomplete") return isMediaIncomplete(m);
+        if (mediaFilter === "featured") return Boolean(m.featured);
         if (mediaFilter !== "all") return m.type === mediaFilter;
         return true;
     });
+    if (mediaFilter === "featured") {
+        filteredItems.sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999));
+    }
     const filteredUsers = users.filter((u) => !userQ ||
         (u.email || "").toLowerCase().includes(userQ.toLowerCase()) ||
         (u.name || "").toLowerCase().includes(userQ.toLowerCase())
@@ -682,6 +686,7 @@ export default function AdminPage() {
                                     { id: "series", label: "Séries", n: stats.series },
                                     { id: "anime", label: "Animes", n: stats.animes },
                                     { id: "incomplete", label: "Incomplets", n: incompleteItems.length },
+                                    { id: "featured", label: "À l'affiche", n: stats.featured },
                                 ].map((f) => (
                                     <button
                                         key={f.id}
