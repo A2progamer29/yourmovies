@@ -1323,12 +1323,14 @@ async def _sync_uqflex_media() -> int:
         if not media_id:
             continue
 
-        existing = await db.media.find_one({"id": media_id}, {"_id": 0, "id": 1})
+        existing = await db.media.find_one({"id": media_id}, {"_id": 0, "id": 1, "created_at": 1})
         if existing:
             managed_fields = {
                 key: value for key, value in doc.items()
                 if key not in {"featured", "featured_order", "in_theaters", "player_broken", "player_notice"}
             }
+            if existing.get("created_at") == doc.get("created_at"):
+                managed_fields["created_at"] = datetime.now(timezone.utc).isoformat()
             await db.media.update_one({"id": media_id}, {"$set": managed_fields})
             continue
 
@@ -1355,6 +1357,7 @@ async def _sync_uqflex_media() -> int:
         if await db.media.find_one({"$or": duplicate_query}, {"_id": 0, "id": 1}):
             continue
 
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
         await db.media.insert_one(doc)
         imported += 1
         if tmdb_id:
