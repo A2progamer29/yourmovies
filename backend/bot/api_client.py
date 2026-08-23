@@ -28,7 +28,7 @@ class YourMoviesAPI:
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def _request(self, method: str, path: str, *, json: dict | None = None) -> dict[str, Any]:
+    async def _request(self, method: str, path: str, *, json: dict | None = None) -> Any:
         try:
             response = await self.client.request(method, f"{self.base_url}{path}", json=json)
         except httpx.TimeoutException as exc:
@@ -124,3 +124,25 @@ class YourMoviesAPI:
             "guild_id": str(guild_id),
             "boost_count": count,
         })
+
+    async def configure_media_notifications(self, *, guild_id: int, channel_id: int) -> dict:
+        return await self._request("POST", "/api/internal/discord/media-notifications/config", json={
+            "guild_id": str(guild_id),
+            "channel_id": str(channel_id),
+        })
+
+    async def media_events(self, *, guild_id: int, limit: int = 25) -> dict:
+        result = await self._request("GET", f"/api/internal/discord/media-events/{guild_id}?limit={limit}")
+        return result if isinstance(result, dict) else {"configured": False, "channel_id": None, "events": []}
+
+    async def acknowledge_media_event(self, *, cursor: str, guild_id: int) -> dict:
+        return await self._request("POST", f"/api/internal/discord/media-events/{cursor}/ack", json={
+            "guild_id": str(guild_id),
+        })
+
+    async def media_catalog(self, *, media_type: str | None = None, limit: int = 500) -> list[dict]:
+        params = [f"limit={max(1, min(limit, 500))}"]
+        if media_type:
+            params.append(f"type={media_type}")
+        result = await self._request("GET", f"/api/media?{'&'.join(params)}")
+        return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
