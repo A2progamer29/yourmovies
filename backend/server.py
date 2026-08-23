@@ -1309,6 +1309,65 @@ async def _uqflex_overrides(ids: list[str]) -> dict:
     return {str(row.get("id")): row for row in rows}
 
 
+async def _sync_uqflex_media() -> int:
+    if not uqflex_catalog.configured():
+        return 0
+
+    api_base = (os.environ.get("PUBLIC_API_URL") or "").rstrip("/")
+    imported = 0
+    seen_tmdb = set()
+    seen_titles = set()
+    for item in list(uqflex_catalog._cache_items):
+        doc = uqflex_catalog.to_media_doc(item, api_base)
+        media_id = doc.get("id")
+        if not media_id:
+            continue
+
+        existing = await db.media.find_one({"id": media_id}, {"_id": 0, "id": 1})
+        if existing:
+            managed_fields = {
+                key: value for key, value in doc.items()
+                if key not in {"featured", "featured_order", "in_theaters", "player_broken", "player_notice"}
+            }
+            await db.media.update_one({"id": media_id}, {"$set": managed_fields})
+            continue
+
+        tmdb_id = doc.get("tmdb_id")
+        if tmdb_id not in (None, ""):
+            try:
+                tmdb_id = int(tmdb_id)
+            except (TypeError, ValueError):
+                tmdb_id = None
+        title_key = (
+            _timeline_title_key(doc.get("title")),
+            str(doc.get("year") or ""),
+            str(doc.get("type") or "movie"),
+        )
+        if (tmdb_id and tmdb_id in seen_tmdb) or title_key in seen_titles:
+            continue
+
+        duplicate_query = [
+            {"id": media_id},
+            {"title": doc.get("title"), "year": doc.get("year"), "type": doc.get("type")},
+        ]
+        if tmdb_id:
+            duplicate_query.append({"tmdb_id": tmdb_id})
+        if await db.media.find_one({"$or": duplicate_query}, {"_id": 0, "id": 1}):
+            continue
+
+        await db.media.insert_one(doc)
+        imported += 1
+        if tmdb_id:
+            seen_tmdb.add(tmdb_id)
+        seen_titles.add(title_key)
+        try:
+            await _record_catalog_history(doc, active=True, user_id=None)
+            await _record_media_event("added", doc, user_id=None)
+        except Exception as exc:
+            logger.warning("Journalisation de l'ajout UQFlex %s impossible : %s", media_id, exc)
+    return imported
+
+
 async def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool]) -> list:
     if not uqflex_catalog.configured():
         return local_docs
@@ -1424,6 +1483,7 @@ async def admin_uqflex_status(user: dict = Depends(require_perm("content.add")))
 @api_router.post("/admin/uqflex/sync")
 async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
     await run_in_threadpool(uqflex_catalog.fetch_items, True)
+    await _sync_uqflex_media()
     return _uqflex_status()
 
 
@@ -7172,6 +7232,9 @@ async def _uqflex_sync_loop():
     while True:
         try:
             await run_in_threadpool(uqflex_catalog.fetch_items, True)
+            imported = await _sync_uqflex_media()
+            if imported:
+                logger.info("Catalogue UQFlex: %s nouveau(x) contenu(s) ajoute(s)", imported)
         except Exception as e:
             logger.warning(f"Synchronisation UQFlex échouée : {e}")
         await asyncio.sleep(uqflex_catalog.SYNC_INTERVAL)
