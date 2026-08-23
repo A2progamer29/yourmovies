@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target, Loader2 } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -79,6 +79,15 @@ function metaTendance(media) {
     ].filter(Boolean).join(" · ");
 }
 
+function tempsRestant(timestamp, now) {
+    if (!timestamp) return "en attente";
+    const secondes = Math.max(0, Math.round((new Date(timestamp).getTime() - now) / 1000));
+    if (secondes < 60) return `${secondes}s`;
+    const minutes = Math.floor(secondes / 60);
+    if (minutes < 60) return `${minutes} min`;
+    return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
 export default function AdminPage() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
@@ -117,6 +126,9 @@ export default function AdminPage() {
     const [aiDiscoveryError, setAiDiscoveryError] = useState("");
     const [aiDiscoveryLoadedAt, setAiDiscoveryLoadedAt] = useState(null);
     const [aiDiscoveryRemoving, setAiDiscoveryRemoving] = useState({});
+    const [uqflexStatus, setUqflexStatus] = useState(null);
+    const [uqflexLoading, setUqflexLoading] = useState(false);
+    const [uqflexNow, setUqflexNow] = useState(Date.now());
     const tabParam = new URLSearchParams(location.search).get("tab") || "overview";
 
     const loadMedia = async () => {
@@ -127,6 +139,23 @@ export default function AdminPage() {
         } finally {
             setMediaLoading(false);
         }
+    };
+    const loadUqflexStatus = async () => {
+        setUqflexLoading(true);
+        try {
+            const r = await api.get("/admin/uqflex/status", { silent: true });
+            setUqflexStatus(r.data);
+        } catch (e) { showError(toast, e, "Statut UQFlex indisponible"); }
+        finally { setUqflexLoading(false); }
+    };
+    const forceUqflexSync = async () => {
+        setUqflexLoading(true);
+        try {
+            const r = await api.post("/admin/uqflex/sync");
+            setUqflexStatus(r.data);
+            toast.success("Catalogue UQFlex synchronisé");
+        } catch (e) { showError(toast, e, "Synchronisation UQFlex impossible"); }
+        finally { setUqflexLoading(false); }
     };
     const loadUsers = async () => {
         try {
@@ -225,6 +254,7 @@ export default function AdminPage() {
             cagnotte: { run: loadCagnotte },
             licenseKeys: { run: loadLicenseKeys, perm: "keys.manage" },
             discovery: { run: loadAiDiscovery, perm: "content.add" },
+            uqflex: { run: loadUqflexStatus, perm: "content.add" },
             pending: { run: loadPendingCount, perm: "content.add" },
             reports: { run: loadReportCount, perm: "content.edit" },
         };
@@ -233,6 +263,7 @@ export default function AdminPage() {
             media: ["media"],
             players: ["media", "reports"],
             discovery: ["discovery"],
+            uqflex: ["uqflex"],
             users: ["users"],
             comments: ["reviews"],
             wishboard: ["wishes"],
@@ -250,6 +281,12 @@ export default function AdminPage() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, tabParam]);
+
+    useEffect(() => {
+        if (tabParam !== "uqflex") return undefined;
+        const timer = window.setInterval(() => setUqflexNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [tabParam]);
 
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
@@ -486,6 +523,7 @@ export default function AdminPage() {
         {
             label: "Catalogue", items: [
                 { value: "media", label: "Contenus", icon: <Film size={14} />, badge: incompleteItems.length },
+                { value: "uqflex", label: "UQFlex", icon: <RefreshCw size={14} />, perm: "content.add" },
                 { value: "discovery", label: "Tendances", icon: <Sparkles size={14} />, perm: "content.add" },
                 { value: "views", label: "Vues", icon: <Eye size={14} />, perm: "content.add" },
                 { value: "players", label: "Signalements", icon: <Flag size={14} />, perm: "content.edit", badge: alertes },
@@ -817,6 +855,69 @@ export default function AdminPage() {
                             ))}
                         </div>
                     </TabsContent>
+
+                    {can(user, "content.add") && (
+                        <TabsContent value="uqflex" className="mt-0 space-y-6">
+                            <SectionHeader
+                                titre="UQFlex"
+                                description="Catalogue partenaire synchronisé automatiquement. Les vidéos restent hébergées chez UQFlex et sont lues via YourMovie&apos;s."
+                            >
+                                <Button
+                                    onClick={forceUqflexSync}
+                                    disabled={uqflexLoading}
+                                    data-testid="uqflex-force-sync"
+                                    className="rounded-full bg-[#E8D2A6] px-5 font-semibold text-black hover:bg-[#D4BB8B]"
+                                >
+                                    {uqflexLoading ? <Loader2 size={14} className="mr-2 animate-spin" /> : <RefreshCw size={14} className="mr-2" />}
+                                    {uqflexLoading ? "Synchronisation…" : "Forcer la synchronisation"}
+                                </Button>
+                            </SectionHeader>
+
+                            {!uqflexStatus ? (
+                                <div className="flex items-center gap-2.5 rounded-xl border border-[#262626] bg-[#0a0a0a] p-8 text-sm text-neutral-400">
+                                    <Loader2 size={16} className="animate-spin text-[#E8D2A6]" /> Lecture du statut UQFlex…
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                        {[
+                                            ["Films", uqflexStatus.movies, "text-white"],
+                                            ["Séries", uqflexStatus.series, "text-sky-300"],
+                                            ["Animes", uqflexStatus.anime, "text-[#E8D2A6]"],
+                                            ["Total", uqflexStatus.items, "text-emerald-300"],
+                                        ].map(([label, value, color]) => (
+                                            <div key={label} className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-4">
+                                                <div className="text-[10px] uppercase tracking-widest text-neutral-500">{label}</div>
+                                                <div className={`mt-1 font-display text-3xl ${color}`}>{value ?? 0}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] p-5">
+                                        <div className="flex flex-wrap items-center justify-between gap-4">
+                                            <div>
+                                                <div className="flex items-center gap-2 text-sm font-medium text-white">
+                                                    <span className={`h-2 w-2 rounded-full ${uqflexStatus.configured && !uqflexStatus.error ? "bg-emerald-400" : "bg-red-400"}`} />
+                                                    {uqflexStatus.configured ? (uqflexStatus.error ? "Synchronisation en erreur" : "Synchronisation active") : "Clé UQFlex absente"}
+                                                </div>
+                                                <div className="mt-1 text-xs text-neutral-500">
+                                                    Dernière synchronisation : {uqflexStatus.last_sync_at ? new Date(uqflexStatus.last_sync_at).toLocaleString("fr-FR") : "jamais"}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-[10px] uppercase tracking-widest text-neutral-500">Prochaine synchronisation</div>
+                                                <div className="mt-1 text-lg font-semibold text-[#E8D2A6]">dans {tempsRestant(uqflexStatus.next_sync_at, uqflexNow)}</div>
+                                            </div>
+                                        </div>
+                                        {uqflexStatus.error && <div className="mt-4 border-t border-red-500/20 pt-3 text-xs text-red-300">{uqflexStatus.error}</div>}
+                                        <p className="mt-4 border-t border-[#1a1a1a] pt-3 text-xs leading-relaxed text-neutral-500">
+                                            Le bouton force une nouvelle lecture du catalogue partenaire. Les fiches et les liens vidéo sont mis à jour sans copier les fichiers vidéo.
+                                        </p>
+                                    </div>
+                                </>
+                            )}
+                        </TabsContent>
+                    )}
 
                     {can(user, "content.add") && (
                         <TabsContent value="discovery" className="mt-0 space-y-6">

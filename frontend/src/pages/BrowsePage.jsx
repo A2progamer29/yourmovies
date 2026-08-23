@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Search, Filter, X, Sparkles, ArrowRight } from "lucide-react";
+import { Search, Filter, X, Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { api } from "@/lib/api";
@@ -29,6 +29,7 @@ export default function BrowsePage() {
 
     useEffect(() => {
         const controller = new AbortController();
+        setChargement(true);
         const timer = window.setTimeout(async () => {
             const params = new URLSearchParams();
             if (type) params.set("type", type);
@@ -39,7 +40,7 @@ export default function BrowsePage() {
             } catch (error) {
                 if (error?.code !== "ERR_CANCELED") setItems([]);
             } finally {
-                setChargement(false);
+                if (!controller.signal.aborted) setChargement(false);
             }
         }, 250);
         return () => {
@@ -172,6 +173,11 @@ export default function BrowsePage() {
                 {chargement ? (
                     <GrilleSkeleton />
                 ) : filtered.length === 0 ? (
+                    chargement ? (
+                        <div className="flex min-h-48 items-center justify-center" aria-label="Chargement des résultats">
+                            <Loader2 size={28} className="animate-spin text-[#E8D2A6]" />
+                        </div>
+                    ) : (
                     <div className="mx-auto max-w-xl rounded-2xl border border-[#E8D2A6]/30 bg-[#0c0c0c] px-6 py-12 text-center">
                         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#E8D2A6] text-black">
                             <Sparkles size={24} />
@@ -190,6 +196,7 @@ export default function BrowsePage() {
                             Proposer ce titre <ArrowRight size={16} />
                         </Link>
                     </div>
+                    )
                 ) : (
                     <>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
