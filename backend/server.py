@@ -7174,7 +7174,7 @@ async def _uqflex_sync_loop():
             await run_in_threadpool(uqflex_catalog.fetch_items, True)
         except Exception as e:
             logger.warning(f"Synchronisation UQFlex échouée : {e}")
-        await asyncio.sleep(3600)
+        await asyncio.sleep(uqflex_catalog.SYNC_INTERVAL)
 
 async def _blocked_purge_loop():
     while True:

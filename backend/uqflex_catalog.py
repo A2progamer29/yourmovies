@@ -14,7 +14,7 @@ from urllib.parse import quote
 import requests
 
 CACHE_TTL = 90
-SYNC_INTERVAL = 3600
+SYNC_INTERVAL = 60
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "uqflex_catalog.json")
 _cache_at = 0.0
 _cache_items: list[dict] = []

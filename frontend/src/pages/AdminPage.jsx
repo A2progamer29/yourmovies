@@ -82,10 +82,8 @@ function metaTendance(media) {
 function tempsRestant(timestamp, now) {
     if (!timestamp) return "en attente";
     const secondes = Math.max(0, Math.round((new Date(timestamp).getTime() - now) / 1000));
-    if (secondes < 60) return `${secondes}s`;
     const minutes = Math.floor(secondes / 60);
-    if (minutes < 60) return `${minutes} min`;
-    return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+    return `${minutes} min ${String(secondes % 60).padStart(2, "0")} s`;
 }
 
 export default function AdminPage() {
@@ -285,6 +283,12 @@ export default function AdminPage() {
     useEffect(() => {
         if (tabParam !== "uqflex") return undefined;
         const timer = window.setInterval(() => setUqflexNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [tabParam]);
+
+    useEffect(() => {
+        if (tabParam !== "uqflex") return undefined;
+        const timer = window.setInterval(() => loadUqflexStatus(), 60000);
         return () => window.clearInterval(timer);
     }, [tabParam]);
 
