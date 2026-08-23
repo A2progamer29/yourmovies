@@ -9,6 +9,10 @@ export const API = `${BACKEND_URL}/api`;
 export const api = axios.create({
     baseURL: API,
     withCredentials: true,
+    // Sans timeout, une requête bloquée (API externe lente, réveil du serveur)
+    // tournait indéfiniment : le bouton restait sur "chargement" pour
+    // toujours, sans jamais basculer sur le message d'erreur existant.
+    timeout: 45000,
 });
 
 
