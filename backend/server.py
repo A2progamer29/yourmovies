@@ -1392,6 +1392,41 @@ async def admin_list_uqflex(request: Request, user: dict = Depends(require_perm(
     return [serialize_media({**doc, **overrides.get(str(doc.get("id")), {})}) for doc in docs]
 
 
+def _uqflex_status() -> dict:
+    items = list(uqflex_catalog._cache_items)
+    counts = {"movie": 0, "series": 0, "anime": 0}
+    for item in items:
+        kind = str(item.get("type") or "").lower()
+        if kind in counts:
+            counts[kind] += 1
+    last_sync = uqflex_catalog._last_sync_at or uqflex_catalog._cache_at
+    def iso_timestamp(value):
+        return datetime.fromtimestamp(value, timezone.utc).isoformat() if value else None
+    return {
+        "configured": uqflex_catalog.configured(),
+        "items": len(items),
+        "movies": counts["movie"],
+        "series": counts["series"],
+        "anime": counts["anime"],
+        "last_sync_at": iso_timestamp(last_sync),
+        "next_sync_at": iso_timestamp(last_sync + uqflex_catalog.SYNC_INTERVAL) if last_sync else None,
+        "sync_interval_seconds": uqflex_catalog.SYNC_INTERVAL,
+        "error": uqflex_catalog._last_sync_error or None,
+    }
+
+
+@api_router.get("/admin/uqflex/status")
+async def admin_uqflex_status(user: dict = Depends(require_perm("content.add"))):
+    await run_in_threadpool(uqflex_catalog.fetch_items, False)
+    return _uqflex_status()
+
+
+@api_router.post("/admin/uqflex/sync")
+async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
+    await run_in_threadpool(uqflex_catalog.fetch_items, True)
+    return _uqflex_status()
+
+
 class UqflexFlagsInput(BaseModel):
     featured: Optional[bool] = None
     featured_order: Optional[int] = Field(default=None, ge=1, le=999)

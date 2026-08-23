@@ -14,10 +14,13 @@ from urllib.parse import quote
 import requests
 
 CACHE_TTL = 90
+SYNC_INTERVAL = 3600
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "uqflex_catalog.json")
 _cache_at = 0.0
 _cache_items: list[dict] = []
 _active_base = ""
+_last_sync_at = 0.0
+_last_sync_error = ""
 
 
 def _partner_key() -> str:
@@ -138,7 +141,7 @@ def _write_disk(rows: list[dict]) -> None:
 
 
 def fetch_items(force: bool = False) -> list[dict]:
-    global _cache_at, _cache_items, _active_base
+    global _cache_at, _cache_items, _active_base, _last_sync_at, _last_sync_error
     if not configured():
         return []
     now = time.time()
@@ -156,6 +159,8 @@ def fetch_items(force: bool = False) -> list[dict]:
         if items:
             _cache_items = items
             _cache_at = now
+            _last_sync_at = now
+            _last_sync_error = ""
             _active_base = "ssh"
             _write_disk(items)
             print("uqflex catalog ok via ssh: %s items" % len(items), flush=True)
@@ -185,11 +190,14 @@ def fetch_items(force: bool = False) -> list[dict]:
             continue
         _cache_items = items
         _cache_at = now
+        _last_sync_at = now
+        _last_sync_error = ""
         _active_base = base
         _write_disk(items)
         print("uqflex catalog ok: %s items" % len(items), flush=True)
         return items
     print("uqflex catalog fetch failed: %s" % (last_error or "unknown"), flush=True)
+    _last_sync_error = last_error or "unknown"
     _cache_at = now
     return list(_cache_items)
 

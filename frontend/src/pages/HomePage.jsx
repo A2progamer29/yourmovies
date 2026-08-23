@@ -70,7 +70,13 @@ export default function HomePage() {
             if (annule) return;
 
             const catalogue = Array.isArray(all?.data) ? all.data : [];
-            const parType = (type) => catalogue.filter((item) => item.type === type).slice(0, 20);
+            const parType = (type) => catalogue
+                .filter((item) => item.type === type)
+                .sort((a, b) => {
+                    const dateA = new Date(a.release_date || `${a.year || 0}-01-01`).getTime() || 0;
+                    const dateB = new Date(b.release_date || `${b.year || 0}-01-01`).getTime() || 0;
+                    return dateB - dateA;
+                });
             const vedettes = Array.isArray(feat?.data) && feat.data.length > 0
                 ? [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999))
                 : catalogue.slice(0, 1);
@@ -457,6 +463,7 @@ export default function HomePage() {
 
                     {movies.length > 0 && <MediaCarousel title="Films" items={movies} seeAllHref="/browse?type=movie" testId="carousel-movies" />}
                     {series.length > 0 && <MediaCarousel title="Séries" items={series} seeAllHref="/browse?type=series" testId="carousel-series" />}
+                    {animes.length > 0 && <MediaCarousel title="Animes" items={animes} seeAllHref="/browse?type=anime" testId="carousel-animes" />}
 
                     {genres.length > 0 && (
                         <section className="max-w-7xl mx-auto px-6 mt-16">
@@ -480,8 +487,6 @@ export default function HomePage() {
                             </div>
                         </section>
                     )}
-
-                    {animes.length > 0 && <MediaCarousel title="Animes" items={animes} seeAllHref="/browse?type=anime" testId="carousel-animes" />}
 
                     {seasonItems.length > 0 && (
                         <MediaCarousel title={seasonTitle(now.getMonth())} eyebrow="Du moment" items={seasonItems} seeAllHref="/browse" testId="carousel-season" />
