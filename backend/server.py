@@ -1466,7 +1466,7 @@ async def uqflex_stream(
     item = uqflex_catalog.find_item(id)
     if not item:
         raise HTTPException(status_code=404, detail="Flux introuvable")
-    media_type = "tv" if str(item.get("type") or "").lower() in {"series", "anime"} else "movie"
+    media_type = "tv" if uqflex_catalog.media_kind(item.get("type")) in {"series", "anime"} else "movie"
     upstream = uqflex_catalog.partner_stream_url(id, season or "", episode or "", media_type)
     headers = dict(uqflex_catalog._headers())
     if request.headers.get("range"):

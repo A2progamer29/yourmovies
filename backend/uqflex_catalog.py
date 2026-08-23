@@ -211,6 +211,15 @@ def raw_id(media_id: str) -> str:
     return value[3:] if value.startswith("uq_") else value
 
 
+def media_kind(raw_kind: str) -> str:
+    value = str(raw_kind or "").strip().lower()
+    if value in {"anime", "animé", "animation"}:
+        return "anime"
+    if value in {"series", "série", "serie", "tv"}:
+        return "series"
+    return "movie"
+
+
 def _stream_url(base: str, item_id: str, episode_id: str = "", season: str = "", episode: str = "") -> str:
     url = "%s/api/uqflex/stream?id=%s" % (base.rstrip("/"), quote(item_id, safe=""))
     if season and episode:
@@ -221,7 +230,7 @@ def _stream_url(base: str, item_id: str, episode_id: str = "", season: str = "",
 def to_media_doc(item: dict, api_base: str) -> dict:
     item_id = str(item.get("id") or "")
     raw_kind = str(item.get("type") or "").lower()
-    kind = "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie"
+    kind = media_kind(raw_kind)
     cast = item.get("cast") or item.get("actors") or item.get("starring") or []
     if isinstance(cast, str):
         cast = [part.strip() for part in cast.split(",") if part.strip()]
@@ -257,7 +266,7 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "id": "uq_%s" % item_id,
         "title": item.get("title") or "",
         "description": item.get("overview") or "",
-        "type": "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie",
+        "type": kind,
         "year": item.get("year"),
         "duration_minutes": duration,
         "genres": item.get("genres") or [],
@@ -325,13 +334,10 @@ def find_item(media_id: str) -> Optional[dict]:
 
 
 def list_docs(api_base: str, media_type: Optional[str] = None, query: Optional[str] = None) -> list[dict]:
-    if media_type == "anime":
-        return []
     needle = (query or "").strip().lower()
     out = []
     for item in fetch_items():
-        raw_kind = str(item.get("type") or "").lower()
-        kind = "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie"
+        kind = media_kind(item.get("type"))
         if media_type and media_type != kind:
             continue
         title = str(item.get("title") or "")
