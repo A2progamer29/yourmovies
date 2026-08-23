@@ -46,7 +46,6 @@ import VersionChecker from "@/components/VersionChecker";
 import GlobalUploadManager from "@/components/GlobalUploadManager";
 import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 import AideChargement from "@/components/AideChargement";
-import PopUnder from "@/components/PopUnder";
 import VisitTracker from "@/components/VisitTracker";
 import SettingsTabsRuntimeFix from "@/components/SettingsTabsRuntimeFix";
 
@@ -129,7 +128,6 @@ function App() {
                         <UploadProvider>
                             <FavoritesProvider>
                                 <AppRouter />
-                                <PopUnder />
                                 <VisitTracker />
                                 <GlobalUploadManager />
                                 <VersionChecker />
