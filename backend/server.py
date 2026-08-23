@@ -1513,6 +1513,8 @@ async def update_uqflex_flags(media_id: str, flags: UqflexFlagsInput, request: R
         {"$set": {**changes, "updated_at": datetime.now(timezone.utc)}},
         upsert=True,
     )
+    if await db.media.find_one({"id": media_id}, {"_id": 1}):
+        await db.media.update_one({"id": media_id}, {"$set": changes})
     override = await db.uqflex_overrides.find_one({"id": media_id}, {"_id": 0})
     item = uqflex_catalog.find_item(media_id)
     return serialize_media({**uqflex_catalog.to_media_doc(item, _public_api_base(request)), **(override or {})})
