@@ -1369,14 +1369,25 @@ async def _sync_uqflex_media() -> int:
     return imported
 
 
+def _safe_featured_order(value) -> int:
+    try:
+        return int(value or 10**9)
+    except (TypeError, ValueError):
+        return 10**9
+
+
 async def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool], include_uqflex: bool = True) -> list:
-    if not include_uqflex or not uqflex_catalog.configured():
+    if featured is True or not include_uqflex or not uqflex_catalog.configured():
         return local_docs
-    existing_tmdb = {
-        int(doc["tmdb_id"])
-        for doc in local_docs
-        if doc.get("tmdb_id") not in (None, "")
-    }
+    existing_tmdb = set()
+    for doc in local_docs:
+        value = doc.get("tmdb_id")
+        if value in (None, ""):
+            continue
+        try:
+            existing_tmdb.add(int(value))
+        except (TypeError, ValueError):
+            continue
     existing_titles = {
         (str(doc.get("title") or "").strip().lower(), str(doc.get("year") or ""), str(doc.get("type") or "movie"))
         for doc in local_docs
@@ -1430,7 +1441,7 @@ async def list_media(
         docs = await db.media.find(query, {"_id": 0}).to_list(max(limit, 500))
         docs.sort(key=lambda doc: (
             doc.get("featured_order") is None,
-            int(doc.get("featured_order") or 10**9),
+            _safe_featured_order(doc.get("featured_order")),
             doc.get("created_at") or "",
         ))
         docs = docs[:limit]
