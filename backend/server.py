@@ -1329,8 +1329,6 @@ async def _sync_uqflex_media() -> int:
                 key: value for key, value in doc.items()
                 if key not in {"featured", "featured_order", "in_theaters", "player_broken", "player_notice"}
             }
-            if existing.get("created_at") == doc.get("created_at"):
-                managed_fields["created_at"] = datetime.now(timezone.utc).isoformat()
             await db.media.update_one({"id": media_id}, {"$set": managed_fields})
             continue
 
@@ -1371,8 +1369,8 @@ async def _sync_uqflex_media() -> int:
     return imported
 
 
-async def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool]) -> list:
-    if not uqflex_catalog.configured():
+async def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool], include_uqflex: bool = True) -> list:
+    if not include_uqflex or not uqflex_catalog.configured():
         return local_docs
     existing_tmdb = {
         int(doc["tmdb_id"])
@@ -1416,6 +1414,7 @@ async def list_media(
     type: Optional[str] = None,
     q: Optional[str] = None,
     featured: Optional[bool] = None,
+    uqflex: bool = True,
     limit: int = 100,
 ):
     query = {}
@@ -1425,6 +1424,8 @@ async def list_media(
         query["title"] = {"$regex": re.escape(q), "$options": "i"}
     if featured is not None:
         query["featured"] = featured
+    if not uqflex:
+        query["source"] = {"$ne": "uqflex"}
     if featured is True:
         docs = await db.media.find(query, {"_id": 0}).to_list(max(limit, 500))
         docs.sort(key=lambda doc: (
@@ -1435,7 +1436,7 @@ async def list_media(
         docs = docs[:limit]
     else:
         docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
-    docs = await _merge_uqflex(docs, request, type, q, featured)
+    docs = await _merge_uqflex(docs, request, type, q, featured, uqflex)
     if featured is not True:
         docs.sort(key=lambda doc: doc.get("created_at") or "", reverse=True)
         docs = docs[:limit]
