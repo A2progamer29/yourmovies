@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header, Query, Request, Response, status
-from fastapi.responses import Response as FastAPIResponse
+from fastapi.responses import Response as FastAPIResponse, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
@@ -31,6 +31,11 @@ try:
     from .license_key_seed import LICENSE_KEY_SEED, LICENSE_KEY_SEED_VERSION
 except ImportError:
     from license_key_seed import LICENSE_KEY_SEED, LICENSE_KEY_SEED_VERSION
+
+try:
+    from . import uqflex_catalog
+except ImportError:
+    import uqflex_catalog
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1205,6 +1210,7 @@ def serialize_media(doc) -> dict:
         "reports_open": int(doc.get("reports_open") or 0),
         "reports_flagged": int(doc.get("reports_open") or 0) >= SEUIL_SIGNALEMENTS,
         "created_at": doc.get("created_at", ""),
+        "source": doc.get("source") or "local",
     }
 
 
@@ -1285,8 +1291,49 @@ async def _record_media_event(
         "created_by": user_id,
     })
 
+def _public_api_base(request: Request) -> str:
+    configured = (os.environ.get("PUBLIC_API_URL") or "").rstrip("/")
+    if configured:
+        return configured
+    return str(request.base_url).rstrip("/")
+
+
+def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool]) -> list:
+    if featured is True or not uqflex_catalog.configured():
+        return local_docs
+    existing_tmdb = {
+        int(doc["tmdb_id"])
+        for doc in local_docs
+        if doc.get("tmdb_id") not in (None, "")
+    }
+    existing_titles = {
+        (str(doc.get("title") or "").strip().lower(), str(doc.get("year") or ""), str(doc.get("type") or "movie"))
+        for doc in local_docs
+    }
+    extra = []
+    for doc in uqflex_catalog.list_docs(_public_api_base(request), media_type, query):
+        tmdb = doc.get("tmdb_id")
+        try:
+            tmdb_n = int(tmdb) if tmdb not in (None, "") else 0
+        except (TypeError, ValueError):
+            tmdb_n = 0
+        if tmdb_n and tmdb_n in existing_tmdb:
+            continue
+        key = (str(doc.get("title") or "").strip().lower(), str(doc.get("year") or ""), str(doc.get("type") or "movie"))
+        if key in existing_titles:
+            continue
+        extra.append(doc)
+    return local_docs + extra
+
+
 @api_router.get("/media")
-async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100):
+async def list_media(
+    request: Request,
+    type: Optional[str] = None,
+    q: Optional[str] = None,
+    featured: Optional[bool] = None,
+    limit: int = 100,
+):
     query = {}
     if type:
         query["type"] = type
@@ -1304,10 +1351,51 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
         docs = docs[:limit]
     else:
         docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    docs = _merge_uqflex(docs, request, type, q, featured)
     return [serialize_media(d) for d in docs]
 
+
+@api_router.api_route("/uqflex/stream", methods=["GET", "HEAD"])
+async def uqflex_stream(request: Request, id: str, episodeId: Optional[str] = None):
+    if not uqflex_catalog.configured():
+        raise HTTPException(status_code=503, detail="Catalogue partenaire indisponible")
+    item = uqflex_catalog.find_item(id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Flux introuvable")
+    media_type = "tv" if str(item.get("type") or "") == "series" else "movie"
+    upstream = uqflex_catalog.partner_stream_url(id, episodeId or "", media_type)
+    headers = dict(uqflex_catalog._headers())
+    if request.headers.get("range"):
+        headers["Range"] = request.headers["range"]
+    try:
+        upstream_resp = await run_in_threadpool(
+            lambda: requests.get(upstream, headers=headers, stream=True, timeout=60)
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Flux partenaire injoignable") from exc
+    if upstream_resp.status_code >= 400:
+        raise HTTPException(status_code=upstream_resp.status_code, detail="Flux partenaire refuse")
+    outgoing = {
+        key: upstream_resp.headers[key]
+        for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges")
+        if key in upstream_resp.headers
+    }
+    outgoing["Access-Control-Allow-Origin"] = request.headers.get("origin") or "*"
+    outgoing["Access-Control-Expose-Headers"] = "Content-Length, Content-Range, Accept-Ranges"
+    return StreamingResponse(
+        upstream_resp.iter_content(64 * 1024),
+        status_code=upstream_resp.status_code,
+        headers=outgoing,
+        media_type=upstream_resp.headers.get("Content-Type", "video/mp4"),
+    )
+
 @api_router.get("/media/{media_id}")
-async def get_media(media_id: str, user: Optional[dict] = Depends(get_optional_user)):
+async def get_media(media_id: str, request: Request, user: Optional[dict] = Depends(get_optional_user)):
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = uqflex_catalog.find_item(media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Not found")
+        return serialize_media(uqflex_catalog.to_media_doc(item, _public_api_base(request)))
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc and user and has_perm(user, "content.add"):
         # Les propositions vivent dans une collection a part : le catalogue
@@ -1370,6 +1458,11 @@ async def _resolve_timeline_items(media_id: str, raw_items: List[dict]) -> List[
 
 @api_router.get("/media/{media_id}/timeline")
 async def get_media_timeline(media_id: str):
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = uqflex_catalog.find_item(media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Contenu introuvable")
+        return {"title": item.get("title") or "", "items": []}
     doc = await db.media.find_one({"id": media_id}, {"_id": 0, "id": 1, "title": 1, "saga_title": 1, "timeline": 1})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
@@ -5933,8 +6026,14 @@ async def recommendations(limit: int = 20, user: dict = Depends(get_current_user
 
 # ---------- Similar ----------
 @api_router.get("/media/{media_id}/similar")
-async def similar_media(media_id: str, limit: int = 8):
-    m = await db.media.find_one({"id": media_id}, {"_id": 0})
+async def similar_media(media_id: str, request: Request, limit: int = 8):
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = uqflex_catalog.find_item(media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Not found")
+        m = uqflex_catalog.to_media_doc(item, _public_api_base(request))
+    else:
+        m = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not m:
         raise HTTPException(status_code=404, detail="Not found")
     genres = m.get("genres", []) or []
@@ -6890,7 +6989,7 @@ app.add_middleware(
     allow_credentials=_cors_credentials,
     allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key", "X-Playback-Pass"],
+    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key", "X-Playback-Pass", "Range"],
 )
 
 @app.on_event("startup")
