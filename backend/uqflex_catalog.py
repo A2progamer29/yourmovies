@@ -203,10 +203,10 @@ def raw_id(media_id: str) -> str:
     return value[3:] if value.startswith("uq_") else value
 
 
-def _stream_url(base: str, item_id: str, episode_id: str = "") -> str:
+def _stream_url(base: str, item_id: str, episode_id: str = "", season: str = "", episode: str = "") -> str:
     url = "%s/api/uqflex/stream?id=%s" % (base.rstrip("/"), quote(item_id, safe=""))
-    if episode_id:
-        url += "&episodeId=%s" % quote(str(episode_id), safe="")
+    if season and episode:
+        url += "&season=%s&episode=%s" % (quote(str(season), safe=""), quote(str(episode), safe=""))
     return url
 
 
@@ -225,7 +225,13 @@ def to_media_doc(item: dict, api_base: str) -> dict:
                 {
                     "ep_number": int(episode.get("episode") or 1),
                     "title": episode.get("title") or ("Épisode %s" % (episode.get("episode") or "")),
-                    "video_url": _stream_url(api_base, item_id, str(episode.get("id") or "")),
+                    "video_url": _stream_url(
+                        api_base,
+                        item_id,
+                        str(episode.get("id") or ""),
+                        str(season_n),
+                        str(episode.get("episode") or 1),
+                    ),
                 }
             )
         seasons = [
@@ -300,11 +306,11 @@ def list_docs(api_base: str, media_type: Optional[str] = None, query: Optional[s
     return out
 
 
-def partner_stream_url(item_id: str, episode_id: str = "", media_type: str = "movie") -> str:
+def partner_stream_url(item_id: str, season: str = "", episode: str = "", media_type: str = "movie") -> str:
     kind = "tv" if media_type in ("series", "anime", "tv") else "movie"
     url = "%s/stream?type=%s&id=%s" % (current_base(), kind, quote(item_id, safe=""))
-    if episode_id:
-        url += "&episodeId=%s" % quote(episode_id, safe="")
+    if season and episode:
+        url += "&season=%s&episode=%s" % (quote(str(season), safe=""), quote(str(episode), safe=""))
     return url
 
 

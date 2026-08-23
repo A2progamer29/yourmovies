@@ -1420,14 +1420,19 @@ async def update_uqflex_flags(media_id: str, flags: UqflexFlagsInput, request: R
 
 
 @api_router.api_route("/uqflex/stream", methods=["GET", "HEAD"])
-async def uqflex_stream(request: Request, id: str, episodeId: Optional[str] = None):
+async def uqflex_stream(
+    request: Request,
+    id: str,
+    season: Optional[str] = None,
+    episode: Optional[str] = None,
+):
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="Catalogue partenaire indisponible")
     item = uqflex_catalog.find_item(id)
     if not item:
         raise HTTPException(status_code=404, detail="Flux introuvable")
     media_type = "tv" if str(item.get("type") or "").lower() in {"series", "anime"} else "movie"
-    upstream = uqflex_catalog.partner_stream_url(id, episodeId or "", media_type)
+    upstream = uqflex_catalog.partner_stream_url(id, season or "", episode or "", media_type)
     headers = dict(uqflex_catalog._headers())
     if request.headers.get("range"):
         headers["Range"] = request.headers["range"]
