@@ -222,6 +222,13 @@ def to_media_doc(item: dict, api_base: str) -> dict:
     item_id = str(item.get("id") or "")
     raw_kind = str(item.get("type") or "").lower()
     kind = "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie"
+    cast = item.get("cast") or item.get("actors") or item.get("starring") or []
+    if isinstance(cast, str):
+        cast = [part.strip() for part in cast.split(",") if part.strip()]
+    director = item.get("director") or item.get("directors")
+    if isinstance(director, list):
+        director = ", ".join(str(part) for part in director if part)
+    duration = item.get("duration_minutes") or item.get("runtime") or item.get("duration")
     seasons = []
     if kind in {"series", "anime"}:
         grouped: dict[int, list] = defaultdict(list)
@@ -252,12 +259,12 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "description": item.get("overview") or "",
         "type": "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie",
         "year": item.get("year"),
-        "duration_minutes": None,
+        "duration_minutes": duration,
         "genres": item.get("genres") or [],
         "poster_url": item.get("poster_url"),
         "banner_url": item.get("backdrop_url") or item.get("poster_url"),
-        "trailer_youtube_id": None,
-        "trailer_video_url": None,
+        "trailer_youtube_id": item.get("trailer_youtube_id") or item.get("trailerId"),
+        "trailer_video_url": item.get("trailer_video_url") or item.get("trailer_url"),
         "video_file_path": None,
         "video_url": None if kind in {"series", "anime"} else _stream_url(api_base, item_id),
         "api_player_url": next((item.get(key) for key in (
@@ -268,10 +275,10 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "bunny_library_id": None,
         "qualities": [],
         "title_logo_url": None,
-        "age_rating": None,
-        "cast": [],
-        "director": None,
-        "country": None,
+        "age_rating": item.get("age_rating") or item.get("certification") or item.get("rating_certification"),
+        "cast": cast,
+        "director": director,
+        "country": item.get("country") or item.get("origin_country"),
         "rating": item.get("rating"),
         "seasons": seasons,
         "tmdb_id": item.get("tmdb_id"),
@@ -293,6 +300,26 @@ def find_item(media_id: str) -> Optional[dict]:
     wanted = raw_id(media_id)
     for item in fetch_items():
         if str(item.get("id") or "") == wanted:
+            raw_kind = str(item.get("type") or "").lower()
+            endpoint = "series" if raw_kind in {"series", "anime"} else "movies"
+            for base in partner_bases():
+                if base == "ssh" or "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
+                    continue
+                try:
+                    response = requests.get(
+                        "%s/v1/%s/%s" % (base, endpoint, quote(wanted, safe="")),
+                        headers=_headers(),
+                        timeout=8,
+                    )
+                    if response.status_code >= 400:
+                        continue
+                    detail = response.json()
+                    if isinstance(detail, dict):
+                        detail = detail.get("item") if isinstance(detail.get("item"), dict) else detail
+                        if isinstance(detail, dict):
+                            return {**item, **detail}
+                except Exception:
+                    continue
             return item
     return None
 
