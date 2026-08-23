@@ -1320,7 +1320,12 @@ async def _merge_uqflex(local_docs: list, request: Request, media_type: Optional
         (str(doc.get("title") or "").strip().lower(), str(doc.get("year") or ""), str(doc.get("type") or "movie"))
         for doc in local_docs
     }
-    partner_docs = uqflex_catalog.list_docs(_public_api_base(request), media_type, query)
+    partner_docs = await run_in_threadpool(
+        uqflex_catalog.list_docs,
+        _public_api_base(request),
+        media_type,
+        query,
+    )
     overrides = await _uqflex_overrides([str(doc.get("id")) for doc in partner_docs])
     extra = []
     for doc in partner_docs:
@@ -1378,7 +1383,10 @@ async def list_media(
 async def admin_list_uqflex(request: Request, user: dict = Depends(require_perm("content.add"))):
     if not uqflex_catalog.configured():
         return []
-    docs = uqflex_catalog.list_docs(_public_api_base(request))
+    docs = await run_in_threadpool(
+        uqflex_catalog.list_docs,
+        _public_api_base(request),
+    )
     overrides = await _uqflex_overrides([str(doc.get("id")) for doc in docs])
     return [serialize_media({**doc, **overrides.get(str(doc.get("id")), {})}) for doc in docs]
 

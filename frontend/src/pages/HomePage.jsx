@@ -59,13 +59,10 @@ export default function HomePage() {
             // qu'elle attendait simplement des allers-retours successifs.
             const rien = () => null;
             const anonyme = Promise.resolve(null);
-            const [feat, watchResult, all, mv, sr, an, tend, gen, reco] = await Promise.all([
+            const [feat, watchResult, all, tend, gen, reco] = await Promise.all([
                 api.get("/media?featured=true&limit=10").catch(rien),
                 user ? api.get("/watch-progress", { silent: true }).catch(rien) : anonyme,
-                api.get("/media?limit=40").catch(rien),
-                api.get("/media?type=movie&limit=20").catch(rien),
-                api.get("/media?type=series&limit=20").catch(rien),
-                api.get("/media?type=anime&limit=20").catch(rien),
+                api.get("/media?limit=200").catch(rien),
                 api.get("/trending?limit=10").catch(rien),
                 api.get("/genres?limit=16").catch(rien),
                 user ? api.get("/recommendations?limit=20", { silent: true }).catch(rien) : anonyme,
@@ -73,6 +70,7 @@ export default function HomePage() {
             if (annule) return;
 
             const catalogue = Array.isArray(all?.data) ? all.data : [];
+            const parType = (type) => catalogue.filter((item) => item.type === type).slice(0, 20);
             const vedettes = Array.isArray(feat?.data) && feat.data.length > 0
                 ? [...feat.data].sort((a, b) => (a.featured_order ?? 999) - (b.featured_order ?? 999))
                 : catalogue.slice(0, 1);
@@ -84,9 +82,9 @@ export default function HomePage() {
             setFeatured(vedettes);
             setContinueWatching(enCours);
             setLatest(catalogue);
-            setMovies(Array.isArray(mv?.data) ? mv.data : []);
-            setSeries(Array.isArray(sr?.data) ? sr.data : []);
-            setAnimes(Array.isArray(an?.data) ? an.data : []);
+            setMovies(parType("movie"));
+            setSeries(parType("series"));
+            setAnimes(parType("anime"));
             setTrending(Array.isArray(tend?.data) ? tend.data : []);
             setGenres(Array.isArray(gen?.data) ? gen.data : []);
             setRecommendations(enCours.length > 0 && Array.isArray(reco?.data) ? reco.data : []);

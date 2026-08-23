@@ -28,17 +28,24 @@ export default function BrowsePage() {
     const [chargement, setChargement] = useState(true);
 
     useEffect(() => {
-        (async () => {
+        const controller = new AbortController();
+        const timer = window.setTimeout(async () => {
             const params = new URLSearchParams();
             if (type) params.set("type", type);
             if (q) params.set("q", q);
             try {
-                const res = await api.get(`/media?${params.toString()}&limit=200`);
+                const res = await api.get(`/media?${params.toString()}&limit=200`, { signal: controller.signal });
                 setItems(res.data);
+            } catch (error) {
+                if (error?.code !== "ERR_CANCELED") setItems([]);
             } finally {
                 setChargement(false);
             }
-        })();
+        }, 250);
+        return () => {
+            window.clearTimeout(timer);
+            controller.abort();
+        };
     }, [type, q]);
 
     const allGenres = useMemo(() => {

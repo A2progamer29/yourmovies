@@ -367,7 +367,7 @@ export default function WatchPage() {
         setPiste(searchParams.get("piste") || null);
         setFinAtteinte(false);
         suiteRefusee.current = false;
-    }, [id, selectedEpisodeKey]);
+    }, [id, selectedEpisodeKey, searchParams]);
 
     const selectEpisode = (episode) => {
         if (!episode) return;
