@@ -446,6 +446,7 @@ export default function VideoPlayer({
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
+                onError={() => onFluxImpossible?.()}
                 onClick={() => !adsRunning && togglePlay()}
                 playsInline
             />

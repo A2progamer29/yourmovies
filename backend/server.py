@@ -1185,6 +1185,7 @@ def serialize_media(doc) -> dict:
         "trailer_video_url": doc.get("trailer_video_url"),
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
+        "api_player_url": doc.get("api_player_url"),
         "bunny_video_id": doc.get("bunny_video_id"),
         "language_tracks": doc.get("language_tracks", []),
         "bunny_library_id": doc.get("bunny_library_id"),

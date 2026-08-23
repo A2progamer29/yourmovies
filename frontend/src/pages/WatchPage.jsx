@@ -302,6 +302,7 @@ export default function WatchPage() {
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
     const [manifestUrl, setManifestUrl] = useState(null);
+    const [apiPlayerActive, setApiPlayerActive] = useState(false);
     const [piste, setPiste] = useState(() => searchParams.get("piste") || null);
     // Seul le franchissement du seuil change de lecteur. Faire dépendre l'appel
     // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
@@ -364,6 +365,7 @@ export default function WatchPage() {
 
     useEffect(() => {
         setPlaybackActive(false);
+        setApiPlayerActive(false);
         setPiste(searchParams.get("piste") || null);
         setFinAtteinte(false);
         suiteRefusee.current = false;
@@ -478,7 +480,11 @@ export default function WatchPage() {
 
     // Le flux direct peut être refusé une fois dans le navigateur ; on repasse
     // alors définitivement sur le lecteur intégré pour ce titre.
-    const revenirAuLecteurIntegre = useCallback(() => setManifestUrl(null), []);
+    const basculerVersLecteurApi = useCallback(() => {
+        if (!apiPlayerUrl) return;
+        setManifestUrl(null);
+        setApiPlayerActive(true);
+    }, [apiPlayerUrl]);
 
     // Ce que le lecteur affiche à l'arrêt : pour une série, l'épisode en cours
     // prime sur la fiche du titre, sinon on annoncerait le mauvais résumé.
@@ -502,6 +508,7 @@ export default function WatchPage() {
     const playbackMedia = pisteActive
         ? { ...baseMedia, bunny_video_id: pisteActive.bunny_video_id, bunny_library_id: pisteActive.bunny_library_id }
         : baseMedia;
+    const apiPlayerUrl = media?.api_player_url || baseMedia?.api_player_url || "";
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
     useEffect(() => {
@@ -538,6 +545,7 @@ export default function WatchPage() {
         }
         let active = true;
         setManifestUrl(null);
+        setApiPlayerActive(false);
         setBunnyPlaybackError(null);
         // Le lecteur avancé n'est demandé que si l'amplification est réglée : sans
         // elle il n'apporte rien, et le lecteur intégré reste le chemin éprouvé.
@@ -897,6 +905,17 @@ export default function WatchPage() {
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
+                        ) : apiPlayerActive && apiPlayerUrl ? (
+                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
+                                <iframe
+                                    src={apiPlayerUrl}
+                                    title={`Lecteur API — ${media.title}`}
+                                    data-testid="api-player-fallback"
+                                    className="absolute inset-0 h-full w-full"
+                                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                                    allowFullScreen
+                                />
+                            </div>
                         ) : manifestUrl ? (
                             <VideoPlayer
                                 key={manifestUrl}
@@ -907,7 +926,7 @@ export default function WatchPage() {
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
                                 videoRefOut={videoElRef}
-                                onFluxImpossible={revenirAuLecteurIntegre}
+                                onFluxImpossible={basculerVersLecteurApi}
                                 fiche={ficheLecteur}
                                 boostInitial={Number(user?.audio_boost) || 1}
                             />
@@ -924,6 +943,7 @@ export default function WatchPage() {
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
                                 videoRefOut={videoElRef}
+                                onFluxImpossible={basculerVersLecteurApi}
                             />
                             )}
 

@@ -246,6 +246,9 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "trailer_video_url": None,
         "video_file_path": None,
         "video_url": None if kind == "series" else _stream_url(api_base, item_id),
+        "api_player_url": next((item.get(key) for key in (
+            "player_url", "playerUrl", "embed_url", "embedUrl", "iframe_url", "iframeUrl"
+        ) if item.get(key)), None),
         "bunny_video_id": None,
         "language_tracks": [],
         "bunny_library_id": None,
