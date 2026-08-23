@@ -480,12 +480,6 @@ export default function WatchPage() {
 
     // Le flux direct peut être refusé une fois dans le navigateur ; on repasse
     // alors définitivement sur le lecteur intégré pour ce titre.
-    const basculerVersLecteurApi = useCallback(() => {
-        if (!apiPlayerUrl) return;
-        setManifestUrl(null);
-        setApiPlayerActive(true);
-    }, [apiPlayerUrl]);
-
     // Ce que le lecteur affiche à l'arrêt : pour une série, l'épisode en cours
     // prime sur la fiche du titre, sinon on annoncerait le mauvais résumé.
     const ficheLecteur = React.useMemo(() => {
@@ -509,6 +503,11 @@ export default function WatchPage() {
         ? { ...baseMedia, bunny_video_id: pisteActive.bunny_video_id, bunny_library_id: pisteActive.bunny_library_id }
         : baseMedia;
     const apiPlayerUrl = media?.api_player_url || baseMedia?.api_player_url || "";
+    const basculerVersLecteurApi = useCallback(() => {
+        if (!apiPlayerUrl) return;
+        setManifestUrl(null);
+        setApiPlayerActive(true);
+    }, [apiPlayerUrl]);
     // Sortie de plein écran : certains navigateurs laissent le document en
     // plein écran alors que le lecteur en est sorti. On referme explicitement.
     useEffect(() => {
