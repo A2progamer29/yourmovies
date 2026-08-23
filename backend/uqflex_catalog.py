@@ -245,7 +245,7 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "trailer_youtube_id": None,
         "trailer_video_url": None,
         "video_file_path": None,
-        "video_url": None if kind == "series" else _stream_url(api_base, item_id),
+        "video_url": None if kind in {"series", "anime"} else _stream_url(api_base, item_id),
         "api_player_url": next((item.get(key) for key in (
             "player_url", "playerUrl", "embed_url", "embedUrl", "iframe_url", "iframeUrl"
         ) if item.get(key)), None),
@@ -261,7 +261,7 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "rating": item.get("rating"),
         "seasons": seasons,
         "tmdb_id": item.get("tmdb_id"),
-        "tmdb_kind": "tv" if kind == "series" else "movie",
+        "tmdb_kind": "tv" if kind in {"series", "anime"} else "movie",
         "saga_title": None,
         "timeline": [],
         "featured": False,
