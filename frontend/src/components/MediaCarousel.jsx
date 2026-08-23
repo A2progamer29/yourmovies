@@ -4,8 +4,8 @@ import { Link } from "react-router-dom";
 import MediaCard from "@/components/MediaCard";
 import HScroller from "@/components/HScroller";
 
-export default function MediaCarousel({ title, eyebrow = "Catalogue", items, seeAllHref, testId }) {
-    if (!items || items.length === 0) return null;
+export default function MediaCarousel({ title, eyebrow = "Catalogue", items, seeAllHref, testId, showEmpty = false, emptyMessage = "Aucun contenu pour le moment." }) {
+    if ((!items || items.length === 0) && !showEmpty) return null;
     return (
         <section className="max-w-7xl mx-auto px-6 mt-16" data-testid={testId || "media-carousel"}>
             <div className="flex items-end justify-between mb-6 gap-4">
@@ -22,11 +22,17 @@ export default function MediaCarousel({ title, eyebrow = "Catalogue", items, see
                     </Link>
                 )}
             </div>
-            <HScroller testId={testId ? `${testId}-scroller` : undefined}>
-                {items.map((m) => (
-                    <MediaCard key={m.id} media={m} />
-                ))}
-            </HScroller>
+            {items && items.length > 0 ? (
+                <HScroller testId={testId ? `${testId}-scroller` : undefined}>
+                    {items.map((m) => (
+                        <MediaCard key={m.id} media={m} />
+                    ))}
+                </HScroller>
+            ) : (
+                <div className="rounded-xl border border-[#262626] bg-[#0a0a0a] px-5 py-8 text-sm text-neutral-500">
+                    {emptyMessage}
+                </div>
+            )}
         </section>
     );
 }

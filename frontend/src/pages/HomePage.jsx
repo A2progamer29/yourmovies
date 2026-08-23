@@ -463,7 +463,14 @@ export default function HomePage() {
 
                     {movies.length > 0 && <MediaCarousel title="Films" items={movies} seeAllHref="/browse?type=movie" testId="carousel-movies" />}
                     {series.length > 0 && <MediaCarousel title="Séries" items={series} seeAllHref="/browse?type=series" testId="carousel-series" />}
-                    {animes.length > 0 && <MediaCarousel title="Animes" items={animes} seeAllHref="/browse?type=anime" testId="carousel-animes" />}
+                    <MediaCarousel
+                        title="Animes"
+                        items={animes}
+                        seeAllHref="/browse?type=anime"
+                        testId="carousel-animes"
+                        showEmpty
+                        emptyMessage="Aucun anime n’est encore disponible."
+                    />
 
                     {genres.length > 0 && (
                         <section className="max-w-7xl mx-auto px-6 mt-16">

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -84,6 +84,7 @@ export default function AdminPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const [items, setItems] = useState([]);
+    const [mediaLoading, setMediaLoading] = useState(false);
     const [users, setUsers] = useState([]);
     const [announcements, setAnnouncements] = useState([]);
     const [annTitle, setAnnTitle] = useState("");
@@ -119,8 +120,13 @@ export default function AdminPage() {
     const tabParam = new URLSearchParams(location.search).get("tab") || "overview";
 
     const loadMedia = async () => {
-        const r = await api.get("/media?limit=500");
-        setItems(r.data);
+        setMediaLoading(true);
+        try {
+            const r = await api.get("/media?limit=500");
+            setItems(r.data);
+        } finally {
+            setMediaLoading(false);
+        }
     };
     const loadUsers = async () => {
         try {
@@ -724,7 +730,11 @@ export default function AdminPage() {
                                 <div className="col-span-2 text-center">À l&apos;affiche · priorité</div>
                                 <div className="col-span-2 text-right">Actions</div>
                             </div>
-                            {filteredItems.length === 0 && <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun contenu.</div>}
+                            {filteredItems.length === 0 && (mediaLoading ? (
+                                <div className="flex items-center justify-center px-5 py-10 text-neutral-500" aria-label="Chargement des contenus">
+                                    <Loader2 size={24} className="animate-spin text-[#E8D2A6]" />
+                                </div>
+                            ) : <div className="px-5 py-8 text-center text-neutral-500 text-sm">Aucun contenu.</div>)}
                             {filteredItems.map((m) => (
                                 <div key={m.id} className="grid grid-cols-12 px-5 py-4 border-b border-[#1a1a1a] items-center text-sm hover:bg-white/[0.02]">
                                     <div className="col-span-4 flex items-center gap-3">
