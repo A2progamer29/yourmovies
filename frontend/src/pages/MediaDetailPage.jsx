@@ -139,13 +139,14 @@ export default function MediaDetailPage() {
     const banner = media.banner_url || media.poster_url || BANNER_FALLBACK;
     const totalEpisodes = (media.seasons || []).reduce((acc, s) => acc + (s.episodes?.length || 0), 0);
 
-    // Rubriques : seules celles qui ont réellement du contenu sont proposées.
+    // Les rubriques restent accessibles même quand une source ne fournit pas encore chaque détail.
     const sections = [
-        media.type !== "movie" && media.seasons?.length > 0 && { id: "episodes", label: "Épisodes" },
+        media.type !== "movie" && { id: "episodes", label: "Épisodes" },
         media.trailer_youtube_id && { id: "trailer", label: "Bande-annonce" },
-        (media.director || media.cast?.length > 0) && { id: "cast", label: "Distribution" },
+        { id: "cast", label: "Distribution" },
         { id: "reviews", label: `Avis${reviews.filter((r) => !r.parent_id).length ? ` (${reviews.filter((r) => !r.parent_id).length})` : ""}` },
-        (similar.length > 0 || timeline.items?.length > 1) && { id: "similar", label: "Similaires" },
+        { id: "chronology", label: "Chronologie" },
+        similar.length > 0 && { id: "similar", label: "Similaires" },
     ].filter(Boolean);
     const activeTab = sections.some((s) => s.id === tab) ? tab : (sections[0]?.id || "reviews");
 
@@ -470,7 +471,7 @@ export default function MediaDetailPage() {
                 </main>
 
                 <aside className="w-full">
-                    {activeTab === "cast" && (media.director || media.cast?.length > 0) && (
+                    {activeTab === "cast" && (
                         <div className="p-6 rounded-2xl border border-white/10 bg-[#0a0a0a]">
                             <div className="text-[11px] uppercase tracking-[0.22em] text-[#E8D2A6] mb-5">Distribution</div>
                             {media.director && (
@@ -487,12 +488,15 @@ export default function MediaDetailPage() {
                                     <div className="text-neutral-300 text-sm leading-relaxed mt-2">{media.cast.join(", ")}</div>
                                 </div>
                             )}
+                            {!media.director && !media.cast?.length && (
+                                <p className="text-sm text-neutral-500">Les informations de distribution ne sont pas encore disponibles pour ce titre.</p>
+                            )}
                         </div>
                     )}
                 </aside>
             </div>
 
-            {activeTab === "similar" && timeline.items?.length > 1 && (
+            {activeTab === "chronology" && (
                 <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 border-t border-white/5" data-testid="media-timeline-section">
                     <div className="mb-7 flex items-end justify-between gap-4">
                         <div>
@@ -504,7 +508,7 @@ export default function MediaDetailPage() {
                         </div>
                     </div>
 
-                    <HScroller
+                    {timeline.items?.length > 1 ? <HScroller
                         testId="media-timeline-scroller"
                         itemClassName="-mx-4 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-6 pb-4 pt-3 no-scrollbar scroll-smooth sm:-mx-6 sm:px-9 [scroll-padding-inline:2rem]"
                     >
@@ -549,7 +553,11 @@ export default function MediaDetailPage() {
                                 </React.Fragment>
                             );
                         })}
-                    </HScroller>
+                    </HScroller> : (
+                        <div className="rounded-xl border border-white/10 bg-[#0a0a0a] px-5 py-8 text-sm text-neutral-500">
+                            La chronologie de ce titre n’est pas encore disponible.
+                        </div>
+                    )}
                 </section>
             )}
 
