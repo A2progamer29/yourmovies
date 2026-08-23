@@ -93,6 +93,9 @@ import cloudinary.uploader
 # Le SDK se configure automatiquement via la variable d'env CLOUDINARY_URL
 # (format: cloudinary://api_key:api_secret@cloud_name)
 CLOUDINARY_CONFIGURED = bool(os.environ.get("CLOUDINARY_URL"))
+
+# ---------- Catalogue partenaire UQFlex ----------
+import uqflex_catalog
 if CLOUDINARY_CONFIGURED:
     cloudinary.config(secure=True)
 
@@ -2211,6 +2214,75 @@ async def dismiss_imdb_discovery(imdb_id: str, admin: dict = Depends(require_per
 @api_router.get("/discovery/ai", include_in_schema=False)
 async def legacy_ai_discovery(limit: int = 15, admin: dict = Depends(require_perm("content.add"))):
     return await imdb_discovery(limit=limit, admin=admin)
+
+# ---------- Admin : catalogue partenaire UQFlex ----------
+# URL publique du backend, utilisée pour générer les liens de lecture des
+# contenus UQFlex. Le proxy de diffusion vidéo lui-même (SSH vers le NAS
+# partenaire) n'est pas encore branché ici : tant qu'il ne l'est pas, ces
+# liens ne permettent pas la lecture — seul le catalogue (fiches, statut,
+# priorité à l'affiche) est disponible depuis cet écran.
+UQFLEX_API_BASE = (os.environ.get("UQFLEX_API_BASE") or "https://yourmovies-backend.onrender.com").rstrip("/")
+
+
+def _uqflex_status_payload() -> dict:
+    configured = uqflex_catalog.configured()
+    items = uqflex_catalog._cache_items if configured else []
+    counts = {"movie": 0, "series": 0, "anime": 0}
+    for item in items:
+        kind = uqflex_catalog.media_kind(item.get("type"))
+        counts[kind] = counts.get(kind, 0) + 1
+    last_sync_at = uqflex_catalog._last_sync_at
+    next_sync_at = (last_sync_at + uqflex_catalog.SYNC_INTERVAL) if (configured and last_sync_at) else None
+    return {
+        "configured": configured,
+        "error": uqflex_catalog._last_sync_error or None,
+        "last_sync_at": (
+            datetime.fromtimestamp(last_sync_at, tz=timezone.utc).isoformat() if last_sync_at else None
+        ),
+        "next_sync_at": (
+            datetime.fromtimestamp(next_sync_at, tz=timezone.utc).isoformat() if next_sync_at else None
+        ),
+        "movies": counts.get("movie", 0),
+        "series": counts.get("series", 0),
+        "anime": counts.get("anime", 0),
+        "items": len(items),
+    }
+
+
+@api_router.get("/admin/uqflex/status")
+async def admin_uqflex_status(user: dict = Depends(require_perm("content.add"))):
+    if uqflex_catalog.configured():
+        # Lecture du cache existant sans forcer d'appel réseau bloquant : le
+        # statut doit s'afficher tout de suite, la synchro se fait via le
+        # bouton dédié ci-dessous.
+        await run_in_threadpool(uqflex_catalog.fetch_items, False)
+    return _uqflex_status_payload()
+
+
+@api_router.post("/admin/uqflex/sync")
+async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
+    if not uqflex_catalog.configured():
+        raise HTTPException(status_code=503, detail="Clé partenaire UQFlex absente (variable UQFLEX_PARTNER_KEY non configurée).")
+    await run_in_threadpool(uqflex_catalog.fetch_items, True)
+    return _uqflex_status_payload()
+
+
+@api_router.patch("/admin/uqflex/{media_id}/flags")
+async def admin_uqflex_flags(media_id: str, patch: dict, user: dict = Depends(require_perm("content.edit"))):
+    if not uqflex_catalog.is_uqflex_id(media_id):
+        raise HTTPException(status_code=404, detail="Identifiant UQFlex invalide.")
+    item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Contenu UQFlex introuvable dans le catalogue partenaire.")
+    autorises = {"featured", "featured_order", "in_theaters", "player_broken", "player_notice"}
+    updates = {cle: valeur for cle, valeur in (patch or {}).items() if cle in autorises}
+    if updates:
+        await db.uqflex_overrides.update_one({"id": media_id}, {"$set": updates}, upsert=True)
+    override = await db.uqflex_overrides.find_one({"id": media_id}, {"_id": 0}) or {}
+    doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+    doc.update(override)
+    return serialize_media(doc)
+
 
 @api_router.get("/genres")
 async def list_genres(limit: int = 30):
