@@ -39,6 +39,7 @@ class YourMoviesBot(commands.Bot):
         )
         self.ai_paused_channels: set[int] = set()
         self.ai_next_allowed: dict[int, float] = {}
+        self.uqflex_movies: dict[str, dict] | None = None
 
     async def setup_hook(self) -> None:
         guild = discord.Object(id=settings.guild_id)
@@ -46,8 +47,13 @@ class YourMoviesBot(commands.Bot):
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
         reconcile_boosters.start()
+        media_notifications.start()
 
     async def close(self) -> None:
+        if media_notifications.is_running():
+            media_notifications.cancel()
+        if reconcile_boosters.is_running():
+            reconcile_boosters.cancel()
         await self.api.close()
         await super().close()
 
@@ -153,6 +159,124 @@ BOOST_MESSAGE_TYPES = {
     discord.MessageType.premium_guild_tier_2,
     discord.MessageType.premium_guild_tier_3,
 }
+
+
+def media_type_label(media: dict) -> str:
+    return {
+        "movie": "Film",
+        "series": "Série",
+        "anime": "Anime",
+    }.get(str(media.get("type") or "movie").lower(), "Contenu")
+
+
+def media_embed(media: dict, *, action: str, automatic: bool = False) -> discord.Embed:
+    kind = media_type_label(media)
+    title = str(media.get("title") or "Contenu sans titre")
+    year = media.get("year")
+    media_id = str(media.get("id") or "")
+
+    if action == "deleted":
+        heading = f"{kind} supprimé"
+        description = f"**{title}** a été retiré de YourMovie's."
+        colour = discord.Colour.from_rgb(190, 70, 70)
+    else:
+        heading = f"Nouveau {kind.lower()} disponible"
+        description = f"**{title}** est maintenant disponible sur YourMovie's."
+        colour = discord.Colour.from_rgb(232, 210, 166)
+
+    embed = discord.Embed(title=heading, description=description, colour=colour)
+    if year:
+        embed.add_field(name="Année", value=str(year), inline=True)
+    if automatic:
+        embed.add_field(name="Ajout", value="Détecté automatiquement", inline=True)
+    if action != "deleted" and media_id:
+        embed.url = f"https://yourmovies.space/media/{media_id}"
+
+    poster = media.get("poster_url")
+    if isinstance(poster, str) and poster.startswith(("http://", "https://")):
+        embed.set_thumbnail(url=poster)
+
+    # Pas de footer « Mises à jour depuis le panel admin » : l'origine n'a pas
+    # à être affichée dans le message public, qu'il soit manuel ou automatique.
+    return embed
+
+
+async def resolve_media_channel(channel_id: int | str | None) -> discord.TextChannel | None:
+    if not channel_id:
+        return None
+    try:
+        numeric_id = int(channel_id)
+    except (TypeError, ValueError):
+        return None
+    channel = bot.get_channel(numeric_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(numeric_id)
+        except (discord.HTTPException, discord.NotFound, discord.Forbidden):
+            return None
+    return channel if isinstance(channel, discord.TextChannel) else None
+
+
+async def process_admin_media_events(status: dict, channel: discord.TextChannel) -> None:
+    for event in status.get("events") or []:
+        cursor = str(event.get("cursor") or "")
+        action = str(event.get("action") or "")
+        media = event.get("media") if isinstance(event.get("media"), dict) else {}
+        try:
+            # Les propositions, validations et refus sont internes. L'ajout validé
+            # possède déjà son propre événement "added", ce qui évite les doublons.
+            if action in {"added", "deleted"}:
+                await channel.send(
+                    embed=media_embed(media, action=action, automatic=False),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            if cursor:
+                await bot.api.acknowledge_media_event(cursor=cursor, guild_id=settings.guild_id)
+        except (discord.HTTPException, YourMoviesAPIError) as exc:
+            logger.warning("Notification média %s non envoyée/confirmée: %s", cursor or "?", exc)
+            break
+
+
+async def process_uqflex_changes(channel: discord.TextChannel) -> None:
+    catalogue = await bot.api.media_catalog(media_type="movie", limit=500)
+    current = {
+        str(item.get("id")): item
+        for item in catalogue
+        if str(item.get("id") or "").startswith("uq_")
+    }
+
+    # Le premier passage sert uniquement de référence. On ne republie donc pas
+    # tout le catalogue à chaque redémarrage du bot.
+    if bot.uqflex_movies is None:
+        bot.uqflex_movies = current
+        logger.info("Référence UQFlex initialisée: %s film(s)", len(current))
+        return
+
+    previous = bot.uqflex_movies
+    added_ids = [media_id for media_id in current if media_id not in previous]
+    removed_ids = [media_id for media_id in previous if media_id not in current]
+
+    for media_id in added_ids:
+        try:
+            await channel.send(
+                embed=media_embed(current[media_id], action="added", automatic=True),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException as exc:
+            logger.warning("Ajout UQFlex %s non annoncé: %s", media_id, exc)
+            return
+
+    for media_id in removed_ids:
+        try:
+            await channel.send(
+                embed=media_embed(previous[media_id], action="deleted", automatic=True),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException as exc:
+            logger.warning("Suppression UQFlex %s non annoncée: %s", media_id, exc)
+            return
+
+    bot.uqflex_movies = current
 
 
 @bot.event
@@ -294,6 +418,30 @@ async def before_reconcile_boosters() -> None:
     await bot.wait_until_ready()
 
 
+@tasks.loop(seconds=30)
+async def media_notifications() -> None:
+    try:
+        status = await bot.api.media_events(guild_id=settings.guild_id, limit=25)
+        if not status.get("configured"):
+            bot.uqflex_movies = None
+            return
+        channel = await resolve_media_channel(status.get("channel_id"))
+        if channel is None:
+            logger.warning("Salon de notifications médias introuvable: %s", status.get("channel_id"))
+            return
+        await process_admin_media_events(status, channel)
+        await process_uqflex_changes(channel)
+    except YourMoviesAPIError as exc:
+        logger.warning("Synchronisation des notifications médias impossible: %s", exc)
+    except Exception as exc:
+        logger.exception("Erreur inattendue pendant la détection des contenus: %s", exc)
+
+
+@media_notifications.before_loop
+async def before_media_notifications() -> None:
+    await bot.wait_until_ready()
+
+
 @bot.tree.command(name="lier", description="Lier ton compte Discord à ton compte YourMovie's")
 @app_commands.describe(code="Code généré depuis les paramètres de ton compte YourMovie's")
 async def link_command(interaction: discord.Interaction, code: str) -> None:
@@ -344,6 +492,31 @@ async def economy_command(interaction: discord.Interaction) -> None:
         f"Bump : **{bump['reward']} coins** toutes les **{bump['cooldown_seconds'] // 3600} h**, "
         f"maximum **{bump['daily_cap']}/jour**.",
         ephemeral=True,
+    )
+
+
+@bot.tree.command(name="setup_contenus", description="Choisir le salon des ajouts et suppressions de contenus")
+@app_commands.describe(salon="Salon qui recevra les ajouts et suppressions")
+async def setup_contents_command(interaction: discord.Interaction, salon: discord.TextChannel) -> None:
+    if not is_staff(interaction.user):
+        await interaction.response.send_message("Commande réservée au staff.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await bot.api.configure_media_notifications(
+            guild_id=interaction.guild_id or settings.guild_id,
+            channel_id=salon.id,
+        )
+        # Nouvelle référence au prochain passage pour ne jamais annoncer tout le
+        # catalogue UQFlex au moment où le salon vient d'être configuré.
+        bot.uqflex_movies = None
+    except YourMoviesAPIError as exc:
+        await interaction.followup.send(exc.user_message(), ephemeral=True)
+        return
+    await interaction.followup.send(
+        f"Les ajouts et suppressions seront maintenant annoncés dans {salon.mention}.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
