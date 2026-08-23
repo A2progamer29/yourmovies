@@ -304,23 +304,6 @@ export default function Header() {
                                 </div>
                             ) : (
                                 <>
-                                    {userResults.length > 0 && (
-                                        <>
-                                            <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-widest text-neutral-500">Utilisateurs</div>
-                                            {userResults.map((u) => (
-                                                <button
-                                                    key={u.user_id}
-                                                    onClick={() => { setSearchOpen(false); navigate(`/u/${u.user_id}`); }}
-                                                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 text-left transition-colors"
-                                                >
-                                                    {u.picture
-                                                        ? <img src={u.picture} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
-                                                        : <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-xs font-semibold shrink-0">{u.name?.[0]?.toUpperCase() || "U"}</div>}
-                                                    <div className="text-sm text-white truncate">{u.name}</div>
-                                                </button>
-                                            ))}
-                                        </>
-                                    )}
                                     {searchResults.length > 0 && (
                                         <>
                                             <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-widest text-neutral-500">Titres</div>
@@ -337,6 +320,23 @@ export default function Header() {
                                                         <div className="text-sm text-white truncate">{m.title}</div>
                                                         <div className="text-xs text-neutral-500 capitalize">{m.type}{m.year ? ` · ${m.year}` : ""}</div>
                                                     </div>
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
+                                    {userResults.length > 0 && (
+                                        <>
+                                            <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-widest text-neutral-500">Utilisateurs</div>
+                                            {userResults.map((u) => (
+                                                <button
+                                                    key={u.user_id}
+                                                    onClick={() => { setSearchOpen(false); navigate(`/u/${u.user_id}`); }}
+                                                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 text-left transition-colors"
+                                                >
+                                                    {u.picture
+                                                        ? <img src={u.picture} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                                                        : <div className="w-8 h-8 rounded-full bg-[#E8D2A6] text-black flex items-center justify-center text-xs font-semibold shrink-0">{u.name?.[0]?.toUpperCase() || "U"}</div>}
+                                                    <div className="text-sm text-white truncate">{u.name}</div>
                                                 </button>
                                             ))}
                                         </>
