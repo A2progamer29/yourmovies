@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
 import TurnstileGate from "@/components/TurnstileGate";
-import PlayerGestures from "@/components/PlayerGestures";
 import AvertissementContenu from "@/components/AvertissementContenu";
 import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
@@ -25,35 +24,8 @@ import AdGate from "@/components/AdGate";
 import SuiteAutomatique from "@/components/SuiteAutomatique";
 
 const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
-const BUNNY_PLAYER_API_URL = "https://assets.mediadelivery.net/playerjs/player-0.1.0.min.js";
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
 const SEUIL_FIN = 0.95;
-let bunnyPlayerApiPromise;
-
-function loadBunnyPlayerApi() {
-    if (typeof window === "undefined") return Promise.reject(new Error("Player unavailable"));
-    if (window.playerjs?.Player) return Promise.resolve(window.playerjs);
-    if (bunnyPlayerApiPromise) return bunnyPlayerApiPromise;
-
-    bunnyPlayerApiPromise = new Promise((resolve, reject) => {
-        const finish = () => window.playerjs?.Player
-            ? resolve(window.playerjs)
-            : reject(new Error("Player API unavailable"));
-        const existing = document.querySelector(`script[src="${BUNNY_PLAYER_API_URL}"]`);
-        if (existing) {
-            existing.addEventListener("load", finish, { once: true });
-            existing.addEventListener("error", reject, { once: true });
-            return;
-        }
-        const script = document.createElement("script");
-        script.src = BUNNY_PLAYER_API_URL;
-        script.async = true;
-        script.addEventListener("load", finish, { once: true });
-        script.addEventListener("error", reject, { once: true });
-        document.head.appendChild(script);
-    });
-    return bunnyPlayerApiPromise;
-}
 
 
 function resolveBunnySource(media) {
@@ -329,10 +301,6 @@ export default function WatchPage() {
     const [joinInput, setJoinInput] = useState("");
     const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
     const videoElRef = useRef(null);
-    const bunnyIframeRef = useRef(null);
-    const bunnyPlayerRef = useRef(null);
-    const bunnyLastProgressSave = useRef(0);
-    const [bunnyPlaybackUrl, setBunnyPlaybackUrl] = useState(null);
     const [manifestUrl, setManifestUrl] = useState(null);
     const [piste, setPiste] = useState(() => searchParams.get("piste") || null);
     // Seul le franchissement du seuil change de lecteur. Faire dépendre l'appel
@@ -566,11 +534,9 @@ export default function WatchPage() {
         // Sans la preuve de vérification, le serveur refuserait l'URL : on
         // n'appelle donc pas tant qu'elle n'a pas été franchie.
         if (!bunnySource?.videoId || !verifie) {
-            setBunnyPlaybackUrl(null);
             return;
         }
         let active = true;
-        setBunnyPlaybackUrl(null);
         setManifestUrl(null);
         setBunnyPlaybackError(null);
         // Le lecteur avancé n'est demandé que si l'amplification est réglée : sans
@@ -592,8 +558,8 @@ export default function WatchPage() {
             .then((response) => {
                 if (!active) return;
                 const data = response.data || {};
-                if (!data.url) {
-                    setBunnyPlaybackError("Le backend n’a renvoyé aucune URL de lecture.");
+                if (!data.manifest_url) {
+                    setBunnyPlaybackError("Ce contenu ne fournit pas de flux compatible avec le lecteur maison.");
                     return;
                 }
                 // Le flux servi en direct autorise nos propres contrôles, dont
@@ -605,7 +571,6 @@ export default function WatchPage() {
                     );
                     return;
                 }
-                setBunnyPlaybackUrl(data.url);
             })
             .catch((error) => {
                 if (!active) return;
@@ -698,104 +663,6 @@ export default function WatchPage() {
     }, [id, user, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number]);
 
     useEffect(() => { saveProgressRef.current = saveProgress; }, [saveProgress]);
-
-    useEffect(() => {
-        const iframe = bunnyIframeRef.current;
-        if (!user || !bunnyPlaybackUrl || !iframe) return undefined;
-
-        let disposed = false;
-        let player = null;
-        let knownDuration = 0;
-        const listeners = [];
-        bunnyLastProgressSave.current = 0;
-
-        const on = (eventName, handler) => {
-            player.on(eventName, handler);
-            listeners.push([eventName, handler]);
-        };
-
-        const persistProgress = (positionValue, durationValue, force = false) => {
-            const position = Number(positionValue);
-            const duration = Number(durationValue || knownDuration);
-            if (!Number.isFinite(position) || position < 3) return;
-            if (Number.isFinite(duration) && duration > 0) knownDuration = duration;
-
-            signalerAvancement(position, knownDuration);
-
-            const completed = knownDuration > 0 && position / knownDuration >= SEUIL_FIN;
-            const now = Date.now();
-            if (!force && !completed && now - bunnyLastProgressSave.current < PROGRESS_SAVE_INTERVAL_MS) return;
-            bunnyLastProgressSave.current = now;
-            saveProgress(position, knownDuration || null);
-        };
-
-        // Repli : si l'API du lecteur est indisponible (script tiers bloqué par une
-        // extension, réseau filtré…), on estime la progression au temps écoulé
-        // pendant que l'onglet est visible. Moins précis, mais évite de perdre
-        // totalement la reprise de lecture.
-        let fallbackTimer = null;
-        const startFallbackTracking = () => {
-            if (disposed || fallbackTimer) return;
-            const startedAt = Date.now();
-            const base = Number(resumeAt) || 0;
-            const mediaMinutes = media?.type === "movie"
-                ? media?.duration_minutes
-                : (selectedEpisode?.duration_minutes ?? selectedEpisode?.duration);
-            const estimatedDuration = Number(mediaMinutes) > 0 ? Number(mediaMinutes) * 60 : 0;
-            fallbackTimer = window.setInterval(() => {
-                if (disposed || document.visibilityState !== "visible") return;
-                const position = base + (Date.now() - startedAt) / 1000;
-                if (estimatedDuration > 0 && position > estimatedDuration) return;
-                saveProgress(position, estimatedDuration || null);
-                signalerAvancement(position, estimatedDuration);
-            }, PROGRESS_SAVE_INTERVAL_MS);
-        };
-
-        loadBunnyPlayerApi()
-            .then((playerjs) => {
-                if (disposed || !bunnyIframeRef.current) return;
-                player = new playerjs.Player(bunnyIframeRef.current);
-                bunnyPlayerRef.current = player;
-                on("ready", () => {
-                    player.getDuration((duration) => {
-                        const parsed = Number(duration);
-                        if (Number.isFinite(parsed) && parsed > 0) knownDuration = parsed;
-                    });
-                });
-                on("timeupdate", (data) => {
-                    const position = data?.seconds ?? data?.currentTime ?? data?.position ?? data;
-                    const duration = data?.duration ?? data?.total ?? knownDuration;
-                    persistProgress(position, duration);
-                });
-                on("ended", () => {
-                    if (knownDuration > 0) persistProgress(knownDuration, knownDuration, true);
-                    if (!suiteRefusee.current) setFinAtteinte(true);
-                });
-                // L'API répond mais n'émet aucun « timeupdate » : on bascule aussi.
-                window.setTimeout(() => {
-                    if (!disposed && bunnyLastProgressSave.current === 0) startFallbackTracking();
-                }, 45_000);
-            })
-            .catch(() => {
-                // La lecture reste disponible même si l'API de suivi est
-                // indisponible : on bascule sur l'estimation par temps écoulé.
-                startFallbackTracking();
-            });
-
-        return () => {
-            disposed = true;
-            bunnyPlayerRef.current = null;
-            if (fallbackTimer) window.clearInterval(fallbackTimer);
-            // L'iframe peut déjà avoir quitté le DOM (porte pub, changement d'épisode) :
-            // player.off() ferait alors un postMessage sur un contentWindow null.
-            if (player?.off) {
-                listeners.forEach(([eventName, handler]) => {
-                    try { player.off(eventName, handler); } catch { }
-                });
-            }
-        };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, bunnyPlaybackUrl, saveProgress, resumeAt]);
 
     const markEmbeddedPlaybackStarted = useCallback(async () => {
         if (!user || !media) return;
@@ -1030,9 +897,7 @@ export default function WatchPage() {
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
-                        ) : bunnySource && manifestUrl && !partyOpen ? (
-                            /* En salon, le lecteur intégré reste seul : c'est lui que le
-                               masque de l'invité neutralise pour laisser l'hôte diriger. */
+                        ) : manifestUrl ? (
                             <VideoPlayer
                                 key={manifestUrl}
                                 manifestUrl={manifestUrl}
@@ -1046,55 +911,9 @@ export default function WatchPage() {
                                 fiche={ficheLecteur}
                                 boostInitial={Number(user?.audio_boost) || 1}
                             />
-                        ) : bunnySource ? (
-                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                {bunnyPlaybackError ? (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#050505] p-6">
-                                        <div className="max-w-xl text-center">
-                                            <div className="font-display text-2xl text-white">Lecture indisponible</div>
-                                            <p className="mt-3 text-sm leading-relaxed text-neutral-400">La vidéo ne peut pas être lancée pour le moment. Réessaie dans quelques instants.</p>
-                                        </div>
-                                    </div>
-                                ) : bunnyPlaybackUrl ? (
-                                    <iframe
-                                        ref={bunnyIframeRef}
-                                        data-testid="bunny-player"
-                                        src={bunnyPlaybackUrl}
-                                        loading="eager"
-                                        onLoad={markEmbeddedPlaybackStarted}
-                                        className="absolute inset-0 w-full h-full"
-                                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-                                        allowFullScreen
-                                        referrerPolicy="strict-origin-when-cross-origin"
-                                        title={media.title}
-                                    />
-                                ) : (
-                                    <div className="absolute inset-0 bg-black" aria-hidden="true" />
-                                )}
-                                <PlayerGestures
-                                    playerRef={bunnyPlayerRef}
-                                    disabled={partyOpen && !isPartyHost}
-                                />
-
-                                {partyOpen && partyStarted && !isPartyHost && (
-                                    <div className="pointer-events-none absolute inset-0 z-30" data-testid="party-guest-shield">
-                                        {/* Le lecteur est sur un autre domaine : impossible de
-                                            désactiver certains de ses boutons. On masque donc la zone
-                                            de lecture et la barre de progression, en laissant libre le
-                                            coin des réglages et du plein écran. */}
-                                        <div className="pointer-events-auto absolute inset-x-0 top-0 bottom-[52px]" />
-                                        <div className="pointer-events-auto absolute bottom-0 left-0 right-[150px] h-[52px]" />
-                                        <div className="absolute inset-x-0 top-0 flex justify-center">
-                                            <span className="mt-3 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/80 backdrop-blur">
-                                                Lecture contrôlée par l&apos;hôte
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
                         ) : qualities.length === 0 ? (
                             <div className="p-12 border border-[#262626] rounded-lg text-center text-neutral-400">
-                                Aucun fichier vidéo disponible pour ce contenu.
+                                {bunnyPlaybackError || "Aucun flux vidéo compatible avec le lecteur maison n’est disponible."}
                             </div>
                         ) : (
                             <VideoPlayer
@@ -1258,7 +1077,6 @@ export default function WatchPage() {
                             profileId={activeProfile?.id}
                             profileName={activeProfile?.name}
                             videoRef={videoElRef}
-                            bunnyPlayerRef={bunnyPlayerRef}
                             onHostChange={setIsPartyHost}
                             currentEpisode={selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
                             onEpisodeSync={(sn, en) => {

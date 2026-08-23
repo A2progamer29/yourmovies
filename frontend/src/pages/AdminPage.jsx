@@ -373,9 +373,15 @@ export default function AdminPage() {
         try {
             let response;
             try {
-                response = await api.patch("/admin/media/" + media.id + "/flags", { [field]: value });
+                response = await api.patch(
+                    media.source === "uqflex"
+                        ? "/admin/uqflex/" + media.id + "/flags"
+                        : "/admin/media/" + media.id + "/flags",
+                    { [field]: value },
+                );
             } catch (requestError) {
                 if (![404, 405].includes(requestError?.response?.status)) throw requestError;
+                if (media.source === "uqflex") throw requestError;
                 response = await api.put("/media/" + media.id, { [field]: value });
             }
             setItems((current) => current.map((item) => item.id === media.id ? { ...item, ...response.data } : item));
@@ -398,7 +404,12 @@ export default function AdminPage() {
         setMediaFlagSaving((current) => ({ ...current, [key]: true }));
         setItems((current) => current.map((item) => item.id === media.id ? { ...item, featured_order: order } : item));
         try {
-            const response = await api.patch("/admin/media/" + media.id + "/flags", { featured_order: order });
+            const response = await api.patch(
+                media.source === "uqflex"
+                    ? "/admin/uqflex/" + media.id + "/flags"
+                    : "/admin/media/" + media.id + "/flags",
+                { featured_order: order },
+            );
             setItems((current) => current.map((item) => item.id === media.id ? { ...item, ...response.data } : item));
             toast.success("Priorité « À l’affiche » mise à jour");
         } catch (e) {
@@ -721,6 +732,11 @@ export default function AdminPage() {
                                         <div>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <span className="text-white">{m.title}</span>
+                                                {m.source === "uqflex" && (
+                                                    <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-300">
+                                                        UQFlex · automatique
+                                                    </span>
+                                                )}
                                                 {isMediaIncomplete(m) && (
                                                     <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
                                                         En cours
@@ -782,8 +798,9 @@ export default function AdminPage() {
                                         </div>
                                     </div>
                                     <div className="col-span-2 flex items-center gap-1 justify-end">
-                                        {can(user, "content.edit") && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
-                                        {can(user, "content.delete") && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
+                                        {can(user, "content.edit") && m.source !== "uqflex" && <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/media/${m.id}/edit`)} data-testid={`edit-${m.id}`} className="text-neutral-400 hover:text-[#E8D2A6] hover:bg-white/5"><Edit size={14} /></Button>}
+                                        {can(user, "content.delete") && m.source !== "uqflex" && <Button variant="ghost" size="icon" onClick={() => remove(m.id)} data-testid={`delete-${m.id}`} className="text-neutral-400 hover:text-red-400 hover:bg-white/5"><Trash2 size={14} /></Button>}
+                                        {m.source === "uqflex" && <span className="text-[10px] uppercase tracking-wider text-neutral-600">Synchronisé automatiquement</span>}
 
                                     </div>
                                 </div>

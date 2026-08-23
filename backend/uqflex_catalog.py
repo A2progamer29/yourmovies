@@ -212,9 +212,10 @@ def _stream_url(base: str, item_id: str, episode_id: str = "") -> str:
 
 def to_media_doc(item: dict, api_base: str) -> dict:
     item_id = str(item.get("id") or "")
-    kind = "series" if str(item.get("type") or "") == "series" else "movie"
+    raw_kind = str(item.get("type") or "").lower()
+    kind = "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie"
     seasons = []
-    if kind == "series":
+    if kind in {"series", "anime"}:
         grouped: dict[int, list] = defaultdict(list)
         for episode in item.get("episodes") or []:
             if not isinstance(episode, dict):
@@ -235,7 +236,7 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "id": "uq_%s" % item_id,
         "title": item.get("title") or "",
         "description": item.get("overview") or "",
-        "type": kind,
+        "type": "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie",
         "year": item.get("year"),
         "duration_minutes": None,
         "genres": item.get("genres") or [],
@@ -267,7 +268,7 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "player_notice": "",
         "reports_open": 0,
         "source": "uqflex",
-        "created_at": item.get("created_at") or item.get("createdAt") or "",
+        "created_at": item.get("created_at") or item.get("createdAt") or item.get("added_at") or item.get("addedAt") or "",
     }
 
 
@@ -285,7 +286,8 @@ def list_docs(api_base: str, media_type: Optional[str] = None, query: Optional[s
     needle = (query or "").strip().lower()
     out = []
     for item in fetch_items():
-        kind = "series" if str(item.get("type") or "") == "series" else "movie"
+        raw_kind = str(item.get("type") or "").lower()
+        kind = "anime" if raw_kind == "anime" else "series" if raw_kind == "series" else "movie"
         if media_type and media_type != kind:
             continue
         title = str(item.get("title") or "")
@@ -296,7 +298,7 @@ def list_docs(api_base: str, media_type: Optional[str] = None, query: Optional[s
 
 
 def partner_stream_url(item_id: str, episode_id: str = "", media_type: str = "movie") -> str:
-    kind = "tv" if media_type in ("series", "tv") else "movie"
+    kind = "tv" if media_type in ("series", "anime", "tv") else "movie"
     url = "%s/stream?type=%s&id=%s" % (current_base(), kind, quote(item_id, safe=""))
     if episode_id:
         url += "&episodeId=%s" % quote(episode_id, safe="")
@@ -304,7 +306,7 @@ def partner_stream_url(item_id: str, episode_id: str = "", media_type: str = "mo
 
 
 def partner_stream_path(item_id: str, episode_id: str = "", media_type: str = "movie") -> str:
-    kind = "tv" if media_type in ("series", "tv") else "movie"
+    kind = "tv" if media_type in ("series", "anime", "tv") else "movie"
     path = "/stream?type=%s&id=%s" % (kind, quote(item_id, safe=""))
     if episode_id:
         path += "&episodeId=%s" % quote(episode_id, safe="")

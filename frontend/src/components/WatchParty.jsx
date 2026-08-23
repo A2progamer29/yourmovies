@@ -14,10 +14,8 @@ import { toast } from "sonner";
  *   onClose: () => void
  *   token?: string (JWT to authenticate)
  */
-export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, bunnyPlayerRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token, adsDone, onStartedChange }) {
-    // Contrôleur unifié : la lecture se fait soit dans un <video>, soit dans
-    // l'iframe du lecteur piloté par playerjs. Sans cette abstraction, rien n'était
-    // synchronisé en lecture par iframe (videoRef restait vide).
+export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token, adsDone, onStartedChange }) {
+    // La synchronisation s'appuie sur le même élément vidéo que le lecteur maison.
     const ctl = () => {
         const v = videoRef?.current;
         if (v) return {
@@ -29,17 +27,6 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
             paused: () => v.paused,
             on: (ev, cb) => v.addEventListener(ev, cb),
             off: (ev, cb) => v.removeEventListener(ev, cb),
-        };
-        const p = bunnyPlayerRef?.current;
-        if (p) return {
-            kind: "bunny",
-            play: () => { try { p.play(); } catch {} },
-            pause: () => { try { p.pause(); } catch {} },
-            seek: (t) => { try { p.setCurrentTime(t); } catch {} },
-            time: () => new Promise((res) => { try { p.getCurrentTime((t) => res(Number(t) || 0)); } catch { res(0); } }),
-            paused: () => pausedRef.current,
-            on: (ev, cb) => { try { p.on(ev, cb); } catch {} },
-            off: (ev, cb) => { try { p.off(ev, cb); } catch {} },
         };
         return null;
     };

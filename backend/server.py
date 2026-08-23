@@ -1298,8 +1298,18 @@ def _public_api_base(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
-def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool]) -> list:
-    if featured is True or not uqflex_catalog.configured():
+async def _uqflex_overrides(ids: list[str]) -> dict:
+    if not ids:
+        return {}
+    rows = await db.uqflex_overrides.find(
+        {"id": {"$in": ids}},
+        {"_id": 0},
+    ).to_list(len(ids))
+    return {str(row.get("id")): row for row in rows}
+
+
+async def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str], query: Optional[str], featured: Optional[bool]) -> list:
+    if not uqflex_catalog.configured():
         return local_docs
     existing_tmdb = {
         int(doc["tmdb_id"])
@@ -1310,8 +1320,14 @@ def _merge_uqflex(local_docs: list, request: Request, media_type: Optional[str],
         (str(doc.get("title") or "").strip().lower(), str(doc.get("year") or ""), str(doc.get("type") or "movie"))
         for doc in local_docs
     }
+    partner_docs = uqflex_catalog.list_docs(_public_api_base(request), media_type, query)
+    overrides = await _uqflex_overrides([str(doc.get("id")) for doc in partner_docs])
     extra = []
-    for doc in uqflex_catalog.list_docs(_public_api_base(request), media_type, query):
+    for doc in partner_docs:
+        override = overrides.get(str(doc.get("id")), {})
+        doc = {**doc, **{key: override[key] for key in ("featured", "featured_order", "in_theaters", "player_broken", "player_notice") if key in override}}
+        if featured is True and not doc.get("featured"):
+            continue
         tmdb = doc.get("tmdb_id")
         try:
             tmdb_n = int(tmdb) if tmdb not in (None, "") else 0
@@ -1351,8 +1367,47 @@ async def list_media(
         docs = docs[:limit]
     else:
         docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
-    docs = _merge_uqflex(docs, request, type, q, featured)
+    docs = await _merge_uqflex(docs, request, type, q, featured)
+    if featured is not True:
+        docs.sort(key=lambda doc: doc.get("created_at") or "", reverse=True)
+        docs = docs[:limit]
     return [serialize_media(d) for d in docs]
+
+
+@api_router.get("/admin/uqflex")
+async def admin_list_uqflex(request: Request, user: dict = Depends(require_perm("content.add"))):
+    if not uqflex_catalog.configured():
+        return []
+    docs = uqflex_catalog.list_docs(_public_api_base(request))
+    overrides = await _uqflex_overrides([str(doc.get("id")) for doc in docs])
+    return [serialize_media({**doc, **overrides.get(str(doc.get("id")), {})}) for doc in docs]
+
+
+class UqflexFlagsInput(BaseModel):
+    featured: Optional[bool] = None
+    featured_order: Optional[int] = Field(default=None, ge=1, le=999)
+    in_theaters: Optional[bool] = None
+    player_broken: Optional[bool] = None
+    player_notice: Optional[str] = Field(default=None, max_length=300)
+
+
+@api_router.patch("/admin/uqflex/{media_id}/flags")
+async def update_uqflex_flags(media_id: str, flags: UqflexFlagsInput, request: Request, user: dict = Depends(require_perm("content.edit"))):
+    if not uqflex_catalog.is_uqflex_id(media_id) or not uqflex_catalog.find_item(media_id):
+        raise HTTPException(status_code=404, detail="Contenu partenaire introuvable")
+    changes = flags.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="Aucun statut à modifier")
+    if changes.get("featured") is False and "featured_order" in changes:
+        raise HTTPException(status_code=400, detail="Activez d’abord le contenu « À l’affiche »")
+    await db.uqflex_overrides.update_one(
+        {"id": media_id},
+        {"$set": {**changes, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    override = await db.uqflex_overrides.find_one({"id": media_id}, {"_id": 0})
+    item = uqflex_catalog.find_item(media_id)
+    return serialize_media({**uqflex_catalog.to_media_doc(item, _public_api_base(request)), **(override or {})})
 
 
 @api_router.api_route("/uqflex/stream", methods=["GET", "HEAD"])
@@ -1362,7 +1417,7 @@ async def uqflex_stream(request: Request, id: str, episodeId: Optional[str] = No
     item = uqflex_catalog.find_item(id)
     if not item:
         raise HTTPException(status_code=404, detail="Flux introuvable")
-    media_type = "tv" if str(item.get("type") or "") == "series" else "movie"
+    media_type = "tv" if str(item.get("type") or "").lower() in {"series", "anime"} else "movie"
     upstream = uqflex_catalog.partner_stream_url(id, episodeId or "", media_type)
     headers = dict(uqflex_catalog._headers())
     if request.headers.get("range"):
@@ -1943,7 +1998,7 @@ async def admin_journal(
 
 
 @api_router.get("/trending")
-async def trending(limit: int = 10):
+async def trending(request: Request, limit: int = 10):
     limit = max(1, min(limit, 30))
     agg = await db.watch_progress.aggregate([
         {"$group": {"_id": "$media_id", "views": {"$sum": 1}}},
@@ -1971,6 +2026,17 @@ async def trending(limit: int = 10):
             item = serialize_media(d)
             item["view_count"] = views_map.get(d["id"], 0)
             result.append(item)
+    if len(result) < limit and uqflex_catalog.configured():
+        partner_docs = await _merge_uqflex(result, request, None, None, None)
+        for doc in sorted(partner_docs, key=lambda item: (item.get("rating") or 0, item.get("created_at") or ""), reverse=True):
+            if doc.get("id") in seen:
+                continue
+            item = serialize_media(doc)
+            item["view_count"] = 0
+            result.append(item)
+            seen.add(doc.get("id"))
+            if len(result) >= limit:
+                break
     return result[:limit]
 
 
@@ -7049,6 +7115,17 @@ async def startup():
         logger.warning(f"Migration expiration Wishboard échouée : {e}")
     # purge périodique des comptes bloqués depuis > 15 jours
     asyncio.create_task(_blocked_purge_loop())
+    if uqflex_catalog.configured():
+        asyncio.create_task(_uqflex_sync_loop())
+
+
+async def _uqflex_sync_loop():
+    while True:
+        try:
+            await run_in_threadpool(uqflex_catalog.fetch_items, True)
+        except Exception as e:
+            logger.warning(f"Synchronisation UQFlex échouée : {e}")
+        await asyncio.sleep(3600)
 
 async def _blocked_purge_loop():
     while True:
