@@ -151,6 +151,7 @@ export default function AdminPage() {
         try {
             const r = await api.post("/admin/uqflex/sync");
             setUqflexStatus(r.data);
+            await loadMedia();
             toast.success("Catalogue UQFlex synchronisé");
         } catch (e) { showError(toast, e, "Synchronisation UQFlex impossible"); }
         finally { setUqflexLoading(false); }
@@ -288,7 +289,10 @@ export default function AdminPage() {
 
     useEffect(() => {
         if (tabParam !== "uqflex") return undefined;
-        const timer = window.setInterval(() => loadUqflexStatus(), 60000);
+        const timer = window.setInterval(async () => {
+            await loadUqflexStatus();
+            await loadMedia();
+        }, 60000);
         return () => window.clearInterval(timer);
     }, [tabParam]);
 
