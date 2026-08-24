@@ -1363,7 +1363,11 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
         ))
         docs = docs[:limit]
     else:
-        docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+        # Quand UQFlex doit être mélangé, on va chercher plus large que la
+        # limite demandée : sinon le catalogue local à lui seul atteint déjà
+        # la limite et aucun titre UQFlex n'a jamais de place pour apparaître.
+        recuperer = max(limit, 1000) if uqflex is not False else limit
+        docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(recuperer)
     if uqflex is not False:
         uqflex_docs = await _uqflex_media_docs(type, q)
         if featured is True:
