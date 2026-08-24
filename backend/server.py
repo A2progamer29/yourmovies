@@ -2522,6 +2522,11 @@ async def list_genres(limit: int = 30):
     return [{"genre": a["_id"], "count": a["count"]} for a in agg if a.get("_id")]
 
 
+@api_router.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
 @api_router.get("/public/stats")
 async def public_stats():
     contents, users_count, comments = await asyncio.gather(
