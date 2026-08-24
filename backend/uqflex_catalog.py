@@ -122,7 +122,11 @@ def _ssh_curl(path: str, extra_headers: Optional[list[str]] = None, timeout: int
 
 def _parse_items(data) -> list[dict]:
     rows = data.get("items") if isinstance(data, dict) else data
-    return [row for row in rows or [] if isinstance(row, dict) and row.get("id")]
+    unique = {}
+    for row in rows or []:
+        if isinstance(row, dict) and row.get("id"):
+            unique[str(row["id"])] = row
+    return list(unique.values())
 
 
 def _read_disk() -> list[dict]:
@@ -268,6 +272,7 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "description": item.get("overview") or "",
         "type": kind,
         "year": item.get("year"),
+        "release_date": item.get("release_date") or item.get("releaseDate"),
         "duration_minutes": duration,
         "genres": item.get("genres") or [],
         "poster_url": item.get("poster_url"),

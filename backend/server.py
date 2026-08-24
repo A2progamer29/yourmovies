@@ -189,6 +189,7 @@ class MediaBase(BaseModel):
     description: str = ""
     type: Literal["movie", "series", "anime"]
     year: Optional[int] = None
+    release_date: Optional[str] = None
     duration_minutes: Optional[int] = None
     genres: List[str] = []
     poster_url: Optional[str] = None
@@ -223,6 +224,7 @@ class MediaUpdate(BaseModel):
     description: Optional[str] = None
     type: Optional[Literal["movie", "series", "anime"]] = None
     year: Optional[int] = None
+    release_date: Optional[str] = None
     duration_minutes: Optional[int] = None
     genres: Optional[List[str]] = None
     poster_url: Optional[str] = None
@@ -1193,12 +1195,14 @@ def serialize_media(doc) -> dict:
         "description": doc.get("description", ""),
         "type": doc.get("type", "movie"),
         "year": doc.get("year"),
+        "release_date": doc.get("release_date"),
         "duration_minutes": doc.get("duration_minutes"),
         "genres": doc.get("genres", []),
         "poster_url": doc.get("poster_url"),
         "banner_url": doc.get("banner_url"),
         "trailer_youtube_id": doc.get("trailer_youtube_id"),
         "trailer_video_url": doc.get("trailer_video_url"),
+        "api_player_url": doc.get("api_player_url"),
         "video_file_path": doc.get("video_file_path"),
         "video_url": doc.get("video_url"),
         "bunny_video_id": doc.get("bunny_video_id"),
@@ -1348,6 +1352,7 @@ async def _uqflex_media_docs(type_filter: Optional[str] = None, q: Optional[str]
 
 @api_router.get("/media")
 async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100, uqflex: Optional[bool] = None):
+    limit = max(1, min(limit, 5000))
     query = {}
     if type:
         query["type"] = type
@@ -1367,7 +1372,7 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
         # Quand UQFlex doit être mélangé, on va chercher plus large que la
         # limite demandée : sinon le catalogue local à lui seul atteint déjà
         # la limite et aucun titre UQFlex n'a jamais de place pour apparaître.
-        recuperer = min(max(limit, 1000) if uqflex is not False else limit, 1000)
+        recuperer = min(max(limit, 1000) if uqflex is not False else limit, 5000)
         docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(recuperer)
     if uqflex is not False:
         uqflex_docs = await _uqflex_media_docs(type, q)
@@ -2365,6 +2370,55 @@ async def _uqflex_enrich_doc(doc: dict, media_id: str) -> dict:
     return doc
 
 
+async def _enrich_pending_uqflex(limit: int = 40) -> int:
+    items = uqflex_catalog._cache_items
+    if not items:
+        return 0
+    ids = ["uq_%s" % str(item.get("id") or "") for item in items if item.get("id")]
+    enrichis = {
+        doc["id"] async for doc in db.uqflex_tmdb_enrichment.find(
+            {"id": {"$in": ids}}, {"_id": 0, "id": 1}
+        )
+    }
+    pending = [
+        item for item in items
+        if "uq_%s" % str(item.get("id") or "") not in enrichis
+    ][:limit]
+    if not pending:
+        return 0
+
+    semaphore = asyncio.Semaphore(5)
+
+    async def enrich(item: dict) -> bool:
+        async with semaphore:
+            media_id = "uq_%s" % str(item.get("id") or "")
+            try:
+                doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+                await _uqflex_enrich_doc(doc, media_id)
+                return True
+            except Exception:
+                logger.exception("Enrichissement TMDB UQFlex impossible pour %s", media_id)
+                return False
+
+    results = await asyncio.gather(*(enrich(item) for item in pending))
+    return sum(results)
+
+
+async def _uqflex_sync_loop() -> None:
+    while True:
+        try:
+            if uqflex_catalog.configured():
+                await run_in_threadpool(uqflex_catalog.fetch_items, False)
+                enriched = await _enrich_pending_uqflex()
+                if enriched:
+                    logger.info("Enrichissement TMDB UQFlex : %d fiche(s)", enriched)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Synchronisation UQFlex échouée : %s", exc)
+        await asyncio.sleep(uqflex_catalog.SYNC_INTERVAL)
+
+
 @api_router.get("/admin/uqflex/status")
 async def admin_uqflex_status(user: dict = Depends(require_perm("content.add"))):
     if uqflex_catalog.configured():
@@ -2381,19 +2435,7 @@ async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
         raise HTTPException(status_code=503, detail="Clé partenaire UQFlex absente (variable UQFLEX_PARTNER_KEY non configurée).")
     await run_in_threadpool(uqflex_catalog.fetch_items, True)
     items = uqflex_catalog._cache_items
-    ids = ["uq_%s" % str(item.get("id") or "") for item in items]
-    deja_enrichis = set()
-    if ids:
-        curseur = db.uqflex_tmdb_enrichment.find({"id": {"$in": ids}}, {"_id": 0, "id": 1})
-        deja_enrichis = {doc["id"] async for doc in curseur}
-    a_enrichir = [item for item in items if ("uq_%s" % str(item.get("id") or "")) not in deja_enrichis]
-    # On limite le nombre d'enrichissements par appel pour ne pas bloquer la
-    # requête trop longtemps (chaque titre implique 1 à 2 appels TMDB) : le
-    # reste se complète automatiquement aux synchros suivantes.
-    for item in a_enrichir[:20]:
-        media_id = "uq_%s" % str(item.get("id") or "")
-        doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
-        await _uqflex_enrich_doc(doc, media_id)
+    await _enrich_pending_uqflex()
     return await _uqflex_status_payload()
 
 
@@ -7326,6 +7368,7 @@ async def startup():
         logger.warning(f"Migration expiration Wishboard échouée : {e}")
     # purge périodique des comptes bloqués depuis > 15 jours
     asyncio.create_task(_blocked_purge_loop())
+    asyncio.create_task(_uqflex_sync_loop())
 
 async def _blocked_purge_loop():
     while True:

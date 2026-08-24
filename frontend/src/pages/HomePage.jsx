@@ -73,8 +73,8 @@ export default function HomePage() {
             const parType = (type) => catalogue
                 .filter((item) => item.type === type)
                 .sort((a, b) => {
-                    const dateA = new Date(a.release_date || `${a.year || 0}-01-01`).getTime() || 0;
-                    const dateB = new Date(b.release_date || `${b.year || 0}-01-01`).getTime() || 0;
+                    const dateA = new Date(a.created_at || 0).getTime() || 0;
+                    const dateB = new Date(b.created_at || 0).getTime() || 0;
                     return dateB - dateA;
                 });
             const vedettes = Array.isArray(feat?.data) && feat.data.length > 0

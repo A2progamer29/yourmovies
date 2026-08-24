@@ -132,7 +132,7 @@ export default function AdminPage() {
     const loadMedia = async () => {
         setMediaLoading(true);
         try {
-            const r = await api.get("/media?limit=500");
+            const r = await api.get("/media?limit=5000&uqflex=true");
             setItems(r.data);
         } finally {
             setMediaLoading(false);
