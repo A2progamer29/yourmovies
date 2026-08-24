@@ -154,24 +154,6 @@ def fetch_items(force: bool = False) -> list[dict]:
     if not _cache_items:
         _cache_items = _read_disk()
     last_error = ""
-    status, body = _ssh_curl("/v1/catalog", timeout=40)
-    if status == 200 and body:
-        try:
-            items = _parse_items(json.loads(body.decode("utf-8")))
-        except Exception:
-            items = []
-        if items:
-            _cache_items = items
-            _cache_at = now
-            _last_sync_at = now
-            _last_sync_error = ""
-            _active_base = "ssh"
-            _write_disk(items)
-            print("uqflex catalog ok via ssh: %s items" % len(items), flush=True)
-            return items
-        last_error = "ssh empty"
-    elif status:
-        last_error = "ssh HTTP %s" % status
     for base in partner_bases():
         if "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
             continue
@@ -200,6 +182,25 @@ def fetch_items(force: bool = False) -> list[dict]:
         _write_disk(items)
         print("uqflex catalog ok: %s items" % len(items), flush=True)
         return items
+    if os.environ.get("UQFLEX_USE_SSH", "").lower() in {"1", "true", "yes"}:
+        status, body = _ssh_curl("/v1/catalog", timeout=8)
+        if status == 200 and body:
+            try:
+                items = _parse_items(json.loads(body.decode("utf-8")))
+            except Exception:
+                items = []
+            if items:
+                _cache_items = items
+                _cache_at = now
+                _last_sync_at = now
+                _last_sync_error = ""
+                _active_base = "ssh"
+                _write_disk(items)
+                print("uqflex catalog ok via ssh: %s items" % len(items), flush=True)
+                return items
+            last_error = "ssh empty"
+        elif status:
+            last_error = "ssh HTTP %s" % status
     print("uqflex catalog fetch failed: %s" % (last_error or "unknown"), flush=True)
     _last_sync_error = last_error or "unknown"
     _cache_at = now

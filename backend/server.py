@@ -2419,6 +2419,15 @@ async def _uqflex_sync_loop() -> None:
         await asyncio.sleep(uqflex_catalog.SYNC_INTERVAL)
 
 
+async def _run_uqflex_enrichment() -> None:
+    try:
+        enriched = await _enrich_pending_uqflex(limit=40)
+        if enriched:
+            logger.info("Enrichissement TMDB UQFlex : %d fiche(s)", enriched)
+    except Exception as exc:
+        logger.warning("Enrichissement UQFlex échoué : %s", exc)
+
+
 @api_router.get("/admin/uqflex/status")
 async def admin_uqflex_status(user: dict = Depends(require_perm("content.add"))):
     if uqflex_catalog.configured():
@@ -2434,8 +2443,7 @@ async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="Clé partenaire UQFlex absente (variable UQFLEX_PARTNER_KEY non configurée).")
     await run_in_threadpool(uqflex_catalog.fetch_items, True)
-    items = uqflex_catalog._cache_items
-    await _enrich_pending_uqflex()
+    asyncio.create_task(_run_uqflex_enrichment())
     return await _uqflex_status_payload()
 
 
