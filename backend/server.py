@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from fastapi.responses import Response as FastAPIResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -2412,6 +2413,61 @@ async def admin_uqflex_flags(media_id: str, patch: dict, user: dict = Depends(re
     doc = await _uqflex_enrich_doc(doc, media_id)
     doc.update(override)
     return serialize_media(doc)
+
+
+UQFLEX_PROXY_HEADERS_PASSTHROUGH = {
+    "content-type", "content-length", "content-range", "accept-ranges", "cache-control", "etag",
+}
+
+
+@api_router.api_route("/uqflex/stream", methods=["GET", "HEAD"])
+async def uqflex_stream(request: Request, id: str = Query(...), season: str = Query(""), episode: str = Query("")):
+    """Relaie la vidéo depuis le serveur du partenaire UQFlex vers le
+    navigateur : le lecteur ne peut pas envoyer la clé d'API partenaire
+    lui-même, donc c'est notre serveur qui s'authentifie et transmet le
+    flux (avec le support de l'avance/recul via Range)."""
+    if not uqflex_catalog.configured():
+        raise HTTPException(status_code=503, detail="UQFlex non configuré.")
+    item = await run_in_threadpool(uqflex_catalog.find_item, id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Contenu UQFlex introuvable.")
+    media_type = uqflex_catalog.media_kind(item.get("type"))
+    cible = uqflex_catalog.partner_stream_url(str(item.get("id") or ""), season, episode, media_type)
+    en_tetes = uqflex_catalog._headers()
+    range_demande = request.headers.get("range")
+    if range_demande:
+        en_tetes = {**en_tetes, "Range": range_demande}
+
+    def appel_amont():
+        methode = requests.head if request.method == "HEAD" else requests.get
+        return methode(cible, headers=en_tetes, stream=True, timeout=30)
+
+    try:
+        amont = await run_in_threadpool(appel_amont)
+    except Exception:
+        logger.exception("Relais UQFlex indisponible pour %s", id)
+        raise HTTPException(status_code=502, detail="Lecture UQFlex momentanément indisponible.")
+    if amont.status_code >= 400:
+        amont.close()
+        raise HTTPException(status_code=502, detail="Lecture UQFlex momentanément indisponible.")
+
+    en_tetes_reponse = {cle: valeur for cle, valeur in amont.headers.items() if cle.lower() in UQFLEX_PROXY_HEADERS_PASSTHROUGH}
+    en_tetes_reponse.setdefault("Accept-Ranges", "bytes")
+    type_contenu = amont.headers.get("content-type", "video/mp4")
+
+    if request.method == "HEAD":
+        amont.close()
+        return Response(status_code=amont.status_code, headers=en_tetes_reponse, media_type=type_contenu)
+
+    def relais():
+        try:
+            for morceau in amont.iter_content(chunk_size=262144):
+                if morceau:
+                    yield morceau
+        finally:
+            amont.close()
+
+    return StreamingResponse(relais(), status_code=amont.status_code, headers=en_tetes_reponse, media_type=type_contenu)
 
 
 @api_router.get("/genres")
