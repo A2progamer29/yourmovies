@@ -1462,6 +1462,16 @@ async def _resolve_timeline_items(media_id: str, raw_items: List[dict]) -> List[
 
 @api_router.get("/media/{media_id}/timeline")
 async def get_media_timeline(media_id: str):
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Contenu introuvable")
+        enrich = await db.uqflex_tmdb_enrichment.find_one({"id": media_id}, {"_id": 0}) or {}
+        items = await _resolve_timeline_items(media_id, enrich.get("timeline") or [])
+        return {
+            "title": enrich.get("saga_title") or f"Univers {item.get('title', '')}".strip(),
+            "items": items,
+        }
     doc = await db.media.find_one({"id": media_id}, {"_id": 0, "id": 1, "title": 1, "saga_title": 1, "timeline": 1})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
@@ -6216,12 +6226,20 @@ async def recommendations(limit: int = 20, user: dict = Depends(get_current_user
 # ---------- Similar ----------
 @api_router.get("/media/{media_id}/similar")
 async def similar_media(media_id: str, limit: int = 8):
-    m = await db.media.find_one({"id": media_id}, {"_id": 0})
-    if not m:
-        raise HTTPException(status_code=404, detail="Not found")
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Not found")
+        m = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+    else:
+        m = await db.media.find_one({"id": media_id}, {"_id": 0})
+        if not m:
+            raise HTTPException(status_code=404, detail="Not found")
     genres = m.get("genres", []) or []
     mtype = m.get("type")
-    # Fetch candidates by same type OR overlapping genres
+    # Fetch candidates by same type OR overlapping genres (uniquement dans
+    # le catalogue local : le catalogue partenaire UQFlex n'est pas encore
+    # assez fourni en métadonnées pour être comparé de la même façon).
     query = {"id": {"$ne": media_id}}
     if genres:
         query["$or"] = [{"type": mtype}, {"genres": {"$in": genres}}]
