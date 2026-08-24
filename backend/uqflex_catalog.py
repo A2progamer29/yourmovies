@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -122,11 +124,7 @@ def _ssh_curl(path: str, extra_headers: Optional[list[str]] = None, timeout: int
 
 def _parse_items(data) -> list[dict]:
     rows = data.get("items") if isinstance(data, dict) else data
-    unique = {}
-    for row in rows or []:
-        if isinstance(row, dict) and row.get("id"):
-            unique[str(row["id"])] = row
-    return list(unique.values())
+    return [row for row in rows or [] if isinstance(row, dict) and row.get("id")]
 
 
 def _read_disk() -> list[dict]:
@@ -144,6 +142,43 @@ def _write_disk(rows: list[dict]) -> None:
         json.dump(rows, handle, ensure_ascii=False)
 
 
+def _titre_normalise(valeur: Optional[str]) -> str:
+    texte = unicodedata.normalize("NFKD", str(valeur or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "", texte.lower())
+
+
+def group_series_by_title(items: list[dict]) -> list[dict]:
+    """Le catalogue partenaire indexe apparemment les séries par saison :
+    plusieurs entrées différentes partagent le même titre. On les regroupe
+    en une seule fiche par titre, en gardant la liste des identifiants
+    d'origine (`_variant_ids`) pour pouvoir aller chercher tous les
+    épisodes ensuite. Les films ne sont jamais regroupés."""
+    groupes: dict[tuple, dict] = {}
+    resultat: list[dict] = []
+    for item in items:
+        kind = media_kind(item.get("type"))
+        if kind == "movie":
+            resultat.append(item)
+            continue
+        cle = (kind, _titre_normalise(item.get("title")))
+        if not cle[1]:
+            resultat.append(item)
+            continue
+        if cle not in groupes:
+            fusion = dict(item)
+            fusion["_variant_ids"] = [str(item.get("id") or "")]
+            groupes[cle] = fusion
+            resultat.append(fusion)
+        else:
+            groupes[cle]["_variant_ids"].append(str(item.get("id") or ""))
+            # On garde les champs les plus complets rencontrés (poster,
+            # résumé...), au cas où une variante soit mieux renseignée.
+            for champ in ("poster_url", "backdrop_url", "overview", "genres", "year"):
+                if not groupes[cle].get(champ) and item.get(champ):
+                    groupes[cle][champ] = item.get(champ)
+    return resultat
+
+
 def fetch_items(force: bool = False) -> list[dict]:
     global _cache_at, _cache_items, _active_base, _last_sync_at, _last_sync_error
     if not configured():
@@ -154,6 +189,25 @@ def fetch_items(force: bool = False) -> list[dict]:
     if not _cache_items:
         _cache_items = _read_disk()
     last_error = ""
+    status, body = _ssh_curl("/v1/catalog", timeout=40)
+    if status == 200 and body:
+        try:
+            items = _parse_items(json.loads(body.decode("utf-8")))
+        except Exception:
+            items = []
+        if items:
+            items = group_series_by_title(items)
+            _cache_items = items
+            _cache_at = now
+            _last_sync_at = now
+            _last_sync_error = ""
+            _active_base = "ssh"
+            _write_disk(items)
+            print("uqflex catalog ok via ssh: %s items" % len(items), flush=True)
+            return items
+        last_error = "ssh empty"
+    elif status:
+        last_error = "ssh HTTP %s" % status
     for base in partner_bases():
         if "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
             continue
@@ -174,6 +228,7 @@ def fetch_items(force: bool = False) -> list[dict]:
         if not items:
             last_error = "empty"
             continue
+        items = group_series_by_title(items)
         _cache_items = items
         _cache_at = now
         _last_sync_at = now
@@ -182,25 +237,6 @@ def fetch_items(force: bool = False) -> list[dict]:
         _write_disk(items)
         print("uqflex catalog ok: %s items" % len(items), flush=True)
         return items
-    if os.environ.get("UQFLEX_USE_SSH", "").lower() in {"1", "true", "yes"}:
-        status, body = _ssh_curl("/v1/catalog", timeout=8)
-        if status == 200 and body:
-            try:
-                items = _parse_items(json.loads(body.decode("utf-8")))
-            except Exception:
-                items = []
-            if items:
-                _cache_items = items
-                _cache_at = now
-                _last_sync_at = now
-                _last_sync_error = ""
-                _active_base = "ssh"
-                _write_disk(items)
-                print("uqflex catalog ok via ssh: %s items" % len(items), flush=True)
-                return items
-            last_error = "ssh empty"
-        elif status:
-            last_error = "ssh HTTP %s" % status
     print("uqflex catalog fetch failed: %s" % (last_error or "unknown"), flush=True)
     _last_sync_error = last_error or "unknown"
     _cache_at = now
@@ -273,7 +309,6 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "description": item.get("overview") or "",
         "type": kind,
         "year": item.get("year"),
-        "release_date": item.get("release_date") or item.get("releaseDate"),
         "duration_minutes": duration,
         "genres": item.get("genres") or [],
         "poster_url": item.get("poster_url"),
@@ -311,18 +346,59 @@ def to_media_doc(item: dict, api_base: str) -> dict:
     }
 
 
+def _fetch_series_detail(raw_id_value: str) -> dict:
+    """Va chercher le détail (avec épisodes) d'une entrée du catalogue,
+    peu importe la base actuellement active."""
+    for base in partner_bases():
+        if base == "ssh" or "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
+            continue
+        try:
+            response = requests.get(
+                "%s/v1/series/%s" % (base, quote(raw_id_value, safe="")),
+                headers=_headers(),
+                timeout=8,
+            )
+            if response.status_code >= 400:
+                continue
+            detail = response.json()
+            if isinstance(detail, dict):
+                return detail.get("item") if isinstance(detail.get("item"), dict) else detail
+        except Exception:
+            continue
+    return {}
+
+
+def resolve_full_series_item(canonical_item: dict) -> dict:
+    """Le catalogue indexe apparemment chaque saison sous un identifiant
+    séparé. On va chercher les épisodes de CHAQUE variante regroupée sous
+    ce titre et on les fusionne en une seule liste : `to_media_doc` sait
+    déjà répartir des épisodes par saison à partir de leur propre champ
+    "season", donc peu importe l'ordre dans lequel on les rassemble ici."""
+    variantes = canonical_item.get("_variant_ids") or [str(canonical_item.get("id") or "")]
+    tous_episodes = []
+    for variant_id in variantes:
+        detail = _fetch_series_detail(variant_id)
+        episodes = detail.get("episodes") or []
+        if isinstance(episodes, list):
+            tous_episodes.extend(ep for ep in episodes if isinstance(ep, dict))
+    fusion = dict(canonical_item)
+    fusion["episodes"] = tous_episodes
+    return fusion
+
+
 def find_item(media_id: str) -> Optional[dict]:
     wanted = raw_id(media_id)
     for item in fetch_items():
         if str(item.get("id") or "") == wanted:
             raw_kind = str(item.get("type") or "").lower()
-            endpoint = "series" if raw_kind in {"series", "anime"} else "movies"
+            if raw_kind in {"series", "anime"}:
+                return resolve_full_series_item(item)
             for base in partner_bases():
                 if base == "ssh" or "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
                     continue
                 try:
                     response = requests.get(
-                        "%s/v1/%s/%s" % (base, endpoint, quote(wanted, safe="")),
+                        "%s/v1/movies/%s" % (base, quote(wanted, safe="")),
                         headers=_headers(),
                         timeout=8,
                     )
