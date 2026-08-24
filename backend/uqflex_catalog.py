@@ -297,8 +297,12 @@ def to_media_doc(item: dict, api_base: str) -> dict:
         "featured": False,
         "featured_order": None,
         "in_theaters": False,
-        "player_broken": False,
-        "player_notice": "",
+        # Le proxy de diffusion vidéo (SSH vers le NAS partenaire) n'est pas
+        # encore câblé côté serveur : la fiche apparaît dans le catalogue,
+        # mais la lecture reste annoncée comme indisponible plutôt que de
+        # planter silencieusement au clic sur "Regarder".
+        "player_broken": True,
+        "player_notice": "Ce contenu arrive bientôt sur YourMovies.",
         "reports_open": 0,
         "source": "uqflex",
         "created_at": item.get("created_at") or item.get("createdAt") or item.get("added_at") or item.get("addedAt") or "",

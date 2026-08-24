@@ -1305,8 +1305,48 @@ async def _record_media_event(
         "created_by": user_id,
     })
 
+async def _uqflex_media_docs(type_filter: Optional[str] = None, q: Optional[str] = None) -> list:
+    """Construit les fiches UQFlex prêtes à être renvoyées par /media, en
+    appliquant les corrections manuelles (admin) et l'enrichissement TMDB
+    déjà en cache. Ne déclenche jamais de nouvel appel TMDB ici : ça reste
+    réservé à la synchro, pour que le listing reste rapide."""
+    if not uqflex_catalog.configured():
+        return []
+    items = uqflex_catalog._cache_items
+    if not items:
+        return []
+    ids = ["uq_%s" % str(item.get("id") or "") for item in items]
+    overrides_map = {o["id"]: o async for o in db.uqflex_overrides.find({"id": {"$in": ids}}, {"_id": 0})}
+    enrich_map = {e["id"]: e async for e in db.uqflex_tmdb_enrichment.find({"id": {"$in": ids}}, {"_id": 0})}
+    q_lower = q.lower() if q else None
+    docs = []
+    for item in items:
+        media_id = "uq_%s" % str(item.get("id") or "")
+        try:
+            doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+        except Exception:
+            # Une fiche partenaire malformée ne doit jamais faire planter
+            # tout le listing : on l'ignore, comme pour les titres locaux.
+            logger.exception("to_media_doc UQFlex a échoué pour %s", media_id)
+            continue
+        if type_filter and doc.get("type") != type_filter:
+            continue
+        if q_lower and q_lower not in (doc.get("title") or "").lower():
+            continue
+        enrich = enrich_map.get(media_id)
+        if enrich:
+            for champ in ("cast", "director", "trailer_youtube_id", "saga_title", "timeline", "title_logo_url", "tmdb_id"):
+                if not doc.get(champ) and enrich.get(champ):
+                    doc[champ] = enrich[champ]
+        override = overrides_map.get(media_id)
+        if override:
+            doc.update({cle: valeur for cle, valeur in override.items() if cle != "id"})
+        docs.append(doc)
+    return docs
+
+
 @api_router.get("/media")
-async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100):
+async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100, uqflex: Optional[bool] = None):
     query = {}
     if type:
         query["type"] = type
@@ -1324,6 +1364,20 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
         docs = docs[:limit]
     else:
         docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    if uqflex is not False:
+        uqflex_docs = await _uqflex_media_docs(type, q)
+        if featured is True:
+            uqflex_docs = [d for d in uqflex_docs if d.get("featured")]
+        docs = docs + uqflex_docs
+        if featured is True:
+            docs.sort(key=lambda doc: (
+                doc.get("featured_order") is None,
+                safe_int(doc.get("featured_order"), 10**9),
+                str(doc.get("created_at") or ""),
+            ))
+            docs = docs[:limit]
+        else:
+            docs = docs[:limit]
     resultats = []
     for d in docs:
         try:
@@ -1337,6 +1391,15 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
 
 @api_router.get("/media/{media_id}")
 async def get_media(media_id: str, user: Optional[dict] = Depends(get_optional_user)):
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Not found")
+        doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+        doc = await _uqflex_enrich_doc(doc, media_id)
+        override = await db.uqflex_overrides.find_one({"id": media_id}, {"_id": 0}) or {}
+        doc.update({cle: valeur for cle, valeur in override.items() if cle != "id"})
+        return serialize_media(doc)
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc and user and has_perm(user, "content.add"):
         # Les propositions vivent dans une collection a part : le catalogue
