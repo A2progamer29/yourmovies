@@ -1356,7 +1356,7 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
     if featured is not None:
         query["featured"] = featured
     if featured is True:
-        docs = await db.media.find(query, {"_id": 0}).to_list(max(limit, 500))
+        docs = await db.media.find(query, {"_id": 0}).to_list(min(max(limit, 500), 1000))
         docs.sort(key=lambda doc: (
             doc.get("featured_order") is None,
             safe_int(doc.get("featured_order"), 10**9),
@@ -1367,7 +1367,7 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
         # Quand UQFlex doit être mélangé, on va chercher plus large que la
         # limite demandée : sinon le catalogue local à lui seul atteint déjà
         # la limite et aucun titre UQFlex n'a jamais de place pour apparaître.
-        recuperer = max(limit, 1000) if uqflex is not False else limit
+        recuperer = min(max(limit, 1000) if uqflex is not False else limit, 1000)
         docs = await db.media.find(query, {"_id": 0}).sort("created_at", -1).to_list(recuperer)
     if uqflex is not False:
         uqflex_docs = await _uqflex_media_docs(type, q)
@@ -7233,6 +7233,11 @@ async def root():
         "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7],
     }
 
+@api_router.get("/health")
+async def health_check():
+    await db.command("ping")
+    return {"ok": True}
+
 # ---------- Discord integration ----------
 try:
     from .discord_api import create_discord_router
@@ -7287,6 +7292,9 @@ async def startup():
         await db.users.create_index("user_id", unique=True)
         await db.users.create_index("email", unique=True)
         await db.users.create_index("account_identifier", unique=True, sparse=True)
+        await db.media.create_index([("created_at", -1)])
+        await db.media.create_index([("type", 1), ("created_at", -1)])
+        await db.media.create_index([("featured", 1), ("featured_order", 1), ("created_at", -1)])
         await db.auth_sessions.create_index("jti_hash", unique=True)
         await db.auth_sessions.create_index("expires_at", expireAfterSeconds=0)
         await db.license_keys.create_index("key_hash", unique=True)
