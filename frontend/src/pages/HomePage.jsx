@@ -62,7 +62,7 @@ export default function HomePage() {
             const [feat, watchResult, all, tend, gen, reco] = await Promise.all([
                 api.get("/media?featured=true&limit=10").catch(rien),
                 user ? api.get("/watch-progress", { silent: true }).catch(rien) : anonyme,
-                api.get("/media?limit=200&uqflex=false").catch(rien),
+                api.get("/media?limit=200&uqflex=true").catch(rien),
                 api.get("/trending?limit=10").catch(rien),
                 api.get("/genres?limit=16").catch(rien),
                 user ? api.get("/recommendations?limit=20", { silent: true }).catch(rien) : anonyme,

@@ -1353,6 +1353,8 @@ async def _uqflex_media_docs(type_filter: Optional[str] = None, q: Optional[str]
 @api_router.get("/media")
 async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100, uqflex: Optional[bool] = None):
     limit = max(1, min(limit, 5000))
+    if uqflex is not False and uqflex_catalog.configured():
+        await run_in_threadpool(uqflex_catalog.fetch_items, False)
     query = {}
     if type:
         query["type"] = type
@@ -7376,6 +7378,8 @@ async def startup():
         logger.warning(f"Migration expiration Wishboard échouée : {e}")
     # purge périodique des comptes bloqués depuis > 15 jours
     asyncio.create_task(_blocked_purge_loop())
+    if uqflex_catalog.configured():
+        await run_in_threadpool(uqflex_catalog.fetch_items, False)
     asyncio.create_task(_uqflex_sync_loop())
 
 async def _blocked_purge_loop():
