@@ -2224,7 +2224,7 @@ async def legacy_ai_discovery(limit: int = 15, admin: dict = Depends(require_per
 UQFLEX_API_BASE = (os.environ.get("UQFLEX_API_BASE") or "https://yourmovies-backend.onrender.com").rstrip("/")
 
 
-def _uqflex_status_payload() -> dict:
+async def _uqflex_status_payload() -> dict:
     configured = uqflex_catalog.configured()
     items = uqflex_catalog._cache_items if configured else []
     counts = {"movie": 0, "series": 0, "anime": 0}
@@ -2233,6 +2233,11 @@ def _uqflex_status_payload() -> dict:
         counts[kind] = counts.get(kind, 0) + 1
     last_sync_at = uqflex_catalog._last_sync_at
     next_sync_at = (last_sync_at + uqflex_catalog.SYNC_INTERVAL) if (configured and last_sync_at) else None
+    pending_enrichment = 0
+    if items:
+        ids = ["uq_%s" % str(item.get("id") or "") for item in items]
+        enrichis = await db.uqflex_tmdb_enrichment.count_documents({"id": {"$in": ids}})
+        pending_enrichment = max(0, len(ids) - enrichis)
     return {
         "configured": configured,
         "error": uqflex_catalog._last_sync_error or None,
@@ -2246,7 +2251,40 @@ def _uqflex_status_payload() -> dict:
         "series": counts.get("series", 0),
         "anime": counts.get("anime", 0),
         "items": len(items),
+        "pending_enrichment": pending_enrichment,
     }
+
+
+async def _uqflex_enrich_doc(doc: dict, media_id: str) -> dict:
+    """Complète un titre UQFlex avec les infos manquantes (casting,
+    réalisateur, bande-annonce, chronologie) récupérées depuis TMDB, sans
+    jamais écraser une donnée déjà fournie par le partenaire."""
+    cached = await db.uqflex_tmdb_enrichment.find_one({"id": media_id}, {"_id": 0})
+    if cached is None:
+        tmdb_kind = "tv" if doc.get("type") in {"series", "anime"} else "movie"
+        details = {}
+        try:
+            tmdb_id = await _tmdb_best_match(doc.get("title"), doc.get("year"), tmdb_kind)
+            if tmdb_id:
+                details = await _tmdb_full_details(tmdb_kind, tmdb_id, doc.get("type"))
+        except Exception:
+            logger.exception("Enrichissement TMDB UQFlex a échoué pour %s", media_id)
+        cached = {
+            "id": media_id,
+            "tmdb_id": details.get("tmdb_id"),
+            "cast": details.get("cast") or [],
+            "director": details.get("director"),
+            "trailer_youtube_id": details.get("trailer_youtube_id"),
+            "saga_title": details.get("saga_title"),
+            "timeline": details.get("timeline") or [],
+            "title_logo_url": details.get("title_logo_url"),
+            "enriched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.uqflex_tmdb_enrichment.update_one({"id": media_id}, {"$set": cached}, upsert=True)
+    for champ in ("cast", "director", "trailer_youtube_id", "saga_title", "timeline", "title_logo_url", "tmdb_id"):
+        if not doc.get(champ) and cached.get(champ):
+            doc[champ] = cached[champ]
+    return doc
 
 
 @api_router.get("/admin/uqflex/status")
@@ -2256,7 +2294,7 @@ async def admin_uqflex_status(user: dict = Depends(require_perm("content.add")))
         # statut doit s'afficher tout de suite, la synchro se fait via le
         # bouton dédié ci-dessous.
         await run_in_threadpool(uqflex_catalog.fetch_items, False)
-    return _uqflex_status_payload()
+    return await _uqflex_status_payload()
 
 
 @api_router.post("/admin/uqflex/sync")
@@ -2264,7 +2302,21 @@ async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="Clé partenaire UQFlex absente (variable UQFLEX_PARTNER_KEY non configurée).")
     await run_in_threadpool(uqflex_catalog.fetch_items, True)
-    return _uqflex_status_payload()
+    items = uqflex_catalog._cache_items
+    ids = ["uq_%s" % str(item.get("id") or "") for item in items]
+    deja_enrichis = set()
+    if ids:
+        curseur = db.uqflex_tmdb_enrichment.find({"id": {"$in": ids}}, {"_id": 0, "id": 1})
+        deja_enrichis = {doc["id"] async for doc in curseur}
+    a_enrichir = [item for item in items if ("uq_%s" % str(item.get("id") or "")) not in deja_enrichis]
+    # On limite le nombre d'enrichissements par appel pour ne pas bloquer la
+    # requête trop longtemps (chaque titre implique 1 à 2 appels TMDB) : le
+    # reste se complète automatiquement aux synchros suivantes.
+    for item in a_enrichir[:20]:
+        media_id = "uq_%s" % str(item.get("id") or "")
+        doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+        await _uqflex_enrich_doc(doc, media_id)
+    return await _uqflex_status_payload()
 
 
 @api_router.patch("/admin/uqflex/{media_id}/flags")
@@ -2280,6 +2332,7 @@ async def admin_uqflex_flags(media_id: str, patch: dict, user: dict = Depends(re
         await db.uqflex_overrides.update_one({"id": media_id}, {"$set": updates}, upsert=True)
     override = await db.uqflex_overrides.find_one({"id": media_id}, {"_id": 0}) or {}
     doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
+    doc = await _uqflex_enrich_doc(doc, media_id)
     doc.update(override)
     return serialize_media(doc)
 
@@ -3290,6 +3343,44 @@ def _tmdb_year(value: Optional[str]) -> Optional[int]:
         return None
 
 
+async def _tmdb_best_match(title: str, year: Optional[int], tmdb_kind: str) -> Optional[int]:
+    """Cherche le titre correspondant sur TMDB et renvoie son tmdb_id, ou
+    None si rien d'assez proche n'est trouvé (titre trop différent)."""
+    title = (title or "").strip()
+    if not title:
+        return None
+    data = await run_in_threadpool(
+        _tmdb_request,
+        f"/search/{tmdb_kind}",
+        {"query": title, "language": "fr-FR", "include_adult": "false", "page": 1},
+    )
+    resultats = data.get("results") or []
+    if not resultats:
+        return None
+
+    def normalise(texte: str) -> str:
+        texte = unicodedata.normalize("NFKD", texte or "").encode("ascii", "ignore").decode()
+        return re.sub(r"[^a-z0-9]", "", texte.lower())
+
+    cible = normalise(title)
+
+    def score(item: dict) -> tuple:
+        nom = item.get("title") or item.get("name") or ""
+        correspondance_exacte = normalise(nom) == cible
+        date = item.get("release_date") or item.get("first_air_date")
+        annee_item = _tmdb_year(date)
+        ecart_annee = abs((annee_item or 0) - year) if (year and annee_item) else 5
+        return (correspondance_exacte, -ecart_annee, item.get("popularity") or 0)
+
+    meilleur = max(resultats, key=score)
+    nom_meilleur = normalise(meilleur.get("title") or meilleur.get("name") or "")
+    # Le titre doit vraiment se ressembler : on évite d'associer par erreur
+    # deux œuvres différentes qui partagent juste un mot.
+    if cible not in nom_meilleur and nom_meilleur not in cible:
+        return None
+    return meilleur.get("id")
+
+
 def _timeline_family_variants(value: Optional[str]) -> set:
     key = _timeline_title_key(value)
     if not key:
@@ -3453,13 +3544,7 @@ async def admin_tmdb_timeline(
     return await _tmdb_timeline_proposal(tmdb_kind, tmdb_id, kind)
 
 
-@api_router.get("/admin/tmdb/import/{tmdb_kind}/{tmdb_id}")
-async def admin_tmdb_import(
-    tmdb_kind: Literal["movie", "tv"],
-    tmdb_id: int,
-    kind: Literal["movie", "series", "anime"] = "movie",
-    admin: dict = Depends(require_admin),
-):
+async def _tmdb_full_details(tmdb_kind: str, tmdb_id: int, kind: str) -> dict:
     append = "credits,videos,images,release_dates" if tmdb_kind == "movie" else "credits,videos,images,content_ratings"
     data = await run_in_threadpool(
         _tmdb_request,
@@ -3595,6 +3680,16 @@ async def admin_tmdb_import(
         "saga_title": timeline_proposal.get("saga_title"),
         "timeline": timeline_proposal.get("timeline", []),
     }
+
+
+@api_router.get("/admin/tmdb/import/{tmdb_kind}/{tmdb_id}")
+async def admin_tmdb_import(
+    tmdb_kind: Literal["movie", "tv"],
+    tmdb_id: int,
+    kind: Literal["movie", "series", "anime"] = "movie",
+    admin: dict = Depends(require_admin),
+):
+    return await _tmdb_full_details(tmdb_kind, tmdb_id, kind)
 
 
 @api_router.get("/imdb/search")
