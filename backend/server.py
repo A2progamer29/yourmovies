@@ -1389,6 +1389,10 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
             ))
             docs = docs[:limit]
         else:
+            # Les titres partenaires doivent participer au même classement
+            # que les contenus locaux : les ajouter après les contenus locaux
+            # puis tronquer masquait les nouveautés dès que la limite était atteinte.
+            docs.sort(key=lambda doc: str(doc.get("created_at") or ""), reverse=True)
             docs = docs[:limit]
     resultats = []
     for d in docs:
