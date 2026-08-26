@@ -47,8 +47,6 @@ export default function MaintenancePage({ config = {} }) {
                     WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 45%, black 40%, transparent 90%)",
                 }}
             />
-            <div className="pointer-events-none absolute -left-24 top-1/3 h-64 w-64 rounded-full bg-[#E8D2A6]/10 blur-3xl" aria-hidden="true" />
-            <div className="pointer-events-none absolute -right-24 bottom-1/4 h-72 w-72 rounded-full bg-[#E8D2A6]/[0.08] blur-3xl" aria-hidden="true" />
 
             {!reduceMotion && (
                 <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -88,14 +86,6 @@ export default function MaintenancePage({ config = {} }) {
                 <motion.p variants={monte} className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-neutral-400">
                     {config.message || DEFAULT_MESSAGE}
                 </motion.p>
-
-                <motion.div variants={monte} className="mx-auto mt-7 h-1 w-40 overflow-hidden rounded-full bg-white/5">
-                    <motion.div
-                        className="h-full w-1/3 rounded-full bg-[#E8D2A6]"
-                        animate={reduceMotion ? undefined : { x: ["-100%", "220%"] }}
-                        transition={reduceMotion ? undefined : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                </motion.div>
 
                 <motion.a
                     variants={monte}
