@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ExternalLink, Hammer } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 const DEFAULT_MESSAGE = "Le site est en cours de rénovation. Il sera prochainement disponible.";
 
@@ -22,6 +22,8 @@ export default function MaintenancePage({ config = {} }) {
     const discordUrl = config.discord_url || "https://discord.gg/yourmovies";
     const reduceMotion = useReducedMotion();
     const eclats = useMemo(() => ECLATS, []);
+    const message = config.message || DEFAULT_MESSAGE;
+    const mots = useMemo(() => message.split(" "), [message]);
 
     const conteneur = {
         hidden: {},
@@ -68,23 +70,30 @@ export default function MaintenancePage({ config = {} }) {
                 initial="hidden"
                 animate="visible"
             >
-                <motion.div variants={monte} className="flex justify-center text-[#E8D2A6]">
-                    <motion.div
-                        animate={reduceMotion ? undefined : { rotate: [0, -12, 10, -6, 0] }}
-                        transition={reduceMotion ? undefined : { duration: 2.2, repeat: Infinity, repeatDelay: 1.4, ease: "easeInOut" }}
-                    >
-                        <Hammer size={40} />
-                    </motion.div>
-                </motion.div>
-
                 <motion.p variants={monte} className="mt-8 text-xs uppercase tracking-[0.28em] text-[#E8D2A6]">
                     YourMovie&apos;s
                 </motion.p>
                 <motion.h1 variants={monte} className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">
                     En rénovation
                 </motion.h1>
-                <motion.p variants={monte} className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-neutral-400">
-                    {config.message || DEFAULT_MESSAGE}
+                <motion.p
+                    variants={{
+                        hidden: {},
+                        visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.05, delayChildren: reduceMotion ? 0 : 0.05 } },
+                    }}
+                    className="mx-auto mt-5 flex max-w-lg flex-wrap justify-center gap-x-[0.35em] text-base leading-relaxed text-neutral-400"
+                >
+                    {mots.map((mot, i) => (
+                        <motion.span
+                            key={i}
+                            variants={{
+                                hidden: { opacity: 0, y: reduceMotion ? 0 : 10, filter: reduceMotion ? "none" : "blur(4px)" },
+                                visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+                            }}
+                        >
+                            {mot}
+                        </motion.span>
+                    ))}
                 </motion.p>
 
                 <motion.a
