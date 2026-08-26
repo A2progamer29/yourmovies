@@ -3243,6 +3243,47 @@ async def admin_set_banner(inp: BannerInput, user: dict = Depends(require_perm("
     return await _effective_banner()
 
 
+MAINTENANCE_DEFAULTS = {
+    "enabled": False,
+    "message": "Le site est en cours de rénovation. Il sera prochainement disponible.",
+    "discord_url": "https://discord.gg/yourmovies",
+}
+
+
+def _effective_maintenance(doc: Optional[dict]) -> dict:
+    config = dict(MAINTENANCE_DEFAULTS)
+    if doc:
+        config.update({key: doc[key] for key in MAINTENANCE_DEFAULTS if key in doc})
+    config["enabled"] = bool(config["enabled"])
+    return config
+
+
+class MaintenanceInput(BaseModel):
+    enabled: bool
+    message: str = Field(default=MAINTENANCE_DEFAULTS["message"], min_length=1, max_length=300)
+    discord_url: str = Field(default=MAINTENANCE_DEFAULTS["discord_url"], max_length=300)
+
+
+@api_router.get("/maintenance")
+async def get_maintenance():
+    doc = await db.settings.find_one({"id": "maintenance"}, {"_id": 0})
+    return _effective_maintenance(doc)
+
+
+@api_router.get("/admin/maintenance")
+async def admin_get_maintenance(user: dict = Depends(require_admin)):
+    doc = await db.settings.find_one({"id": "maintenance"}, {"_id": 0})
+    return _effective_maintenance(doc)
+
+
+@api_router.post("/admin/maintenance")
+async def admin_set_maintenance(inp: MaintenanceInput, user: dict = Depends(require_admin)):
+    update = inp.model_dump()
+    update["message"] = update["message"].strip() or MAINTENANCE_DEFAULTS["message"]
+    await db.settings.update_one({"id": "maintenance"}, {"$set": update}, upsert=True)
+    return _effective_maintenance(update)
+
+
 @api_router.get("/notifications")
 async def get_notifications(user: dict = Depends(get_current_user)):
     personal = await db.notifications.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)

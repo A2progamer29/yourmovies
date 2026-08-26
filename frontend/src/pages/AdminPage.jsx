@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
 import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Edit, Film, Tv, Sparkles, Users, Crown, Shield, Search, Megaphone, MessageSquare, Star, CornerDownRight, ChevronUp, Check, Clock, X, Coins, Minus, RotateCcw, PiggyBank, Tag, KeyRound, LayoutDashboard, AlertTriangle, ArrowRight, BookOpen, HardDrive, BarChart3, Inbox, Eye, TriangleAlert, Flag, ScrollText, ChartPie, Target, Loader2, RefreshCw, Hammer } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -127,6 +128,8 @@ export default function AdminPage() {
     const [uqflexStatus, setUqflexStatus] = useState(null);
     const [uqflexLoading, setUqflexLoading] = useState(false);
     const [uqflexNow, setUqflexNow] = useState(Date.now());
+    const [maintenance, setMaintenance] = useState(null);
+    const [maintenanceBusy, setMaintenanceBusy] = useState(false);
     const tabParam = new URLSearchParams(location.search).get("tab") || "overview";
 
     const loadMedia = async () => {
@@ -194,6 +197,21 @@ export default function AdminPage() {
             setLicenseStats(r.data.stats || { total: 0, available: 0, redeemed: 0, revoked: 0 });
         } catch (e) { showError(toast, e, "Chargement des clés impossible"); }
     };
+    const loadMaintenance = async () => {
+        try {
+            const r = await api.get("/admin/maintenance");
+            setMaintenance(r.data);
+        } catch (e) { showError(toast, e, "Chargement de la maintenance impossible"); }
+    };
+    const saveMaintenance = async () => {
+        setMaintenanceBusy(true);
+        try {
+            const r = await api.post("/admin/maintenance", maintenance);
+            setMaintenance(r.data);
+            toast.success("Maintenance mise à jour");
+        } catch (e) { showError(toast, e, "Mise à jour impossible"); }
+        finally { setMaintenanceBusy(false); }
+    };
 
     const loadPendingCount = async () => {
         try {
@@ -256,6 +274,7 @@ export default function AdminPage() {
             uqflex: { run: loadUqflexStatus, perm: "content.add" },
             pending: { run: loadPendingCount, perm: "content.add" },
             reports: { run: loadReportCount, perm: "content.edit" },
+            maintenance: { run: loadMaintenance },
         };
         const parSection = {
             overview: ["media", "users", "wishes", "reviews", "pending", "reports"],
@@ -270,6 +289,7 @@ export default function AdminPage() {
             cagnotte: ["cagnotte"],
             announcements: ["announcements"],
             "license-keys": ["licenseKeys"],
+                maintenance: ["maintenance"],
         };
         for (const nom of parSection[tabParam] || []) {
             const source = sources[nom];
@@ -561,6 +581,7 @@ export default function AdminPage() {
             ],
         },
         { label: "Aide", items: [{ value: "guide", label: "Guide du panel", icon: <BookOpen size={14} /> }] },
+        { label: "Système", items: [{ value: "maintenance", label: "Maintenance", icon: <Hammer size={14} /> }] },
     ];
 
     return (
@@ -725,6 +746,24 @@ export default function AdminPage() {
 
                         <AdminTraffic />
 
+                    </TabsContent>
+
+                    <TabsContent value="maintenance" className="mt-0 space-y-6">
+                        <SectionHeader titre="Maintenance" description="Bloque automatiquement l’accès au site pour les visiteurs et membres non administrateurs." />
+                        {maintenance && (
+                            <div className="max-w-2xl rounded-xl border border-[#E8D2A6]/30 bg-[#0a0a0a] p-5">
+                                <div className="flex flex-wrap items-center justify-between gap-4">
+                                    <div>
+                                        <div className="text-sm font-medium text-white">Mode maintenance</div>
+                                        <p className="mt-1 text-xs leading-relaxed text-neutral-500">Les administrateurs conservent l’accès au panel pour suivre les travaux.</p>
+                                    </div>
+                                    <div className="flex items-center gap-2.5"><span className="text-xs text-neutral-400">{maintenance.enabled ? "Activé" : "Désactivé"}</span><Switch checked={!!maintenance.enabled} onCheckedChange={(enabled) => setMaintenance((current) => ({ ...current, enabled }))} data-testid="maintenance-enabled" /></div>
+                                </div>
+                                <label className="mt-5 block"><span className="text-[10px] uppercase tracking-widest text-neutral-500">Message affiché</span><Textarea value={maintenance.message || ""} onChange={(e) => setMaintenance((current) => ({ ...current, message: e.target.value }))} maxLength={300} rows={3} className="mt-1.5 border-[#262626] bg-[#111] text-white" /></label>
+                                <label className="mt-4 block"><span className="text-[10px] uppercase tracking-widest text-neutral-500">Lien Discord</span><Input value={maintenance.discord_url || ""} onChange={(e) => setMaintenance((current) => ({ ...current, discord_url: e.target.value }))} maxLength={300} placeholder="https://discord.gg/..." className="mt-1.5 border-[#262626] bg-[#111] text-white" /></label>
+                                <Button onClick={saveMaintenance} disabled={maintenanceBusy} data-testid="save-maintenance" className="mt-5 rounded-full bg-[#E8D2A6] px-5 font-semibold text-black hover:bg-[#D4BB8B]">Enregistrer</Button>
+                            </div>
+                        )}
                     </TabsContent>
 
                     <TabsContent value="media" className="mt-0">
