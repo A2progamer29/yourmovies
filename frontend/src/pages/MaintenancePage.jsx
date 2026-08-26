@@ -1,12 +1,27 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ExternalLink, Hammer } from "lucide-react";
 
 const DEFAULT_MESSAGE = "Le site est en cours de rénovation. Il sera prochainement disponible.";
 
+// Petits éclats dorés qui montent lentement dans le décor, comme de la
+// sciure qui capte la lumière — écho discret au marteau et au chantier,
+// sans reprendre l'imagerie cinéma habituelle du site.
+const ECLATS = [
+    { left: "12%", size: 3, duree: 9, retard: 0 },
+    { left: "22%", size: 2, duree: 11, retard: 1.4 },
+    { left: "34%", size: 4, duree: 8.5, retard: 2.8 },
+    { left: "48%", size: 2, duree: 12, retard: 0.6 },
+    { left: "58%", size: 3, duree: 9.5, retard: 3.6 },
+    { left: "68%", size: 2, duree: 10.5, retard: 1.9 },
+    { left: "78%", size: 4, duree: 8, retard: 4.4 },
+    { left: "88%", size: 2, duree: 11.5, retard: 2.2 },
+];
+
 export default function MaintenancePage({ config = {} }) {
     const discordUrl = config.discord_url || "https://discord.gg/yourmovies";
     const reduceMotion = useReducedMotion();
+    const eclats = useMemo(() => ECLATS, []);
 
     const conteneur = {
         hidden: {},
@@ -19,21 +34,35 @@ export default function MaintenancePage({ config = {} }) {
 
     return (
         <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050505] px-6 py-16 text-white">
-            {/* Faisceau de projecteur ambiant : tourne très lentement derrière le
-                contenu, en écho au thème cinéma du site. Un seul geste décoratif,
-                tenu discret. */}
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-                <motion.div
-                    className="h-[140vmax] w-[140vmax] opacity-[0.14]"
-                    style={{
-                        background: "conic-gradient(from 0deg, transparent 0deg, #E8D2A6 8deg, transparent 40deg, transparent 320deg, #E8D2A6 352deg, transparent 360deg)",
-                    }}
-                    animate={reduceMotion ? undefined : { rotate: 360 }}
-                    transition={reduceMotion ? undefined : { duration: 40, repeat: Infinity, ease: "linear" }}
-                />
-            </div>
+            {/* Texture de fond façon plan de chantier : quadrillage fin, en
+                clin d'œil à la "rénovation" plutôt qu'au thème cinéma. */}
+            <div
+                className="pointer-events-none absolute inset-0 opacity-[0.05]"
+                aria-hidden="true"
+                style={{
+                    backgroundImage:
+                        "linear-gradient(#E8D2A6 1px, transparent 1px), linear-gradient(90deg, #E8D2A6 1px, transparent 1px)",
+                    backgroundSize: "42px 42px",
+                    maskImage: "radial-gradient(ellipse 70% 60% at 50% 45%, black 40%, transparent 90%)",
+                    WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 45%, black 40%, transparent 90%)",
+                }}
+            />
             <div className="pointer-events-none absolute -left-24 top-1/3 h-64 w-64 rounded-full bg-[#E8D2A6]/10 blur-3xl" aria-hidden="true" />
             <div className="pointer-events-none absolute -right-24 bottom-1/4 h-72 w-72 rounded-full bg-[#E8D2A6]/[0.08] blur-3xl" aria-hidden="true" />
+
+            {!reduceMotion && (
+                <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+                    {eclats.map((e, i) => (
+                        <motion.span
+                            key={i}
+                            className="absolute bottom-0 rounded-full bg-[#E8D2A6]"
+                            style={{ left: e.left, width: e.size, height: e.size }}
+                            animate={{ y: ["0vh", "-95vh"], opacity: [0, 0.6, 0] }}
+                            transition={{ duration: e.duree, delay: e.retard, repeat: Infinity, ease: "linear" }}
+                        />
+                    ))}
+                </div>
+            )}
 
             <motion.div
                 className="relative w-full max-w-xl text-center"
@@ -41,20 +70,13 @@ export default function MaintenancePage({ config = {} }) {
                 initial="hidden"
                 animate="visible"
             >
-                <motion.div variants={monte} className="relative mx-auto flex h-16 w-16 items-center justify-center">
-                    <motion.span
-                        className="absolute inset-0 rounded-full border border-[#E8D2A6]/30"
-                        animate={reduceMotion ? undefined : { scale: [1, 1.35, 1], opacity: [0.5, 0, 0.5] }}
-                        transition={reduceMotion ? undefined : { duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                    <div className="relative flex h-16 w-16 items-center justify-center rounded-full border border-[#E8D2A6]/40 bg-[#E8D2A6]/10 text-[#E8D2A6]">
-                        <motion.div
-                            animate={reduceMotion ? undefined : { rotate: [0, -12, 10, -6, 0] }}
-                            transition={reduceMotion ? undefined : { duration: 2.2, repeat: Infinity, repeatDelay: 1.4, ease: "easeInOut" }}
-                        >
-                            <Hammer size={28} />
-                        </motion.div>
-                    </div>
+                <motion.div variants={monte} className="flex justify-center text-[#E8D2A6]">
+                    <motion.div
+                        animate={reduceMotion ? undefined : { rotate: [0, -12, 10, -6, 0] }}
+                        transition={reduceMotion ? undefined : { duration: 2.2, repeat: Infinity, repeatDelay: 1.4, ease: "easeInOut" }}
+                    >
+                        <Hammer size={40} />
+                    </motion.div>
                 </motion.div>
 
                 <motion.p variants={monte} className="mt-8 text-xs uppercase tracking-[0.28em] text-[#E8D2A6]">
