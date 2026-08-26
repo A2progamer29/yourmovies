@@ -446,3 +446,23 @@ a[role="button"]:active {
 @media (prefers-reduced-motion: reduce) {
     .ym-play-surgit { animation: none; }
 }
+
+
+/* ---------- Curseur personnalisé : page de maintenance uniquement ---------- */
+.ym-maintenance-cursor {
+    cursor: url("/cursors/cursor_arrow.png") 4 1, auto;
+}
+
+.ym-maintenance-cursor a,
+.ym-maintenance-cursor button {
+    cursor: url("/cursors/cursor_hand.png") 17 1, pointer;
+}
+
+@media (pointer: coarse) {
+    /* Écrans tactiles : pas de souris, donc pas de curseur à styliser. */
+    .ym-maintenance-cursor,
+    .ym-maintenance-cursor a,
+    .ym-maintenance-cursor button {
+        cursor: auto;
+    }
+}

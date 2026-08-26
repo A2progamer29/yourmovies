@@ -53,7 +53,7 @@ export default function MaintenancePage({ config = {} }) {
 
     return (
         <main
-            className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050505] px-6 py-16 text-white"
+            className="ym-maintenance-cursor relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050505] px-6 py-16 text-white"
             onPointerMove={suivrePointeur}
         >
             {/* Texture de fond façon plan de chantier : quadrillage fin, en
