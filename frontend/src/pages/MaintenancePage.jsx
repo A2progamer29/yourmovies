@@ -1,25 +1,36 @@
 import React, { useMemo } from "react";
 import { motion, useReducedMotion, useMotionValue, useSpring } from "framer-motion";
-import { ExternalLink } from "lucide-react";
 import curseurFleche from "../assets/cursors/cursor_arrow.png";
 import curseurMain from "../assets/cursors/cursor_hand.png";
 
 const DEFAULT_MESSAGE = "Le site est en cours de rénovation. Il sera prochainement disponible.";
 const TITRE = "En rénovation";
+const EYEBROW = "YourMovie's";
+
+// Bruit de grain façon vieux film : une texture SVG tramée très discrète,
+// en écho à l'identité cinéma du site sans reprendre le projecteur déjà
+// écarté.
+const GRAIN_SVG =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23n)"/></svg>'
+    );
 
 // Petits éclats dorés qui montent lentement dans le décor, comme de la
-// sciure qui capte la lumière — écho discret au marteau et au chantier,
-// sans reprendre l'imagerie cinéma habituelle du site. Intensité variée
-// pour un rendu moins mécanique.
+// sciure qui capte la lumière. Profondeur variée (flous et grands en
+// arrière-plan, nets et petits au premier plan) et rythme volontairement
+// irrégulier pour un rendu moins mécanique.
 const ECLATS = [
-    { left: "12%", size: 3, duree: 9, retard: 0, opacite: 0.7 },
-    { left: "22%", size: 2, duree: 11, retard: 1.4, opacite: 0.4 },
-    { left: "34%", size: 4, duree: 8.5, retard: 2.8, opacite: 0.55 },
-    { left: "48%", size: 2, duree: 12, retard: 0.6, opacite: 0.35 },
-    { left: "58%", size: 3, duree: 9.5, retard: 3.6, opacite: 0.65 },
-    { left: "68%", size: 2, duree: 10.5, retard: 1.9, opacite: 0.45 },
-    { left: "78%", size: 4, duree: 8, retard: 4.4, opacite: 0.75 },
-    { left: "88%", size: 2, duree: 11.5, retard: 2.2, opacite: 0.4 },
+    { left: "10%", size: 7, duree: 14, retard: 0, opacite: 0.28, flou: 2.5, derive: -10 },
+    { left: "18%", size: 2, duree: 8.2, retard: 1.4, opacite: 0.6, flou: 0, derive: 6 },
+    { left: "27%", size: 5, duree: 12.5, retard: 3.1, opacite: 0.32, flou: 1.8, derive: 8 },
+    { left: "36%", size: 3, duree: 9.6, retard: 0.5, opacite: 0.55, flou: 0, derive: -5 },
+    { left: "45%", size: 8, duree: 16, retard: 2.2, opacite: 0.22, flou: 3, derive: 12 },
+    { left: "54%", size: 2, duree: 7.4, retard: 4.1, opacite: 0.65, flou: 0, derive: -8 },
+    { left: "62%", size: 4, duree: 11, retard: 1.1, opacite: 0.4, flou: 1, derive: 5 },
+    { left: "70%", size: 6, duree: 13.5, retard: 3.8, opacite: 0.3, flou: 2.2, derive: -12 },
+    { left: "79%", size: 3, duree: 8.8, retard: 0.9, opacite: 0.5, flou: 0, derive: 7 },
+    { left: "88%", size: 5, duree: 15, retard: 2.6, opacite: 0.26, flou: 2, derive: -6 },
 ];
 
 export default function MaintenancePage({ config = {} }) {
@@ -28,7 +39,8 @@ export default function MaintenancePage({ config = {} }) {
     const eclats = useMemo(() => ECLATS, []);
     const message = config.message || DEFAULT_MESSAGE;
     const mots = useMemo(() => message.split(" "), [message]);
-    const lettres = useMemo(() => TITRE.split(""), []);
+    const lettresTitre = useMemo(() => TITRE.split(""), []);
+    const lettresEyebrow = useMemo(() => EYEBROW.split(""), []);
 
     // Parallax très discret des éclats dorés : ils suivent légèrement la
     // souris, comme s'ils flottaient dans l'air plutôt que d'être plaqués
@@ -44,9 +56,13 @@ export default function MaintenancePage({ config = {} }) {
         pointerY.set(((event.clientY / innerHeight) - 0.5) * 24);
     };
 
+    const delaiEyebrowFin = reduceMotion ? 0 : 0.1 + lettresEyebrow.length * 0.035;
+    const delaiTitreDebut = delaiEyebrowFin + 0.15;
+    const delaiTitreFin = delaiTitreDebut + lettresTitre.length * 0.045;
+
     const conteneur = {
         hidden: {},
-        visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.09, delayChildren: reduceMotion ? 0 : 0.05 } },
+        visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.09, delayChildren: reduceMotion ? 0 : delaiTitreFin + 0.25 } },
     };
     const monte = {
         hidden: { opacity: 0, y: reduceMotion ? 0 : 14 },
@@ -59,10 +75,10 @@ export default function MaintenancePage({ config = {} }) {
             style={{ cursor: `url(${curseurFleche}) 1 0, auto` }}
             onPointerMove={suivrePointeur}
         >
-            {/* Texture de fond façon plan de chantier : quadrillage fin, en
-                clin d'œil à la "rénovation" plutôt qu'au thème cinéma. */}
-            <div
-                className="pointer-events-none absolute inset-0 opacity-[0.05]"
+            {/* Texture de fond façon plan de chantier : quadrillage fin qui
+                respire très légèrement, comme un chantier vivant. */}
+            <motion.div
+                className="pointer-events-none absolute inset-0"
                 aria-hidden="true"
                 style={{
                     backgroundImage:
@@ -71,6 +87,33 @@ export default function MaintenancePage({ config = {} }) {
                     maskImage: "radial-gradient(ellipse 70% 60% at 50% 45%, black 40%, transparent 90%)",
                     WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 45%, black 40%, transparent 90%)",
                 }}
+                animate={reduceMotion ? undefined : { opacity: [0.045, 0.07, 0.045], scale: [1, 1.012, 1] }}
+                transition={reduceMotion ? undefined : { duration: 7, repeat: Infinity, ease: "easeInOut" }}
+            />
+
+            {/* Rayures de barrière de chantier, en bordure haute et basse, très
+                atténuées. */}
+            <div
+                className="pointer-events-none absolute inset-x-0 top-0 h-2 opacity-[0.07]"
+                aria-hidden="true"
+                style={{
+                    backgroundImage: "repeating-linear-gradient(45deg, #E8D2A6 0 10px, transparent 10px 20px)",
+                }}
+            />
+            <div
+                className="pointer-events-none absolute inset-x-0 bottom-0 h-2 opacity-[0.07]"
+                aria-hidden="true"
+                style={{
+                    backgroundImage: "repeating-linear-gradient(45deg, #E8D2A6 0 10px, transparent 10px 20px)",
+                }}
+            />
+
+            {/* Grain façon vieux film, discret et statique (juste une texture,
+                pas une agitation qui distrairait). */}
+            <div
+                className="pointer-events-none absolute inset-0 opacity-[0.045] mix-blend-overlay"
+                aria-hidden="true"
+                style={{ backgroundImage: `url("${GRAIN_SVG}")` }}
             />
 
             {!reduceMotion && (
@@ -83,8 +126,8 @@ export default function MaintenancePage({ config = {} }) {
                         <motion.span
                             key={i}
                             className="absolute bottom-0 rounded-full bg-[#E8D2A6]"
-                            style={{ left: e.left, width: e.size, height: e.size }}
-                            animate={{ y: ["0vh", "-95vh"], opacity: [0, e.opacite, 0] }}
+                            style={{ left: e.left, width: e.size, height: e.size, filter: e.flou ? `blur(${e.flou}px)` : undefined }}
+                            animate={{ y: ["0vh", "-95vh"], x: [0, e.derive], opacity: [0, e.opacite, 0] }}
                             transition={{ duration: e.duree, delay: e.retard, repeat: Infinity, ease: "linear" }}
                         />
                     ))}
@@ -97,27 +140,38 @@ export default function MaintenancePage({ config = {} }) {
                 initial="hidden"
                 animate="visible"
             >
-                <motion.p variants={monte} className="mt-8 text-xs uppercase tracking-[0.28em] text-[#E8D2A6]">
-                    YourMovie&apos;s
-                </motion.p>
-
-                <motion.h1
-                    variants={monte}
-                    className="relative mt-3 overflow-hidden font-display text-4xl tracking-tight sm:text-5xl"
-                >
-                    {lettres.map((lettre, i) => (
+                <p className="mt-8 text-xs uppercase tracking-[0.28em] text-[#E8D2A6]">
+                    {lettresEyebrow.map((lettre, i) => (
                         <motion.span
                             key={i}
                             className="inline-block"
                             style={{ whiteSpace: lettre === " " ? "pre" : "normal" }}
-                            variants={{
-                                hidden: { opacity: 0, y: reduceMotion ? 0 : 16 },
-                                visible: {
-                                    opacity: 1,
-                                    y: 0,
-                                    transition: { duration: 0.45, delay: reduceMotion ? 0 : 0.4 + i * 0.045, ease: [0.22, 1, 0.36, 1] },
-                                },
-                            }}
+                            initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.35, delay: reduceMotion ? 0 : 0.1 + i * 0.035, ease: [0.22, 1, 0.36, 1] }}
+                        >
+                            {lettre}
+                        </motion.span>
+                    ))}
+                </p>
+
+                <h1 className="relative mt-3 overflow-visible font-display text-4xl tracking-tight sm:text-5xl">
+                    {/* Ombre dorée qui pulse doucement derrière le titre, pour lui
+                        donner du poids sans surcharger. */}
+                    <motion.span
+                        className="pointer-events-none absolute inset-0 -z-10 blur-2xl"
+                        style={{ background: "radial-gradient(ellipse 60% 70% at 50% 50%, rgba(232,210,166,0.35), transparent 70%)" }}
+                        animate={reduceMotion ? undefined : { opacity: [0.5, 0.9, 0.5], scale: [0.96, 1.04, 0.96] }}
+                        transition={reduceMotion ? undefined : { duration: 3.2, repeat: Infinity, ease: "easeInOut", delay: delaiTitreFin }}
+                    />
+                    {lettresTitre.map((lettre, i) => (
+                        <motion.span
+                            key={i}
+                            className="relative inline-block"
+                            style={{ whiteSpace: lettre === " " ? "pre" : "normal" }}
+                            initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.45, delay: reduceMotion ? 0 : delaiTitreDebut + i * 0.045, ease: [0.22, 1, 0.36, 1] }}
                         >
                             {lettre}
                         </motion.span>
@@ -132,10 +186,10 @@ export default function MaintenancePage({ config = {} }) {
                             }}
                             initial={{ x: "-120%" }}
                             animate={{ x: "320%" }}
-                            transition={{ duration: 1.1, delay: 0.4 + lettres.length * 0.045 + 0.15, ease: "easeInOut" }}
+                            transition={{ duration: 1.1, delay: delaiTitreFin + 0.15, ease: "easeInOut" }}
                         />
                     )}
-                </motion.h1>
+                </h1>
 
                 <motion.p
                     variants={{
@@ -168,7 +222,10 @@ export default function MaintenancePage({ config = {} }) {
                     className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#E8D2A6] px-5 py-3 text-sm font-semibold text-black shadow-[0_0_30px_rgba(232,210,166,0.15)] transition-colors hover:bg-[#D4BB8B]"
                     data-testid="maintenance-discord-link"
                 >
-                    Rejoindre le Discord <ExternalLink size={15} />
+                    <svg width="16" height="16" viewBox="0 0 127.14 96.36" fill="currentColor" aria-hidden="true">
+                        <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21a105.73,105.73,0,0,0,32.17,16.15,77.7,77.7,0,0,0,6.89-11.11,68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1,105.25,105.25,0,0,0,32.19-16.14C129.24,52.84,123.9,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,45.93,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,45.93,96.12,53,91.08,65.69,84.69,65.69Z" />
+                    </svg>
+                    Rejoindre le Discord
                 </motion.a>
                 <motion.p variants={monte} className="mt-5 text-xs text-neutral-600">
                     Restez informé de la réouverture sur notre serveur Discord.
