@@ -56,7 +56,7 @@ export default function MaintenancePage({ config = {} }) {
     return (
         <main
             className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050505] px-6 py-16 text-white"
-            style={{ cursor: `url(${curseurFleche}) 4 1, auto` }}
+            style={{ cursor: `url(${curseurFleche}) 2 1, auto` }}
             onPointerMove={suivrePointeur}
         >
             {/* Texture de fond façon plan de chantier : quadrillage fin, en
@@ -164,7 +164,7 @@ export default function MaintenancePage({ config = {} }) {
                     rel="noopener noreferrer"
                     whileHover={reduceMotion ? undefined : { scale: 1.04 }}
                     whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                    style={{ cursor: `url(${curseurMain}) 17 1, pointer` }}
+                    style={{ cursor: `url(${curseurMain}) 14 1, pointer` }}
                     className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#E8D2A6] px-5 py-3 text-sm font-semibold text-black shadow-[0_0_30px_rgba(232,210,166,0.15)] transition-colors hover:bg-[#D4BB8B]"
                     data-testid="maintenance-discord-link"
                 >
