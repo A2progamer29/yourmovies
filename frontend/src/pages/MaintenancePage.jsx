@@ -1,6 +1,8 @@
 import React, { useMemo } from "react";
 import { motion, useReducedMotion, useMotionValue, useSpring } from "framer-motion";
 import { ExternalLink } from "lucide-react";
+import curseurFleche from "../assets/cursors/cursor_arrow.png";
+import curseurMain from "../assets/cursors/cursor_hand.png";
 
 const DEFAULT_MESSAGE = "Le site est en cours de rénovation. Il sera prochainement disponible.";
 const TITRE = "En rénovation";
@@ -53,7 +55,8 @@ export default function MaintenancePage({ config = {} }) {
 
     return (
         <main
-            className="ym-maintenance-cursor relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050505] px-6 py-16 text-white"
+            className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050505] px-6 py-16 text-white"
+            style={{ cursor: `url(${curseurFleche}) 4 1, auto` }}
             onPointerMove={suivrePointeur}
         >
             {/* Texture de fond façon plan de chantier : quadrillage fin, en
@@ -161,6 +164,7 @@ export default function MaintenancePage({ config = {} }) {
                     rel="noopener noreferrer"
                     whileHover={reduceMotion ? undefined : { scale: 1.04 }}
                     whileTap={reduceMotion ? undefined : { scale: 0.97 }}
+                    style={{ cursor: `url(${curseurMain}) 17 1, pointer` }}
                     className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#E8D2A6] px-5 py-3 text-sm font-semibold text-black shadow-[0_0_30px_rgba(232,210,166,0.15)] transition-colors hover:bg-[#D4BB8B]"
                     data-testid="maintenance-discord-link"
                 >
