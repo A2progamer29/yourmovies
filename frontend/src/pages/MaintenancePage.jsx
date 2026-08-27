@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { Link } from "react-router-dom";
 import { motion, useReducedMotion, useMotionValue, useSpring } from "framer-motion";
 import curseurFleche from "../assets/cursors/cursor_arrow.png";
 import curseurMain from "../assets/cursors/cursor_hand.png";
@@ -230,6 +231,14 @@ export default function MaintenancePage({ config = {} }) {
                 <motion.p variants={monte} className="mt-5 text-xs text-neutral-600">
                     Restez informé de la réouverture sur notre serveur Discord.
                 </motion.p>
+                <motion.div variants={monte} className="mt-10">
+                    <Link
+                        to="/login"
+                        className="text-[11px] text-neutral-700 underline decoration-neutral-800 underline-offset-4 transition-colors hover:text-neutral-500"
+                    >
+                        Administrateur ? Se connecter
+                    </Link>
+                </motion.div>
             </motion.div>
         </main>
     );
