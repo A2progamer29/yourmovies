@@ -80,7 +80,7 @@ function AppRouter() {
     }
     const p = location.pathname;
     const isAdminRoute = p.startsWith("/admin");
-    if (!authLoading && maintenance?.enabled && !user?.is_admin && !p.startsWith("/login") && !isAdminRoute) {
+    if (!authLoading && maintenance?.enabled && !user?.is_admin && !p.startsWith("/login") && !p.startsWith("/cagnotte") && !isAdminRoute) {
         return <MaintenancePage config={maintenance} />;
     }
     const noFooter = p.startsWith("/watch/") || p.startsWith("/offline/") || p.startsWith("/messages") || p.startsWith("/login")
