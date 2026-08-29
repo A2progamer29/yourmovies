@@ -32,6 +32,7 @@ import SupportBanner from "@/components/SupportBanner";
 import PollsPage from "@/pages/PollsPage";
 import CoinsPage from "@/pages/CoinsPage";
 import CagnottePage from "@/pages/CagnottePage";
+import DonPage from "@/pages/DonPage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
 import MessagesPage from "@/pages/MessagesPage";
 import ConversationPage from "@/pages/ConversationPage";
@@ -80,7 +81,7 @@ function AppRouter() {
     }
     const p = location.pathname;
     const isAdminRoute = p.startsWith("/admin");
-    if (!authLoading && maintenance?.enabled && !user?.is_admin && !p.startsWith("/login") && !p.startsWith("/cagnotte") && !isAdminRoute) {
+    if (!authLoading && maintenance?.enabled && !user?.is_admin && !p.startsWith("/login") && !p.startsWith("/cagnotte") && !p.startsWith("/don") && !isAdminRoute) {
         return <MaintenancePage config={maintenance} />;
     }
     const noFooter = p.startsWith("/watch/") || p.startsWith("/offline/") || p.startsWith("/messages") || p.startsWith("/login")
@@ -106,6 +107,7 @@ function AppRouter() {
             <Route path="/parrainage" element={<ReferralPage />} />
             <Route path="/coins" element={<CoinsPage />} />
             <Route path="/cagnotte" element={<CagnottePage />} />
+            <Route path="/don" element={<DonPage />} />
             <Route path="/u/:id" element={<PublicProfilePage />} />
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/messages/:id" element={<ConversationPage />} />

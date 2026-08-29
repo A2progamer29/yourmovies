@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PiggyBank, Heart, Info, Gift, Check, Trophy, Lock, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -12,10 +12,6 @@ import { PanneauSkeleton } from "@/components/Skeletons";
 import DiscordCheckoutDialog from "@/components/DiscordCheckoutDialog";
 
 const PRESETS = [5, 10, 20, 50];
-
-// Produit de soutien : une unité vaut un euro, la quantité fait le montant.
-// SellAuth ne propose pas de prix libre — cf. leur documentation Produits.
-const SELLAUTH_DON = "https://yourmovies.mysellauth.com/product/soutien-a-lhebergement";
 
 export default function CagnottePage() {
     const { user } = useAuth();
@@ -179,9 +175,9 @@ export default function CagnottePage() {
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500">€</span>
                         </div>
                         <Button asChild className="h-11 flex-1 rounded-full bg-[#E8D2A6] px-5 font-semibold text-black hover:bg-[#D4BB8B] sm:flex-none sm:px-6">
-                            <a href={SELLAUTH_DON} target="_blank" rel="noopener noreferrer">
+                            <Link to="/don">
                                 <Heart size={16} className="mr-2" fill="currentColor" /> Contribuer
-                            </a>
+                            </Link>
                         </Button>
                         <Button
                             variant="outline"
@@ -192,9 +188,8 @@ export default function CagnottePage() {
                         </Button>
                     </div>
                     <p className="mt-3 text-xs leading-relaxed text-neutral-500">
-                        Paiement direct par carte, PayPal, Paysafecard et crypto. Sur la page de
-                        paiement, <span className="text-neutral-400">1 unité = 1 €</span> : choisis la
-                        quantité correspondant au montant que tu veux donner.
+                        Paiement sécurisé par carte via SumUp. Le montant se choisit directement sur
+                        la page de paiement — les boutons ci-dessus ne sont qu'une suggestion.
                     </p>
                     <p className="mt-1.5 text-xs leading-relaxed text-neutral-600">
                         Tu préfères passer par quelqu'un ? Le bouton Discord ouvre un ticket, on s'occupe du reste.
