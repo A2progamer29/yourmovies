@@ -18,6 +18,19 @@ def jwt_secret():
 def client_ip(request):
     # Uvicorn MUST run with --no-proxy-headers: only this function interprets XFF.
     peer = request.client.host if request.client else "unknown"
+    # Explicit opt-in for a public Render service reachable ONLY through its edge.
+    # Render's Cloudflare edge overwrites CF-Connecting-IP, unlike the XFF chain.
+    # Do not enable this for an origin that also accepts direct/private traffic.
+    if (os.environ.get("CLIENT_IP_SOURCE") == "render-cloudflare"
+            and os.environ.get("RENDER") == "true"
+            and os.environ.get("RENDER_SERVICE_TYPE") == "web"):
+        value = request.headers.get("cf-connecting-ip", "").strip()
+        try:
+            if not value or "%" in value:
+                return peer
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            return peer  # Never fall back to a caller-controlled XFF value.
     networks = [ipaddress.ip_network(n.strip()) for n in
                 os.environ.get("TRUSTED_PROXY_CIDRS", "").split(",") if n.strip()]
 

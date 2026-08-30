@@ -32,6 +32,47 @@ def isolated(monkeypatch):
     monkeypatch.setattr(appmod, "BUNNY_CDN_HOST", "test.b-cdn.net")
     monkeypatch.setattr(appmod, "BUNNY_LIBRARY_ID", "123")
     monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "")
+    monkeypatch.delenv("CLIENT_IP_SOURCE", raising=False)
+
+
+def edge_request(value=None):
+    headers = [(b"x-forwarded-for", b"192.0.2.99")]
+    if value is not None:
+        headers.append((b"cf-connecting-ip", value.encode()))
+    return Request({"type": "http", "client": ("10.0.0.2", 1234), "headers": headers})
+
+
+def test_cloudflare_header_is_not_trusted_by_default(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
+    assert client_ip(edge_request("203.0.113.5")) == "10.0.0.2"
+
+
+def test_render_edge_trust_requires_public_render_runtime(monkeypatch):
+    monkeypatch.setenv("CLIENT_IP_SOURCE", "render-cloudflare")
+    monkeypatch.setenv("RENDER", "false")
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
+    assert client_ip(edge_request("203.0.113.5")) == "10.0.0.2"
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "pserv")
+    assert client_ip(edge_request("203.0.113.5")) == "10.0.0.2"
+
+
+def test_render_edge_uses_single_verified_address_not_xff(monkeypatch):
+    monkeypatch.setenv("CLIENT_IP_SOURCE", "render-cloudflare")
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
+    assert client_ip(edge_request("203.0.113.5")) == "203.0.113.5"
+    assert client_ip(edge_request("2001:db8::5")) == "2001:db8::5"
+
+
+def test_render_edge_malformed_header_never_falls_back_to_xff(monkeypatch):
+    monkeypatch.setenv("CLIENT_IP_SOURCE", "render-cloudflare")
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "10.0.0.0/24")
+    for value in (None, "", "not-an-ip", "203.0.113.5, 192.0.2.99", "fe80::1%spoof"):
+        assert client_ip(edge_request(value)) == "10.0.0.2"
 
 
 def client():

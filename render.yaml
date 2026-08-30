@@ -16,6 +16,10 @@ services:
         value: yourmovies
       - key: COOKIE_SAMESITE
         value: none
+      # Free public web services cannot receive private-network traffic.
+      # Reassess this edge-only trust boundary before changing the topology/plan.
+      - key: CLIENT_IP_SOURCE
+        value: render-cloudflare
       - key: TRUSTED_PROXY_CIDRS
         sync: false
       - key: BUNNY_TOKEN_AUTH_KEY
