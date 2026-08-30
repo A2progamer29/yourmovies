@@ -11,13 +11,13 @@ import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 
 CACHE_TTL = 90
 SYNC_INTERVAL = 60
-CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "uqflex_catalog.json")
+CACHE_PATH = os.path.join(os.path.dirname(__file__), "runtime_data", "uqflex_catalog.json")
 _cache_at = 0.0
 _cache_items: list[dict] = []
 _active_base = ""
@@ -46,13 +46,7 @@ def _headers() -> dict[str, str]:
 def partner_bases() -> list[str]:
     configured_base = (os.environ.get("UQFLEX_PARTNER_BASE") or "").strip().rstrip("/")
     extras = (os.environ.get("UQFLEX_PARTNER_FALLBACKS") or "").split(",")
-    ordered = [
-        configured_base or "https://watch.scoope.fr/api/partner",
-        "http://127.0.0.1:3080/api/partner",
-        "https://watch.scoope.fr/api/partner",
-        "http://100.109.198.118:3080/api/partner",
-        "http://192.168.1.95:3080/api/partner",
-    ]
+    ordered = [configured_base or "https://watch.scoope.fr/api/partner"]
     for extra in extras:
         value = extra.strip().rstrip("/")
         if value:
@@ -60,6 +54,9 @@ def partner_bases() -> list[str]:
     seen = set()
     unique = []
     for base in ordered:
+        parsed = urlsplit(base)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("UQFlex partner endpoints must use HTTPS without URL credentials")
         if base and base not in seen:
             seen.add(base)
             unique.append(base)
@@ -80,7 +77,7 @@ def _ssh_target() -> str:
 
 def _ssh_curl(path: str, extra_headers: Optional[list[str]] = None, timeout: int = 40) -> tuple[int, bytes]:
     key = _partner_key()
-    if not key:
+    if not key or os.environ.get("UQFLEX_ENABLE_SSH") != "true":
         return 0, b""
     ssh = "ssh"
     identity = str(Path.home() / ".ssh" / "id_ed25519")
@@ -109,7 +106,7 @@ def _ssh_curl(path: str, extra_headers: Optional[list[str]] = None, timeout: int
     raw = proc.stdout or b""
     if not raw:
         err = (proc.stderr or b"").decode("utf-8", "replace")[:160]
-        print("uqflex ssh empty stdout rc=%s %s" % (proc.returncode, err), flush=True)
+        print("uqflex ssh empty stdout rc=%s" % proc.returncode, flush=True)
         return 0, b""
     head, _, body = raw.partition(b"\r\n\r\n")
     if not body and b"\n\n" in raw:
@@ -215,9 +212,9 @@ def fetch_items(force: bool = False) -> list[dict]:
             resp = requests.get(
                 "%s/v1/catalog" % base,
                 headers=_headers(),
-                timeout=8,
+                timeout=8, allow_redirects=False,
             )
-            if resp.status_code >= 400:
+            if resp.status_code != 200:
                 last_error = "HTTP %s" % resp.status_code
                 continue
             data = resp.json()
@@ -356,9 +353,9 @@ def _fetch_series_detail(raw_id_value: str) -> dict:
             response = requests.get(
                 "%s/v1/series/%s" % (base, quote(raw_id_value, safe="")),
                 headers=_headers(),
-                timeout=8,
+                timeout=8, allow_redirects=False,
             )
-            if response.status_code >= 400:
+            if response.status_code != 200:
                 continue
             detail = response.json()
             if isinstance(detail, dict):
@@ -400,9 +397,9 @@ def find_item(media_id: str) -> Optional[dict]:
                     response = requests.get(
                         "%s/v1/movies/%s" % (base, quote(wanted, safe="")),
                         headers=_headers(),
-                        timeout=8,
+                        timeout=8, allow_redirects=False,
                     )
-                    if response.status_code >= 400:
+                    if response.status_code != 200:
                         continue
                     detail = response.json()
                     if isinstance(detail, dict):
@@ -447,7 +444,7 @@ def partner_stream_path(item_id: str, episode_id: str = "", media_type: str = "m
 
 def ssh_stream(path: str, range_header: str = ""):
     key = _partner_key()
-    if not key:
+    if not key or os.environ.get("UQFLEX_ENABLE_SSH") != "true":
         return None
     headers = [
         "Authorization: Bearer %s" % key,

@@ -215,7 +215,7 @@ export default function AdminMediaForm() {
         if (!isEdit) return;
         (async () => {
             try {
-                const r = await api.get(`/media/${id}`);
+                const r = await api.get(`/admin/media/${id}`);
                 const m = r.data;
                 setForm({
                     ...EMPTY,

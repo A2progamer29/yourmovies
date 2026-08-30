@@ -15,7 +15,10 @@ import io
 import secrets
 import hashlib
 import base64
-from urllib.parse import quote
+import json
+import math
+from security import jwt_secret, client_ip, fingerprint, public_playability, public_seasons, sign_bunny_directory
+from urllib.parse import quote, urlparse, urlencode
 import time
 import unicodedata
 import requests
@@ -39,9 +42,20 @@ load_dotenv(ROOT_DIR / '.env')
 # ---------- Config ----------
 MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
-JWT_SECRET = os.environ.get('JWT_SECRET') or secrets.token_urlsafe(48)
-if not os.environ.get('JWT_SECRET'):
-    logging.warning("JWT_SECRET absent : secret éphémère généré (les tokens seront invalidés au redémarrage). Définir JWT_SECRET en production.")
+JWT_SECRET = jwt_secret()
+AUTH_COOKIE = "__Host-ym_session"
+VISITOR_COOKIE = "__Host-ym_visitor"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none").lower()
+if COOKIE_SAMESITE not in {"none", "lax", "strict"}:
+    raise RuntimeError("Invalid COOKIE_SAMESITE")
+ALLOWED_ORIGINS = {v.strip().rstrip("/") for v in os.environ.get(
+    "CORS_ORIGINS", "https://yourmovies.space,https://www.yourmovies.space,https://yourmovies.online,https://yourmovies-eight.vercel.app"
+).split(",") if v.strip() and v.strip() != "*"}
+
+def set_secure_cookie(response, name, value, max_age):
+    response.set_cookie(name, value, max_age=max_age, httponly=True,
+                        secure=True, samesite=COOKIE_SAMESITE, path="/")
+
 JWT_ALGO = 'HS256'
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
@@ -62,11 +76,14 @@ logger = logging.getLogger(__name__)
 @app.middleware("http")
 async def security_and_abuse_guard(request: Request, call_next):
     if request.url.path.startswith("/api"):
-        configured = os.environ.get("CORS_ORIGINS", "https://yourmovies.space,https://www.yourmovies.space,https://yourmovies.online,https://yourmovies-eight.vercel.app")
-        allowed = {value.strip() for value in configured.split(",") if value.strip() and value.strip() != "*"}
         origin = request.headers.get("origin")
-        if origin and origin not in allowed:
+        if origin and origin not in ALLOWED_ORIGINS:
             return FastAPIResponse(content='{"detail":"Origine non autorisée"}', status_code=403, media_type="application/json")
+        # Custom header forces a CORS preflight. CORS alone cannot stop form POSTs.
+        service_route = request.url.path.startswith("/api/internal/") or request.url.path == "/api/stripe/webhook"
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not service_route:
+            if request.headers.get("x-ym-request") != "1":
+                return FastAPIResponse(content='{"detail":"Protection CSRF requise"}', status_code=403, media_type="application/json")
         if request.url.path == "/api/license/activate":
             # Une limite dédiée empêche de tester rapidement de nombreuses clés.
             scope, limit = "license-activation", 8
@@ -81,8 +98,13 @@ async def security_and_abuse_guard(request: Request, call_next):
         try:
             await _enforce_rate_limit(request, scope, limit, 60)
         except HTTPException as exc:
-            return FastAPIResponse(content='{"detail":"Trop de requêtes"}', status_code=429, media_type="application/json", headers=exc.headers)
+            return FastAPIResponse(content=json.dumps({"detail": exc.detail}), status_code=exc.status_code, media_type="application/json", headers=exc.headers)
     response = await call_next(request)
+    if response.status_code == 401 and request.cookies.get(AUTH_COOKIE):
+        response.delete_cookie(AUTH_COOKIE, path="/", secure=True, httponly=True, samesite=COOKIE_SAMESITE)
+    if request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
@@ -160,7 +182,7 @@ class RegisterInput(BaseModel):
 
 class LoginInput(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=1024)
 
 class SessionExchangeInput(BaseModel):
     session_id: str
@@ -323,9 +345,13 @@ class AdminPremiumInput(BaseModel):
 
 # ---------- Auth Helpers ----------
 def hash_password(pw: str) -> str:
+    if len(pw.encode()) > 72:
+        raise HTTPException(status_code=422, detail="Mot de passe limité à 72 octets")
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
 def verify_password(pw: str, hashed: str) -> bool:
+    if len(pw.encode()) > 72:
+        return False
     try:
         return bcrypt.checkpw(pw.encode(), hashed.encode())
     except Exception:
@@ -401,6 +427,7 @@ async def create_jwt(user_id: str) -> str:
     jti = secrets.token_urlsafe(32)
     payload = {
         "user_id": user_id,
+        "typ": "session-v2",
         "jti": jti,
         "iat": now,
         "exp": now + SESSION_TTL,
@@ -419,16 +446,15 @@ async def get_user_by_id(user_id: str) -> Optional[dict]:
 
 async def get_current_user(request: Request, authorization: Optional[str] = Header(None)) -> dict:
     # Try JWT via Authorization header
-    token = None
+    token = request.cookies.get(AUTH_COOKIE)
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1]
-    # Try Emergent session token cookie
-    session_token = request.cookies.get("session_token")
-
     if token:
         user = None
         try:
-            payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+            payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "iat", "jti", "user_id", "typ"]})
+            if payload["typ"] != "session-v2":
+                raise pyjwt.InvalidTokenError("invalid token type")
             jti = payload.get("jti")
             if not jti:
                 raise pyjwt.InvalidTokenError("legacy token")
@@ -441,27 +467,12 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
             if not session:
                 raise pyjwt.InvalidTokenError("revoked token")
             user = await get_user_by_id(payload.get("user_id"))
-        except Exception:
+        except pyjwt.InvalidTokenError:
             user = None
         if user:
             if user.get("blocked_at"):
                 raise HTTPException(status_code=403, detail="Votre compte est bloqué.")
             return user
-
-    if session_token:
-        session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
-        if session:
-            exp = session.get("expires_at")
-            if isinstance(exp, str):
-                exp = datetime.fromisoformat(exp)
-            if exp and exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            if exp and exp > datetime.now(timezone.utc):
-                user = await get_user_by_id(session["user_id"])
-                if user:
-                    if user.get("blocked_at"):
-                        raise HTTPException(status_code=403, detail="Votre compte est bloqué.")
-                    return user
 
     raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -557,29 +568,39 @@ def require_level(n: int):
 async def get_optional_user(request: Request, authorization: Optional[str] = Header(None)) -> Optional[dict]:
     try:
         return await get_current_user(request, authorization)
-    except HTTPException:
+    except HTTPException as exc:
+        if request.cookies.get(AUTH_COOKIE) or authorization or exc.status_code != 401:
+            raise
         return None
 
-async def current_profile_id(x_profile_id: Optional[str] = Header(None, alias="X-Profile-Id")) -> Optional[str]:
-    # profil actif (multi-profil premium) ; None = niveau compte / profil général
+async def current_profile_id(request: Request, x_profile_id: Optional[str] = Header(None, alias="X-Profile-Id"), user: Optional[dict] = Depends(get_optional_user)) -> Optional[str]:
+    if x_profile_id:
+        if not user or not await db.profiles.find_one({"id": x_profile_id, "user_id": user["user_id"]}):
+            raise HTTPException(status_code=403, detail="Profil non autorisé")
     return x_profile_id or None
 
 ONLINE_WINDOW_SECONDS = 120
-RATE_BUCKETS: dict = {}
-RATE_LOCK = asyncio.Lock()
 
-async def _enforce_rate_limit(request: Request, scope: str, limit: int, window_seconds: int) -> None:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    client_ip = forwarded or (request.client.host if request.client else "unknown")
-    key = f"{scope}:{client_ip}"
-    now = time.monotonic()
-    async with RATE_LOCK:
-        attempts = [stamp for stamp in RATE_BUCKETS.get(key, []) if now - stamp < window_seconds]
-        if len(attempts) >= limit:
-            retry_after = max(1, int(window_seconds - (now - attempts[0])))
-            raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez plus tard.", headers={"Retry-After": str(retry_after)})
-        attempts.append(now)
-        RATE_BUCKETS[key] = attempts
+async def _enforce_rate_limit(request: Request, scope: str, limit: int, window_seconds: int, identity: Optional[str] = None) -> None:
+    now = int(time.time())
+    window = now // window_seconds
+    key = fingerprint(f"{scope}:{identity or client_ip(request)}:{window}", JWT_SECRET)
+    expires = datetime.fromtimestamp((window + 1) * window_seconds, timezone.utc)
+    try:
+        try:
+            counter = await db.rate_limits.find_one_and_update(
+                {"_id": key}, {"$inc": {"count": 1}, "$setOnInsert": {"expires_at": expires}},
+                upsert=True, return_document=ReturnDocument.AFTER)
+        except DuplicateKeyError:
+            counter = await db.rate_limits.find_one_and_update(
+                {"_id": key}, {"$inc": {"count": 1}}, return_document=ReturnDocument.AFTER)
+    except Exception:
+        logger.error("Shared rate limiter unavailable")
+        raise HTTPException(status_code=503, detail="Protection temporairement indisponible")
+    if not counter or counter["count"] > limit:
+        retry = max(1, (window + 1) * window_seconds - now)
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez plus tard.", headers={"Retry-After": str(retry)})
+
 
 def _new_account_identifier() -> str:
     return f"YM-{secrets.token_hex(6).upper()}"
@@ -1046,7 +1067,7 @@ async def _unique_name(base: str) -> str:
 
 # ---------- Auth Routes ----------
 @api_router.post("/auth/register")
-async def register(inp: RegisterInput, request: Request):
+async def register(inp: RegisterInput, request: Request, response: Response):
     await _enforce_rate_limit(request, "register", 5, 3600)
     existing = await db.users.find_one({"email": inp.email.lower()})
     if existing:
@@ -1075,25 +1096,28 @@ async def register(inp: RegisterInput, request: Request):
     await _apply_referral(inp.ref, doc)
     doc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or doc
     token = await create_jwt(user_id)
-    return {"token": token, "user": user_public_dict(doc)}
+    set_secure_cookie(response, AUTH_COOKIE, token, int(SESSION_TTL.total_seconds()))
+    return {"user": user_public_dict(doc)}
 
 @api_router.post("/auth/login")
-async def login(inp: LoginInput, request: Request):
+async def login(inp: LoginInput, request: Request, response: Response):
     await _enforce_rate_limit(request, "login", 10, 900)
+    await _enforce_rate_limit(request, "login-account", 20, 900, identity=inp.email.lower())
     user = await db.users.find_one({"email": inp.email.lower()}, {"_id": 0})
     if not user or not user.get("password_hash") or not verify_password(inp.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.get("blocked_at"):
         raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
     token = await create_jwt(user["user_id"])
-    return {"token": token, "user": user_public_dict(user)}
+    set_secure_cookie(response, AUTH_COOKIE, token, int(SESSION_TTL.total_seconds()))
+    return {"user": user_public_dict(user)}
 
 class GoogleAuthInput(BaseModel):
-    credential: str
+    credential: str = Field(min_length=1, max_length=16384)
     ref: Optional[str] = Field(default=None, max_length=40)
 
 @api_router.post("/auth/google")
-async def auth_google(inp: GoogleAuthInput, request: Request):
+async def auth_google(inp: GoogleAuthInput, request: Request, response: Response):
     await _enforce_rate_limit(request, "google-login", 20, 900)
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Google login not configured")
@@ -1104,11 +1128,11 @@ async def auth_google(inp: GoogleAuthInput, request: Request):
             inp.credential, google_requests.Request(), GOOGLE_CLIENT_ID
         )
     except Exception as e:
-        logger.error(f"Google token verification failed: {e}")
+        logger.warning("Google token verification failed")
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
     email = (idinfo.get("email") or "").lower()
-    if not email:
+    if not email or idinfo.get("email_verified") is not True:
         raise HTTPException(status_code=401, detail="Google account has no email")
     name = idinfo.get("name") or email.split("@")[0]
     picture = idinfo.get("picture")
@@ -1138,7 +1162,8 @@ async def auth_google(inp: GoogleAuthInput, request: Request):
     if user.get("blocked_at"):
         raise HTTPException(status_code=403, detail="Votre compte a été bloqué. Contactez le support.")
     token = await create_jwt(user_id)
-    return {"token": token, "user": user_public_dict(user)}
+    set_secure_cookie(response, AUTH_COOKIE, token, int(SESSION_TTL.total_seconds()))
+    return {"user": user_public_dict(user)}
 
 @api_router.get("/auth/me")
 async def me(request: Request, user: dict = Depends(get_current_user)):
@@ -1152,20 +1177,23 @@ async def me(request: Request, user: dict = Depends(get_current_user)):
 
 @api_router.post("/auth/logout")
 async def logout(request: Request, response: Response, authorization: Optional[str] = Header(None)):
-    if authorization and authorization.startswith("Bearer "):
+    token = request.cookies.get(AUTH_COOKIE) or (authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None)
+    if token:
         try:
-            payload = pyjwt.decode(authorization.split(" ", 1)[1], JWT_SECRET, algorithms=[JWT_ALGO], options={"verify_exp": False})
+            payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO], options={"verify_exp": False})
             if payload.get("jti"):
                 await db.auth_sessions.update_one(
                     {"jti_hash": _token_fingerprint(payload["jti"]), "user_id": payload.get("user_id")},
                     {"$set": {"revoked_at": datetime.now(timezone.utc)}},
                 )
-        except Exception:
+        except pyjwt.InvalidTokenError:
             pass
     session_token = request.cookies.get("session_token")
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
     response.delete_cookie("session_token", path="/")
+    response.delete_cookie(AUTH_COOKIE, path="/", secure=True, httponly=True, samesite=COOKIE_SAMESITE)
+    response.delete_cookie(VISITOR_COOKIE, path="/", secure=True, httponly=True, samesite=COOKIE_SAMESITE)
     return {"ok": True}
 
 # ---------- Media Routes ----------
@@ -1186,7 +1214,7 @@ def safe_float(value, default=0.0) -> float:
         return default
 
 
-def serialize_media(doc) -> dict:
+def serialize_admin_media(doc) -> dict:
     return {
         "id": doc["id"],
         "title": doc.get("title", ""),
@@ -1227,6 +1255,28 @@ def serialize_media(doc) -> dict:
         "reports_flagged": safe_int(doc.get("reports_open"), 0) >= SEUIL_SIGNALEMENTS,
         "created_at": doc.get("created_at", ""),
     }
+
+
+def serialize_media(doc) -> dict:
+    public = serialize_admin_media(doc)
+    for key in ("video_file_path", "video_url", "bunny_video_id", "bunny_library_id"):
+        public.pop(key, None)
+    public.update(public_playability(doc))
+    public["seasons"] = public_seasons(doc.get("seasons"))
+    public["timeline"] = [{k: item[k] for k in ("media_id", "tmdb_id", "title", "type", "year", "release_date", "poster_url") if k in item}
+                          for item in doc.get("timeline") or [] if isinstance(item, dict)]
+    return public
+
+@api_router.get("/admin/media/{media_id}")
+async def admin_media_detail(media_id: str, user: dict = Depends(require_admin)):
+    if not (_admin_perms(user) & {"content.add", "content.edit", "content.publish", "content.delete"}):
+        raise HTTPException(status_code=403, detail="Permission contenu requise")
+    doc = await db.media.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        doc = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    return serialize_admin_media(doc)
 
 
 def _catalog_history_key(doc: dict) -> str:
@@ -1351,7 +1401,7 @@ async def _uqflex_media_docs(type_filter: Optional[str] = None, q: Optional[str]
 
 
 @api_router.get("/media")
-async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = 100, uqflex: Optional[bool] = None):
+async def list_media(type: Optional[str] = None, q: Optional[str] = None, featured: Optional[bool] = None, limit: int = Query(100, ge=1, le=5000), uqflex: Optional[bool] = None):
     query = {}
     if type:
         query["type"] = type
@@ -1504,14 +1554,14 @@ async def create_media(m: MediaCreate, user: dict = Depends(require_perm("conten
             await _record_media_event("proposed", doc, user_id=user.get("user_id"))
         except Exception as exc:
             logger.error("Journalisation de la proposition %s impossible : %s", media_id, exc)
-        return {**serialize_media(doc), "pending": True}
+        return {**serialize_admin_media(doc), "pending": True}
     await db.media.insert_one(doc)
     try:
         await _record_catalog_history(doc, active=True, user_id=user.get("user_id"))
         await _record_media_event("added", doc, user_id=user.get("user_id"))
     except Exception as exc:
         logger.error("Journalisation de l'ajout du média %s impossible : %s", media_id, exc)
-    return serialize_media(doc)
+    return serialize_admin_media(doc)
 
 @api_router.put("/media/{media_id}")
 async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(require_perm("content.edit"))):
@@ -1523,10 +1573,10 @@ async def update_media(media_id: str, m: MediaUpdate, user: dict = Depends(requi
         en_attente = await db.media_pending.update_one({"id": media_id}, {"$set": doc})
         if en_attente.matched_count:
             fresh = await db.media_pending.find_one({"id": media_id}, {"_id": 0})
-            return serialize_media(fresh)
+            return serialize_admin_media(fresh)
         raise HTTPException(status_code=404, detail="Not found")
     fresh = await db.media.find_one({"id": media_id}, {"_id": 0})
-    return serialize_media(fresh)
+    return serialize_admin_media(fresh)
 
 class AdminMediaFlagsInput(BaseModel):
     featured: Optional[bool] = None
@@ -1561,7 +1611,7 @@ async def update_admin_media_flags(media_id: str, flags: AdminMediaFlagsInput, u
 
     await db.media.update_one({"id": media_id}, {"$set": changes})
     fresh = await db.media.find_one({"id": media_id}, {"_id": 0})
-    return serialize_media(fresh)
+    return serialize_admin_media(fresh)
 
 @api_router.delete("/media/{media_id}")
 async def delete_media(media_id: str, user: dict = Depends(require_perm("content.delete"))):
@@ -1874,7 +1924,7 @@ async def admin_bunny_purge(
 @api_router.get("/admin/pending")
 async def admin_list_pending(user: dict = Depends(require_perm("content.add"))):
     docs = await db.media_pending.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return [serialize_media(doc) | {
+    return [serialize_admin_media(doc) | {
         "proposed_by_name": doc.get("proposed_by_name") or "",
         "created_by": doc.get("created_by"),
     } for doc in docs]
@@ -1898,7 +1948,7 @@ async def admin_publish_pending(media_id: str, user: dict = Depends(require_perm
         await _record_media_event("published", doc, user_id=user.get("user_id"))
     except Exception as exc:
         logger.error("Journalisation de la publication de %s impossible : %s", media_id, exc)
-    return serialize_media(doc)
+    return serialize_admin_media(doc)
 
 
 @api_router.delete("/admin/pending/{media_id}")
@@ -2452,7 +2502,7 @@ async def admin_uqflex_flags(media_id: str, patch: dict, user: dict = Depends(re
     doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
     doc = await _uqflex_enrich_doc(doc, media_id)
     doc.update(override)
-    return serialize_media(doc)
+    return serialize_admin_media(doc)
 
 
 UQFLEX_PROXY_HEADERS_PASSTHROUGH = {
@@ -2466,6 +2516,12 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
     navigateur : le lecteur ne peut pas envoyer la clé d'API partenaire
     lui-même, donc c'est notre serveur qui s'authentifie et transmet le
     flux (avec le support de l'avance/recul via Range)."""
+    try:
+        capability = pyjwt.decode(request.query_params.get("access", ""), JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "typ", "media_id", "season", "episode"]})
+        if capability["typ"] != "uqflex-stream" or capability["media_id"] != id or capability["season"] != season or capability["episode"] != episode:
+            raise pyjwt.InvalidTokenError("wrong resource")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=403, detail="Autorisation de lecture requise")
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="UQFlex non configuré.")
     item = await run_in_threadpool(uqflex_catalog.find_item, id)
@@ -2480,14 +2536,14 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
 
     def appel_amont():
         methode = requests.head if request.method == "HEAD" else requests.get
-        return methode(cible, headers=en_tetes, stream=True, timeout=30)
+        return methode(cible, headers=en_tetes, stream=True, timeout=30, allow_redirects=False)
 
     try:
         amont = await run_in_threadpool(appel_amont)
     except Exception:
         logger.exception("Relais UQFlex indisponible pour %s", id)
         raise HTTPException(status_code=502, detail="Lecture UQFlex momentanément indisponible.")
-    if amont.status_code >= 400:
+    if amont.status_code not in (200, 206):
         amont.close()
         raise HTTPException(status_code=502, detail="Lecture UQFlex momentanément indisponible.")
 
@@ -2738,17 +2794,17 @@ async def playback_verification(user: Optional[dict] = Depends(get_optional_user
     """Un compte connecte n'est pas un robot : l'inscription est elle-meme
     limitee, et la friction serait payee par les visiteurs les plus fideles.
     La verification ne s'applique donc qu'aux visiteurs anonymes."""
-    requis = TURNSTILE_CONFIGURED and not user
+    requis = not user
     return {"required": requis, "site_key": TURNSTILE_SITE_KEY if requis else ""}
 
 
 @api_router.post("/playback/verify")
 async def playback_verify(inp: TurnstileInput, request: Request):
     if not TURNSTILE_CONFIGURED:
-        return {"ok": True, "pass": None, "required": False}
+        raise HTTPException(status_code=503, detail="Vérification non configurée")
     await _enforce_rate_limit(request, "turnstile", 30, 600)
     donnees = {"secret": TURNSTILE_SECRET_KEY, "response": inp.token}
-    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else None)
+    ip = client_ip(request)
     if ip:
         donnees["remoteip"] = ip
     try:
@@ -2761,13 +2817,13 @@ async def playback_verify(inp: TurnstileInput, request: Request):
         logger.error("Verification anti-robots injoignable : %s", exc)
         raise HTTPException(status_code=502, detail="Vérification indisponible, réessaie dans un instant")
 
-    if not resultat.get("success"):
+    if not resultat.get("success") or resultat.get("hostname") not in {urlparse(o).hostname for o in ALLOWED_ORIGINS}:
         logger.info("Verification anti-robots refusee : %s", resultat.get("error-codes"))
         raise HTTPException(status_code=403, detail="Vérification échouée, réessaie")
 
     expire = datetime.now(timezone.utc) + timedelta(minutes=PLAYBACK_PASS_MINUTES)
     laissez_passer = pyjwt.encode(
-        {"typ": "playback", "exp": expire},
+        {"typ": "playback", "exp": expire, "binding": fingerprint(client_ip(request) + request.headers.get("user-agent", ""), JWT_SECRET)},
         JWT_SECRET, algorithm=JWT_ALGO,
     )
     return {"ok": True, "pass": laissez_passer, "expires_in": PLAYBACK_PASS_MINUTES * 60}
@@ -2779,48 +2835,17 @@ class ContournementInput(BaseModel):
 
 @api_router.post("/playback/verify/skip")
 async def playback_verify_skip(request: Request, inp: Optional[ContournementInput] = None):
-    """Filet de securite : un bloqueur ou un VPN empeche parfois Cloudflare de
-    repondre. Plutot que d'enfermer quelqu'un de legitime devant un ecran vide,
-    on delivre un laissez-passer court, fortement limite et journalise.
-
-    Les codes en 110 signalent une verification mal configuree — domaine absent
-    de la liste, cle invalide. La faute est alors de notre cote et frappe tout le
-    monde a la fois : la limite stricte n'y protegerait de rien et fermerait le
-    site a des visiteurs qui n'y peuvent rien. On l'assouplit, et on le dit
-    assez fort dans le journal pour que la cause soit corrigee."""
-    if not TURNSTILE_CONFIGURED:
-        return {"ok": True, "pass": None}
-    code = (inp.code if inp else "") or ""
-    mauvaise_config = code.startswith("110")
-    if mauvaise_config:
-        logger.error(
-            "Verification anti-robots mal configuree (code %s) : la cle Cloudflare "
-            "n'accepte pas ce domaine. La lecture est ouverte sans verification "
-            "tant que ce n'est pas corrige.",
-            code,
-        )
-        await _enforce_rate_limit(request, "turnstile-skip-config", 30, 3600)
-    else:
-        await _enforce_rate_limit(request, "turnstile-skip", 3, 3600)
-    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
-    logger.info("Laissez-passer de secours delivre a %s", ip)
-    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
-    return {
-        "ok": True,
-        "pass": pyjwt.encode({"typ": "playback", "exp": expire}, JWT_SECRET, algorithm=JWT_ALGO),
-        "expires_in": 900,
-    }
+    raise HTTPException(status_code=403, detail="Le contournement de la vérification est désactivé")
 
 
-def _laissez_passer_valide(valeur: Optional[str]) -> bool:
-    if not TURNSTILE_CONFIGURED:
-        return True
-    if not valeur:
+def _laissez_passer_valide(valeur: Optional[str], request: Request) -> bool:
+    if not TURNSTILE_CONFIGURED or not valeur:
         return False
     try:
-        charge = pyjwt.decode(valeur, JWT_SECRET, algorithms=[JWT_ALGO])
-        return charge.get("typ") == "playback"
-    except Exception:
+        charge = pyjwt.decode(valeur, JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "typ", "binding"]})
+        binding = fingerprint(client_ip(request) + request.headers.get("user-agent", ""), JWT_SECRET)
+        return charge.get("typ") == "playback" and secrets.compare_digest(charge["binding"], binding)
+    except pyjwt.InvalidTokenError:
         return False
 
 
@@ -4658,6 +4683,8 @@ async def admin_bunny_preview(
     verifier avant meme d'enregistrer."""
     if not BUNNY_CONFIGURED:
         raise HTTPException(status_code=500, detail="Hebergeur video non configure")
+    if not BUNNY_TOKEN_AUTH_KEY:
+        raise HTTPException(status_code=503, detail="Signature vidéo non configurée")
     bibliotheque = _validated_bunny_library_id(library_id)
     if not re.fullmatch(r"[A-Za-z0-9-]{8,64}", video_id or ""):
         raise HTTPException(status_code=400, detail="Identifiant de video invalide")
@@ -4821,94 +4848,132 @@ def _resolve_bunny_reference(doc: dict) -> tuple[Optional[str], Optional[str]]:
 # ne peut atteindre son élément vidéo, donc ni amplification du son, ni contrôle
 # réel de la lecture. Servir le manifeste nous-mêmes lève cette barrière.
 
-_format_jeton_cdn = {"choisi": None, "teste": False, "expire": 0.0}
-
-
-def _signer_dossier_cdn(video_id: str, expires: int, encoder_chemin: bool) -> str:
-    """URL signée couvrant tout le dossier d'une vidéo.
-
-    Un jeton par fichier ne suffirait pas : le manifeste HLS renvoie vers des
-    dizaines de segments, qui seraient tous refusés. Le jeton de dossier les
-    couvre d'un coup.
-
-    base64(sha256(clé + chemin + expiration + paramètres triés)), rendu compatible
-    URL. Les deux écritures du chemin circulent selon les implémentations, d'où
-    le paramètre : celle qui répond est retenue une fois pour toutes."""
-    dossier = f"/{video_id}/"
-    chemin_parametre = quote(dossier, safe="") if encoder_chemin else dossier
-    a_hacher = f"{BUNNY_TOKEN_AUTH_KEY}{dossier}{expires}token_path={chemin_parametre}"
-    empreinte = hashlib.sha256(a_hacher.encode()).digest()
-    jeton = (
-        base64.b64encode(empreinte).decode()
-        .replace("+", "-").replace("/", "_").replace("=", "")
-    )
-    return (
-        f"https://{BUNNY_CDN_HOST}/{video_id}/playlist.m3u8"
-        f"?token={jeton}&token_path={chemin_parametre}&expires={expires}"
-    )
-
-
-def _url_nue(video_id: str, _expires: int) -> str:
-    return f"https://{BUNNY_CDN_HOST}/{video_id}/playlist.m3u8"
-
-
-# Le CDN filtre sur le domaine référent, pas sur un jeton : une page servie
-# depuis le site est acceptée telle quelle. Les variantes signées restent
-# essayées ensuite, au cas où l'authentification par jeton serait activée un jour.
-FORMULES_DIRECTES = (
-    ("referent", _url_nue),
-    ("jeton-encode", lambda v, e: _signer_dossier_cdn(v, e, True)),
-    ("jeton-brut", lambda v, e: _signer_dossier_cdn(v, e, False)),
-)
-
-
-async def _manifeste_lisible(url: str) -> bool:
-    """Le référent est envoyé par le navigateur du spectateur : le test doit
-    l'imiter, sinon il conclurait à tort que la lecture directe est fermée."""
+async def _url_directe(video_id: str) -> str:
+    key = os.environ.get("BUNNY_CDN_TOKEN_AUTH_KEY") or BUNNY_TOKEN_AUTH_KEY
     try:
-        r = await run_in_threadpool(lambda: requests.get(
-            url, timeout=12, stream=True, headers={
-                "Referer": "https://yourmovies.space/",
-                "Origin": "https://yourmovies.space",
-            },
-        ))
-        r.close()
-        return r.status_code == 200
-    except Exception:
-        return False
+        return sign_bunny_directory(BUNNY_CDN_HOST, video_id, key, int(time.time()) + 4 * 3600)
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Signature vidéo non configurée")
 
 
-async def _url_directe(video_id: str) -> Optional[str]:
-    """URL du manifeste si la lecture directe fonctionne, sinon None.
-
-    La formule retenue est vérifiée une fois puis mémorisée. Si aucune ne passe,
-    l'URL d'intégration est renvoyée comme avant : la fonction devient
-    indisponible, jamais la lecture."""
-    if not BUNNY_CDN_HOST:
-        return None
-    expires = int(time.time()) + 4 * 60 * 60
-
-    if _format_jeton_cdn["teste"] and time.time() < _format_jeton_cdn["expire"]:
-        choisi = _format_jeton_cdn["choisi"]
-        return choisi(video_id, expires) if choisi is not None else None
-
-    for nom, formule in FORMULES_DIRECTES:
-        if nom != "referent" and not BUNNY_TOKEN_AUTH_KEY:
-            continue
-        url = formule(video_id, expires)
-        if await _manifeste_lisible(url):
-            _format_jeton_cdn.update({"choisi": formule, "teste": True, "expire": time.time() + 3600})
-            logger.info("Lecture directe active (%s)", nom)
-            return url
-
-    _format_jeton_cdn.update({"choisi": None, "teste": True, "expire": time.time() + 900})
-    logger.info("Lecture directe indisponible, le lecteur intégré prend le relais")
-    return None
+class PlaybackAccessInput(BaseModel):
+    media_id: str = Field(min_length=1, max_length=100)
+    season_number: Optional[str] = Field(default=None, max_length=10)
+    episode_number: Optional[str] = Field(default=None, max_length=10)
 
 
+def playback_binding(request, viewer, visitor=None):
+    token = request.cookies.get(AUTH_COOKIE) if viewer else (visitor or request.cookies.get(VISITOR_COOKIE))
+    if not token:
+        raise HTTPException(status_code=403, detail="Session de lecture requise")
+    return fingerprint(token, JWT_SECRET)
+
+
+@api_router.post("/playback/access")
+async def start_playback_access(inp: PlaybackAccessInput, request: Request, response: Response, viewer: Optional[dict] = Depends(get_optional_user)):
+    await _enforce_rate_limit(request, "playback-access", 20, 600)
+    visitor = request.cookies.get(VISITOR_COOKIE) or secrets.token_urlsafe(32)
+    if not viewer:
+        set_secure_cookie(response, VISITOR_COOKIE, visitor, 86400)
+    binding = playback_binding(request, viewer, visitor)
+    ads = await _effective_ads() if not (viewer and _is_premium(viewer)) else {}
+    history = await db.playback_ad_history.find_one({"_id": binding}) or {}
+    def due(kind, minutes):
+        previous = history.get(kind)
+        if not previous:
+            return True
+        if previous.tzinfo is None:
+            previous = previous.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) >= previous + timedelta(minutes=max(0, safe_int(minutes)))
+    gate = ads.get("gate") or {}
+    pre = ads.get("preroll") or {}
+    gate_enabled = ads.get("enabled") and gate.get("enabled") and due("gate", gate.get("frequency_minutes")) and (gate.get("direct_link") or (ads.get("popunder") or {}).get("script_url"))
+    steps = max(1, min(10, safe_int(gate.get("steps"), 1))) if gate_enabled else 0
+    seconds = max(0, min(120, safe_int(gate.get("seconds"), 0))) if steps else 0
+    pre_seconds = 0
+    if ads.get("enabled") and pre.get("enabled") and due("preroll", pre.get("frequency_minutes")) and (pre.get("vast_tag_url") or ads.get("campaigns")):
+        pre_seconds = max(1, min(120, safe_int(pre.get("skip_after"), 5)))
+    now = datetime.now(timezone.utc)
+    token = secrets.token_urlsafe(32)
+    await db.playback_grants.insert_one({
+        "_id": _token_fingerprint(token), "binding": binding,
+        **inp.model_dump(), "steps": steps, "done": 0, "seconds": seconds,
+        "pre_seconds": pre_seconds, "ready_at": now + timedelta(seconds=pre_seconds if not steps else 0),
+        "expires_at": now + timedelta(hours=1), "completed": False,
+    })
+    return {"grant": token, "gate_steps": steps, "gate_seconds": seconds, "preroll_seconds": pre_seconds}
+
+
+async def read_playback_grant(request, viewer):
+    token = request.headers.get("x-playback-grant", "")
+    grant = await db.playback_grants.find_one({
+        "_id": _token_fingerprint(token), "binding": playback_binding(request, viewer),
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not grant:
+        raise HTTPException(status_code=403, detail="Autorisation de lecture absente ou expirée")
+    return grant
+
+
+def remaining_wait(grant):
+    ready = grant["ready_at"]
+    if ready.tzinfo is None:
+        ready = ready.replace(tzinfo=timezone.utc)
+    return max(0, math.ceil((ready - datetime.now(timezone.utc)).total_seconds()))
+
+
+@api_router.post("/playback/access/step")
+async def playback_access_step(request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
+    grant = await read_playback_grant(request, viewer)
+    wait = remaining_wait(grant)
+    if wait:
+        raise HTTPException(status_code=429, detail="Patientez avant de continuer", headers={"Retry-After": str(wait)})
+    if grant["done"] >= grant["steps"]:
+        return {"ok": True}
+    final = grant["done"] + 1 == grant["steps"]
+    result = await db.playback_grants.update_one(
+        {"_id": grant["_id"], "done": grant["done"]},
+        {"$inc": {"done": 1}, "$set": {"ready_at": datetime.now(timezone.utc) + timedelta(seconds=grant["pre_seconds"] if final else grant["seconds"])}})
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Étape déjà traitée")
+    return {"ok": True}
+
+
+@api_router.post("/playback/access/complete")
+async def complete_playback_access(request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
+    grant = await read_playback_grant(request, viewer)
+    if not viewer and not _laissez_passer_valide(request.headers.get("x-playback-pass"), request):
+        raise HTTPException(status_code=403, detail="Vérification requise avant la lecture")
+    if grant["done"] != grant["steps"]:
+        raise HTTPException(status_code=403, detail="Étapes de lecture incomplètes")
+    wait = remaining_wait(grant)
+    if wait:
+        raise HTTPException(status_code=429, detail="Patientez avant la lecture", headers={"Retry-After": str(wait)})
+    await db.playback_grants.update_one({"_id": grant["_id"]}, {"$set": {"completed": True}})
+    if not grant["completed"]:
+        now = datetime.now(timezone.utc)
+        history = {"expires_at": now + timedelta(days=7)}
+        if grant["steps"]:
+            history["gate"] = now
+        if grant["pre_seconds"]:
+            history["preroll"] = now
+        await db.playback_ad_history.update_one({"_id": grant["binding"]}, {"$set": history}, upsert=True)
+    return {"ok": True}
+
+
+async def authorize_playback(request, media_id, season, episode, viewer):
+    if viewer and _is_premium(viewer):
+        return
+    grant = await read_playback_grant(request, viewer)
+    if not grant["completed"] or grant["media_id"] != media_id or grant.get("season_number") != season or grant.get("episode_number") != episode:
+        raise HTTPException(status_code=403, detail="Autorisation invalide pour ce contenu")
+
+
+@api_router.get("/media/{media_id}/playback")
 @api_router.get("/bunny/playback/{media_id}")
 async def bunny_playback(
     media_id: str,
+    request: Request,
     season_number: Optional[str] = Query(None),
     episode_number: Optional[str] = Query(None),
     track: Optional[str] = Query(None),
@@ -4921,8 +4986,16 @@ async def bunny_playback(
     C'est le seul point d'entrée vers la vidéo : exiger ici la preuve de
     vérification empêche un robot d'aspirer la bande passante en appelant
     directement l'API, sans jamais charger la page."""
-    if not viewer and not _laissez_passer_valide(x_playback_pass):
-        raise HTTPException(status_code=403, detail="Vérification requise avant la lecture")
+    await authorize_playback(request, media_id, season_number, episode_number, viewer)
+    if uqflex_catalog.is_uqflex_id(media_id):
+        item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Contenu introuvable")
+        expires = int(time.time()) + 4 * 3600
+        capability = pyjwt.encode({"typ": "uqflex-stream", "media_id": media_id,
+            "season": season_number or "", "episode": episode_number or "", "exp": expires}, JWT_SECRET, algorithm=JWT_ALGO)
+        params = urlencode({"id": media_id, "season": season_number or "", "episode": episode_number or "", "access": capability})
+        return {"qualities": [{"quality": "720p", "url": f"{str(request.base_url).rstrip('/')}/api/uqflex/stream?{params}"}], "expires": expires, "signed": True}
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
@@ -4976,7 +5049,9 @@ async def bunny_playback(
         library_id, video_id = _premiere_piste_jouable(playback_doc)
 
     if not library_id or not video_id:
-        raise HTTPException(status_code=404, detail="Aucun fichier vidéo associé à ce contenu")
+        raise HTTPException(status_code=409, detail="Ce contenu doit utiliser un hébergement avec signature sécurisée")
+    if not BUNNY_TOKEN_AUTH_KEY:
+        raise HTTPException(status_code=503, detail="Signature vidéo non configurée")
 
     expires = int(time.time()) + 4 * 60 * 60
     params = "autoplay=true&preload=true&responsive=true"
@@ -4987,15 +5062,14 @@ async def bunny_playback(
     playback_url = f"https://iframe.mediadelivery.net/embed/{library_id}/{video_id}?{params}"
     # Sans demande explicite, rien ne change : ni sonde, ni URL de flux, et le
     # client reçoit exactement ce qu'il recevait avant.
-    manifeste = await _url_directe(video_id) if direct else None
+    manifeste = await _url_directe(video_id)
     return {
         "url": playback_url,
         "manifest_url": manifeste,
         "playback_type": "direct" if manifeste else "embed",
         "expires": expires if BUNNY_TOKEN_AUTH_KEY else None,
         "signed": bool(BUNNY_TOKEN_AUTH_KEY),
-        "libraryId": library_id,
-        "videoId": video_id,
+
         # Indications non sensibles utilisées par le lecteur pour afficher un diagnostic utile.
         "tokenAuthenticationConfigured": bool(BUNNY_TOKEN_AUTH_KEY),
         "libraryMatchesUploadConfig": str(library_id) == str(BUNNY_LIBRARY_ID or ""),
@@ -5057,27 +5131,7 @@ async def offline_download_source(
         source_url = manifest_url
         source_kind = "hls"
     else:
-        candidates = []
-        for quality in playback_doc.get("qualities") or []:
-            if not isinstance(quality, dict):
-                continue
-            value = quality.get("url")
-            if not value and quality.get("file_path"):
-                value = f"{str(request.base_url).rstrip('/')}/api/files/{quote(str(quality['file_path']), safe='/')}"
-            if value:
-                candidates.append((str(quality.get("quality") or ""), str(value)))
-
-        direct_url = playback_doc.get("video_url")
-        if direct_url and not re.search(r"/(?:embed|play)/\d+/", str(direct_url)):
-            candidates.append(("720p", str(direct_url)))
-        file_path = playback_doc.get("video_file_path")
-        if file_path:
-            candidates.append(("720p", f"{str(request.base_url).rstrip('/')}/api/files/{quote(str(file_path), safe='/')}"))
-        if not candidates:
-            raise HTTPException(status_code=404, detail="Aucun fichier vidéo téléchargeable n’est associé à ce contenu.")
-
-        source_url = next((url for quality, url in candidates if quality == "720p"), candidates[0][1])
-        source_kind = "hls" if ".m3u8" in source_url.lower().split("?", 1)[0] else "file"
+        raise HTTPException(status_code=409, detail="Téléchargement indisponible : une source signée est requise")
 
     return {
         "source": {"url": source_url, "kind": source_kind},
@@ -6920,7 +6974,7 @@ async def update_settings(inp: SettingsInput, user: dict = Depends(get_current_u
 
 @api_router.post("/settings/pin")
 async def set_pin(inp: PinInput, request: Request, user: dict = Depends(get_current_user)):
-    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900)
+    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900, identity=user["user_id"])
     if not inp.pin or not inp.pin.isdigit() or not (4 <= len(inp.pin) <= 6):
         raise HTTPException(status_code=400, detail="Le PIN doit être 4 à 6 chiffres")
     existing_hash = user.get("pin_hash")
@@ -6932,7 +6986,7 @@ async def set_pin(inp: PinInput, request: Request, user: dict = Depends(get_curr
 
 @api_router.delete("/settings/pin")
 async def remove_pin(inp: PinInput, request: Request, user: dict = Depends(get_current_user)):
-    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900)
+    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900, identity=user["user_id"])
     if not user.get("pin_hash"):
         raise HTTPException(status_code=400, detail="Aucun PIN défini")
     if not verify_password(inp.pin, user["pin_hash"]):
@@ -6942,7 +6996,7 @@ async def remove_pin(inp: PinInput, request: Request, user: dict = Depends(get_c
 
 @api_router.post("/settings/verify-pin")
 async def verify_user_pin(inp: PinInput, request: Request, user: dict = Depends(get_current_user)):
-    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900)
+    await _enforce_rate_limit(request, f"account-pin:{user['user_id']}", 8, 900, identity=user["user_id"])
     if not user.get("pin_hash"):
         raise HTTPException(status_code=400, detail="Aucun PIN défini")
     if not verify_password(inp.pin, user["pin_hash"]):
@@ -6977,7 +7031,7 @@ async def remove_profile_pin(profile_id: str, user: dict = Depends(get_current_u
 
 @api_router.post("/profiles/{profile_id}/verify-pin")
 async def verify_profile_pin(profile_id: str, inp: ProfilePinInput, request: Request, user: dict = Depends(get_current_user)):
-    await _enforce_rate_limit(request, f"profile-pin:{user['user_id']}:{profile_id}", 8, 900)
+    await _enforce_rate_limit(request, f"profile-pin:{user['user_id']}:{profile_id}", 8, 900, identity=user["user_id"])
     prof = await db.profiles.find_one({"id": profile_id, "user_id": user["user_id"]}, {"_id": 0})
     if not prof:
         raise HTTPException(status_code=404, detail="Not found")
@@ -7135,7 +7189,7 @@ async def party_ws(websocket: WebSocket, code: str):
         await websocket.close(code=4404)
         return
 
-    allowed_origins = {o.strip() for o in os.environ.get("CORS_ORIGINS", "https://yourmovies.online").split(",") if o.strip()}
+    allowed_origins = ALLOWED_ORIGINS
     origin = websocket.headers.get("origin")
     if origin not in allowed_origins:
         await websocket.close(code=4403)
@@ -7143,19 +7197,9 @@ async def party_ws(websocket: WebSocket, code: str):
     await websocket.accept()
     try:
         auth = await asyncio.wait_for(websocket.receive_json(), timeout=10)
-        if auth.get("type") != "auth" or not auth.get("token"):
+        if auth.get("type") != "auth":
             raise ValueError("auth required")
-        payload = pyjwt.decode(auth["token"], JWT_SECRET, algorithms=[JWT_ALGO])
-        jti = payload.get("jti")
-        session = await db.auth_sessions.find_one({
-            "jti_hash": _token_fingerprint(jti or ""),
-            "user_id": payload.get("user_id"),
-            "revoked_at": None,
-            "expires_at": {"$gt": datetime.now(timezone.utc)},
-        })
-        user = await get_user_by_id(payload.get("user_id")) if session else None
-        if not user or user.get("blocked_at"):
-            raise ValueError("invalid session")
+        user = await get_current_user(websocket, None)
     except Exception:
         await websocket.close(code=4401)
         return
@@ -7337,18 +7381,22 @@ app.include_router(api_router)
 
 # CORS : jamais de credentials avec un wildcard. Si CORS_ORIGINS n'est pas défini
 # (ou vaut '*'), on autorise '*' mais sans credentials pour éviter le fail-open.
-_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', 'https://yourmovies.online').split(',') if o.strip() and o.strip() != '*']
+_cors_origins = list(ALLOWED_ORIGINS)
 _cors_credentials = True
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=_cors_credentials,
     allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key", "X-Playback-Pass"],
+    allow_headers=["Authorization", "Content-Type", "X-Profile-Id", "X-Internal-API-Key", "X-Playback-Pass", "X-YM-Request", "X-Playback-Grant"],
+    expose_headers=["Retry-After"],
 )
 
 @app.on_event("startup")
 async def startup():
+    await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
+    await db.playback_grants.create_index("expires_at", expireAfterSeconds=0)
+    await db.playback_ad_history.create_index("expires_at", expireAfterSeconds=0)
     logger.info(f"Storage: {'Cloudinary configuré' if CLOUDINARY_CONFIGURED else 'AUCUN (CLOUDINARY_URL manquant)'}")
     # nettoyage des comptes en double (même email/pseudo) au démarrage
     try:

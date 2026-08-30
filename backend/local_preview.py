@@ -31,7 +31,7 @@ from uqflex_catalog import (
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 UPSTREAM = (os.environ.get("YOURMOVIES_UPSTREAM") or "https://yourmovies-backend.onrender.com").rstrip("/")
-CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "local_catalog.json")
+CACHE_PATH = os.path.join(os.path.dirname(__file__), "runtime_data", "local_catalog.json")
 CACHE_TTL = 300
 
 app = FastAPI()

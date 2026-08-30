@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import Chargement from "@/components/Chargement";
-import { lireLocal } from "@/lib/stockage";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -23,75 +22,11 @@ import PreRollAd from "@/components/PreRollAd";
 import AdGate from "@/components/AdGate";
 import SuiteAutomatique from "@/components/SuiteAutomatique";
 
-const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
 const SEUIL_FIN = 0.95;
 
 
-function resolveBunnySource(media) {
-    if (!media) return null;
-    // Une piste importee seule fait office de video principale : sinon un episode
-    // n'existant qu'en VO passerait pour depourvu de fichier.
-    const premierePiste = (media.language_tracks || []).find((p) => p?.bunny_video_id);
-    const candidates = [media.bunny_video_id, media.video_url, premierePiste?.bunny_video_id]
-        .filter(Boolean);
-
-    for (const value of candidates) {
-        const raw = String(value).trim();
-        if (!raw) continue;
-
-        try {
-            const url = new URL(raw);
-            const match = url.pathname.match(/\/(?:embed|play)\/(\d+)\/([a-zA-Z0-9-]+)/);
-            if (match) return { libraryId: match[1], videoId: match[2] };
-            const videoId = url.searchParams.get("videoId") || url.searchParams.get("video_id");
-            const libraryId = url.searchParams.get("libraryId") || url.searchParams.get("library_id");
-            if (videoId) {
-                return {
-                    libraryId: String(libraryId || media.bunny_library_id || BUNNY_LIBRARY_ID),
-                    videoId,
-                };
-            }
-        } catch {
-            // A raw GUID is the preferred stored format.
-        }
-
-        if (/^[a-zA-Z0-9-]{12,}$/.test(raw) && !raw.includes("/")) {
-            return {
-                libraryId: String(media.bunny_library_id || BUNNY_LIBRARY_ID),
-                videoId: raw,
-            };
-        }
-    }
-
-    return null;
-}
-
-/** Un fichier est jouable par sa piste principale ou par l'une de ses pistes de
- *  langue. Ce test doit rester unique : reparti en plusieurs endroits, il en
- *  restait toujours un qui ignorait les pistes et rejetait l'episode. */
-function estJouable(item) {
-    if (!item) return false;
-    return Boolean(
-        item.bunny_video_id
-        || item.video_url
-        || item.video_file_path
-        || (item.language_tracks || []).some((piste) => piste?.bunny_video_id),
-    );
-}
-
-function fallbackQualities(media) {
-    if (media.qualities && media.qualities.length > 0) {
-        return media.qualities.map((q) => ({
-            quality: q.quality,
-            url: q.url || (q.file_path ? `${API}/files/${q.file_path}` : null),
-        })).filter((q) => q.url);
-    }
-    const single = media.video_url || (media.video_file_path ? `${API}/files/${media.video_file_path}` : null);
-    if (!single) return [];
-    return [{ quality: "720p", url: single }];
-}
-
+function estJouable(item) { return Boolean(item?.has_video); }
 
 function formatEpisodeDuration(episode) {
     const raw = episode?.duration_minutes ?? episode?.duration;
@@ -320,6 +255,8 @@ export default function WatchPage() {
     const adsAlreadyCleared = useRef(readAdsMemory());
     const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
     const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
+    const [access, setAccess] = useState(null);
+    const [source, setSource] = useState(null);
     const [verifie, setVerifie] = useState(() => Boolean(lirePass()));
     const [playbackActive, setPlaybackActive] = useState(false);
     const [chronologie, setChronologie] = useState({ titre: "", items: [] });
@@ -498,11 +435,8 @@ export default function WatchPage() {
     const baseMedia = media?.type === "movie" ? media : selectedEpisode;
     // Une piste choisie remplace la source principale : le lecteur doit
     // vraiment changer de fichier, pas seulement l'affichage du bouton.
-    const pisteActive = piste ? (baseMedia?.language_tracks || []).find((p) => p?.label === piste) : null;
-    const playbackMedia = pisteActive
-        ? { ...baseMedia, bunny_video_id: pisteActive.bunny_video_id, bunny_library_id: pisteActive.bunny_library_id }
-        : baseMedia;
-    const apiPlayerUrl = media?.api_player_url || baseMedia?.api_player_url || "";
+    const playbackMedia = baseMedia;
+    const apiPlayerUrl = source?.url || "";
     const basculerVersLecteurApi = useCallback(() => {
         if (!apiPlayerUrl) return;
         setManifestUrl(null);
@@ -526,7 +460,7 @@ export default function WatchPage() {
         };
     }, []);
 
-    const bunnySource = resolveBunnySource(playbackMedia);
+    const bunnySource = playbackMedia?.has_video;
 
     // Déclaré après bunnySource, dont il dépend.
     const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
@@ -534,73 +468,62 @@ export default function WatchPage() {
     // Les pistes appartiennent au fichier joue : celles de l'episode en cours pour
     // une serie, celles de la fiche pour un film.
     const pistesDisponibles = ((media?.type === "movie" ? media : selectedEpisode)?.language_tracks || [])
-        .filter((p) => p && p.label && p.bunny_video_id);
+        .filter((p) => p && p.label && p.available);
 
     useEffect(() => {
-        // Sans la preuve de vérification, le serveur refuserait l'URL : on
-        // n'appelle donc pas tant qu'elle n'a pas été franchie.
-        if (!bunnySource?.videoId || !verifie) {
-            return;
-        }
+        if (!media || authEnCours) return;
         let active = true;
+        setAccess(null);
+        setSource(null);
+        setManifestUrl(null);
+        setBunnyPlaybackError(null);
+        setGateDone(false);
+        setAdDone(false);
+        api.post("/playback/access", {
+            media_id: id,
+            season_number: media.type === "movie" ? null : String(selectedEpisode?.season_number ?? ""),
+            episode_number: media.type === "movie" ? null : String(selectedEpisode?.ep_number ?? ""),
+        }, { silent: true }).then(r => { if (active) setAccess(r.data); })
+            .catch(e => { if (active) setBunnyPlaybackError(e?.response?.data?.detail || "Autorisation indisponible."); });
+        return () => { active = false; };
+    }, [id, media, selectedEpisode?.season_number, selectedEpisode?.ep_number, authEnCours, user?.user_id]);
+
+    useEffect(() => {
+        if (!access || !bunnySource || authEnCours || (!user?.premium && ((!verifie && !user) || !gateDone || !adDone))) return;
+        let active = true;
+        let retry;
+        setSource(null);
         setManifestUrl(null);
         setApiPlayerActive(false);
         setBunnyPlaybackError(null);
-        // Le lecteur avancé n'est demandé que si l'amplification est réglée : sans
-        // elle il n'apporte rien, et le lecteur intégré reste le chemin éprouvé.
-        const amplification = lecteurAvanceDemande ? 2 : 1;
-        const playbackParams = {
-            ...(media?.type === "movie" ? {} : {
-                season_number: selectedEpisode?.season_number,
-                episode_number: selectedEpisode?.ep_number,
-            }),
-            ...(amplification > 1 ? { direct: 1 } : {}),
+        const headers = { "X-Playback-Grant": access.grant, ...(lirePass() ? { "X-Playback-Pass": lirePass() } : {}) };
+        const params = {
+            ...(media?.type === "movie" ? {} : { season_number: selectedEpisode?.season_number, episode_number: selectedEpisode?.ep_number }),
+            direct: 1,
             ...(piste ? { track: piste } : {}),
         };
-        api.get(`/bunny/playback/${id}`, {
-            params: playbackParams,
-            silent: true,
-            headers: lirePass() ? { "X-Playback-Pass": lirePass() } : undefined,
-        })
-            .then((response) => {
+        const load = async () => {
+            try {
+                if (!user?.premium) await api.post("/playback/access/complete", {}, { headers, silent: true });
+                const r = await api.get(`/media/${id}/playback`, { params, headers, silent: true });
                 if (!active) return;
-                const data = response.data || {};
-                if (!data.manifest_url) {
-                    setBunnyPlaybackError("Ce contenu ne fournit pas de flux compatible avec le lecteur maison.");
-                    return;
-                }
-                // Le flux servi en direct autorise nos propres contrôles, dont
-                // l’amplification du son. À défaut, le lecteur intégré prend le relais.
-                setManifestUrl(data.playback_type === "direct" ? data.manifest_url : null);
-                if (data.libraryMatchesUploadConfig === false) {
-                    setBunnyPlaybackError(
-                        `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
-                    );
-                    return;
-                }
-            })
-            .catch((error) => {
+                setSource(r.data);
+                setManifestUrl(r.data.manifest_url || null);
+                if (!r.data.manifest_url && r.data.url) setApiPlayerActive(true);
+            } catch (e) {
                 if (!active) return;
-                const status = error?.response?.status;
-                const detail = error?.response?.data?.detail;
-                setBunnyPlaybackError(
-                    detail || `Impossible d’obtenir l’autorisation de lecture${status ? ` (HTTP ${status})` : ""}. Vérifie la configuration du serveur et la sécurité de la bibliothèque.`
-                );
-            });
-        return () => { active = false; };
-    }, [
-        id,
-        media?.type,
-        selectedEpisode?.season_number,
-        selectedEpisode?.ep_number,
-        bunnySource?.videoId,
-        bunnySource?.libraryId,
-        verifie,
-        piste,
-        // Changer de lecteur, oui ; changer de niveau, non : le niveau est suivi
-        // en direct par le lecteur lui-même.
-        lecteurAvanceDemande,
-    ]);
+                const wait = Number(e?.response?.headers?.["retry-after"]);
+                if (e?.response?.status === 429 && wait > 0 && wait <= 120) {
+                    setBunnyPlaybackError(`Autorisation de lecture dans ${wait} secondes…`);
+                    retry = window.setTimeout(load, wait * 1000);
+                } else {
+                    setBunnyPlaybackError(e?.response?.data?.detail || "Autorisation de lecture refusée.");
+                }
+            }
+        };
+        load();
+        return () => { active = false; window.clearTimeout(retry); };
+    }, [access, id, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number, bunnySource, verifie, piste, gateDone, adDone, authEnCours, user]);
 
     useEffect(() => {
         (async () => {
@@ -813,16 +736,15 @@ export default function WatchPage() {
         );
     }
 
-    const qualities = fallbackQualities(playbackMedia);
+    const qualities = source?.qualities || [];
     const userMaxQuality = "4k";
     // Sans attendre la fin du chargement, un membre premium verrait la porte
     // publicitaire pendant la seconde qui précède l'arrivée de son compte.
     const runAds = !authEnCours && !user?.premium;
-    const hasVideo = !!(bunnySource || qualities.length > 0);
+    const hasVideo = estJouable(playbackMedia);
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
     const adsDone = !runAds || adDone;
-    const token = lireLocal("ym_token");
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -892,15 +814,17 @@ export default function WatchPage() {
                                     </p>
                                 </div>
                             </div>
+                        ) : !access ? (
+                            <div className="p-12 text-center text-neutral-400">{bunnyPlaybackError || "Préparation de la lecture…"}</div>
                         ) : showGate ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <AdGate onUnlock={() => setGateDone(true)} />
+                                <AdGate access={access} onUnlock={() => setGateDone(true)} />
                             </div>
                         ) : showAd ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <PreRollAd onDone={() => setAdDone(true)} />
+                                <PreRollAd enforce required={access.preroll_seconds > 0} onDone={() => setAdDone(true)} />
                             </div>
-                        ) : !verifie ? (
+                        ) : !verifie && !user ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
@@ -1103,7 +1027,6 @@ export default function WatchPage() {
                                 if (target) selectEpisode(target);
                             }}
                             onClose={closeParty}
-                            token={token}
                             adsDone={adsDone}
                             onStartedChange={setPartyStarted}
                         />

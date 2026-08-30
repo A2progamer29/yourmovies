@@ -6,7 +6,7 @@ services:
     plan: free
     healthCheckPath: /api/health
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn server:app --no-proxy-headers --no-access-log --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.6
@@ -14,6 +14,18 @@ services:
         sync: false
       - key: DB_NAME
         value: yourmovies
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: TRUSTED_PROXY_CIDRS
+        sync: false
+      - key: BUNNY_TOKEN_AUTH_KEY
+        sync: false
+      - key: BUNNY_CDN_TOKEN_AUTH_KEY
+        sync: false
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS

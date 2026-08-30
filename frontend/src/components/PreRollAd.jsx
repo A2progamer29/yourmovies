@@ -4,7 +4,7 @@ import { loadAdsConfig, frequencyAllows, markShown, fetchVast, fireTrackers } fr
 
 const FREQ_KEY = "ym_preroll_last";
 
-export default function PreRollAd({ onDone }) {
+export default function PreRollAd({ onDone, enforce = false, required = true }) {
     const onDoneRef = useRef(onDone);
     const finishedRef = useRef(false);
     const videoRef = useRef(null);
@@ -25,11 +25,12 @@ export default function PreRollAd({ onDone }) {
     useEffect(() => {
         let active = true;
         (async () => {
+            if (!required) { finish(); return; }
             const cfg = await loadAdsConfig();
             if (!active) return;
             const pre = cfg?.preroll || {};
             if (!cfg?.enabled || !pre.enabled) { finish(); return; }
-            if (!frequencyAllows(FREQ_KEY, pre.frequency_minutes)) { finish(); return; }
+            if (!enforce && !frequencyAllows(FREQ_KEY, pre.frequency_minutes)) { finish(); return; }
 
             setSkipAfter(Number(pre.skip_after) || 5);
 

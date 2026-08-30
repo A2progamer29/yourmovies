@@ -32,7 +32,7 @@ import { showError } from "@/lib/errors";
 import { can } from "@/lib/perms";
 
 function hasPlayableVideo(item = {}) {
-    if (item.bunny_video_id || item.video_url || item.video_file_path) return true;
+    if (item.has_video || item.bunny_video_id || item.video_url || item.video_file_path) return true;
     return Array.isArray(item.qualities) && item.qualities.some((quality) =>
         quality?.url || quality?.video_url || quality?.file_path
     );

@@ -1,3 +1,4 @@
+import { api } from "@/lib/api";
 import React, { useEffect, useState } from "react";
 import { PlayCircle, Loader2, ShieldCheck, Lock } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -12,11 +13,13 @@ const FREQ_KEY = "ym_gate_last";
  * Aucune vérification de ce qui se passe dans l'onglet publicitaire n'est
  * possible (isolation navigateur) : on compte les étapes validées.
  */
-export default function AdGate({ onUnlock }) {
+export default function AdGate({ onUnlock, access }) {
     const [cfg, setCfg] = useState(null);
     const [step, setStep] = useState(0);
     const [wait, setWait] = useState(0);
     const [ready, setReady] = useState(false);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
     const [open, setOpen] = useState(true);
 
     useEffect(() => {
@@ -27,9 +30,9 @@ export default function AdGate({ onUnlock }) {
             const gate = config?.gate || {};
             const popScript = config?.popunder?.script_url || "";
             const directLink = gate.direct_link || "";
-            if (!config?.enabled || !gate.enabled || (!popScript && !directLink)) { onUnlock(); return; }
-            if (!frequencyAllows(FREQ_KEY, gate.frequency_minutes)) { onUnlock(); return; }
-            setCfg({ ...gate, popScript, directLink });
+            if (access ? !access.gate_steps : (!config?.enabled || !gate.enabled || (!popScript && !directLink))) { onUnlock(); return; }
+            if (!access && !frequencyAllows(FREQ_KEY, gate.frequency_minutes)) { onUnlock(); return; }
+            setCfg({ ...gate, ...(access ? { steps: access.gate_steps, seconds: access.gate_seconds } : {}), popScript, directLink });
             setReady(true);
         })();
         return () => { active = false; };
@@ -47,8 +50,10 @@ export default function AdGate({ onUnlock }) {
     const total = cfg.steps || 1;
     const remaining = Math.max(0, total - step);
 
-    const advance = () => {
-        if (wait > 0) return;
+    const advance = async () => {
+        if (wait > 0 || busy) return;
+        setBusy(true);
+        setError("");
         // Ouverture pendant le clic : seule façon fiable d'échapper au bloqueur
         // de fenêtres. Le Direct Link mène à une vraie page publicitaire.
         if (cfg.directLink) {
@@ -56,6 +61,18 @@ export default function AdGate({ onUnlock }) {
         } else if (cfg.popScript) {
             injectScript(cfg.popScript);
         }
+        if (access) {
+            try {
+                await api.post("/playback/access/step", {}, { headers: { "X-Playback-Grant": access.grant }, silent: true });
+            } catch (e) {
+                const seconds = Number(e?.response?.headers?.["retry-after"]);
+                if (seconds > 0) setWait(seconds);
+                setError(e?.response?.data?.detail || "Étape non validée. Réessayez.");
+                setBusy(false);
+                return;
+            }
+        }
+        setBusy(false);
         const next = step + 1;
         if (next >= total) {
             markShown(FREQ_KEY);
@@ -110,10 +127,11 @@ export default function AdGate({ onUnlock }) {
                         </div>
                     )}
 
+                    {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
                     <button
                         type="button"
                         onClick={advance}
-                        disabled={wait > 0}
+                        disabled={wait > 0 || busy}
                         data-testid="gate-continue-btn"
                         className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#E8D2A6] px-6 font-semibold text-black transition-colors hover:bg-[#D4BB8B] disabled:cursor-not-allowed disabled:opacity-60"
                     >

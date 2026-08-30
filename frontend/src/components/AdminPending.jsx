@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 
 function complet(media) {
     const jouable = (item = {}) => Boolean(
-        item.bunny_video_id || item.video_url || item.video_file_path
+        item.has_video || item.bunny_video_id || item.video_url || item.video_file_path
         || (Array.isArray(item.qualities) && item.qualities.some((q) => q?.url || q?.file_path))
     );
     if (media.type === "movie") return jouable(media);

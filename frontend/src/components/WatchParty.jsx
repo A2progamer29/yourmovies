@@ -12,9 +12,8 @@ import { toast } from "sonner";
  *   videoRef: React ref to <video>
  *   onHostSync: (state) => void  called when host publishes a sync (unused if you attach directly to videoRef)
  *   onClose: () => void
- *   token?: string (JWT to authenticate)
  */
-export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, onEpisodeSync, onHostChange, currentEpisode, onClose, token, adsDone, onStartedChange }) {
+export default function WatchParty({ code, currentUserId, profileId, profileName, videoRef, onEpisodeSync, onHostChange, currentEpisode, onClose, adsDone, onStartedChange }) {
     // La synchronisation s'appuie sur le même élément vidéo que le lecteur maison.
     const ctl = () => {
         const v = videoRef?.current;
@@ -46,7 +45,7 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
     const listRef = useRef(null);
 
     useEffect(() => {
-        const backend = process.env.REACT_APP_BACKEND_URL;
+        const backend = process.env.REACT_APP_BACKEND_URL || window.location.origin;
         const wsProto = backend.startsWith("https") ? "wss" : "ws";
         const wsBase = backend.replace(/^https?:\/\//, "");
         const url = `${wsProto}://${wsBase}/api/party/${code}/ws`;
@@ -60,12 +59,8 @@ export default function WatchParty({ code, currentUserId, profileId, profileName
         wsRef.current = ws;
 
         ws.onopen = () => {
-            if (!token) {
-                ws.close(4401, "Authentification requise");
-                return;
-            }
             attempt = 0;
-            ws.send(JSON.stringify({ type: "auth", token, profile: profileId || null }));
+            ws.send(JSON.stringify({ type: "auth", profile: profileId || null }));
             setConnected(true);
         };
         // Reconnexion automatique : sans elle, un simple redemarrage du serveur

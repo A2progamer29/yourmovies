@@ -28,7 +28,6 @@ export default function TurnstileGate({ onVerified }) {
     const [etat, setEtat] = useState("chargement");
     const [erreur, setErreur] = useState("");
     const [code, setCode] = useState("");
-    const echecs = useRef(0);
 
     const valider = useCallback(async (token) => {
         setEtat("envoi");
@@ -40,18 +39,6 @@ export default function TurnstileGate({ onVerified }) {
             setErreur(e?.response?.data?.detail || "La vérification n'a pas abouti.");
             setEtat("erreur");
         }
-    }, [onVerified]);
-
-    // Deux echecs suffisent a etablir que le blocage ne vient pas d'un hasard :
-    // on laisse alors passer plutot que d'enfermer un visiteur legitime.
-    const contourner = useCallback(async (codeErreur) => {
-        try {
-            const r = await api.post("/playback/verify/skip", { code: String(codeErreur || "") }, { silent: true });
-            ecrirePass(r.data?.pass);
-        } catch {
-            // meme sans laissez-passer, on n'immobilise personne
-        }
-        onVerified();
     }, [onVerified]);
 
     useEffect(() => {
@@ -66,12 +53,13 @@ export default function TurnstileGate({ onVerified }) {
                 const r = await api.get("/playback/verification", { silent: true });
                 config = r.data;
             } catch {
-                // Vérification injoignable : on ne bloque pas la lecture.
-                onVerified();
+                setErreur("Vérification indisponible. Rechargez la page pour réessayer.");
+                setEtat("erreur");
                 return;
             }
             if (annule) return;
-            if (!config?.required || !config?.site_key) { onVerified(); return; }
+            if (config?.required === false) { onVerified(); return; }
+            if (!config?.site_key) { setErreur("Vérification non configurée. Contactez le support."); setEtat("erreur"); return; }
 
             try {
                 const turnstile = await chargerScript();
@@ -85,12 +73,6 @@ export default function TurnstileGate({ onVerified }) {
                     // diagnostiquer a l'aveugle quand quelqu'un signale le probleme.
                     "error-callback": (codeErreur) => {
                         const code = String(codeErreur || "");
-                        // Les codes en 110 disent que la verification refuse ce
-                        // domaine : reessayer ne changera rien, et le visiteur
-                        // n'y est pour rien. On passe sans le faire patienter.
-                        if (code.startsWith("110")) { contourner(code); return; }
-                        echecs.current += 1;
-                        if (echecs.current >= 2) { contourner(code); return; }
                         setCode(code);
                         setErreur("La vérification n'a pas pu aboutir.");
                         setEtat("erreur");
@@ -98,18 +80,18 @@ export default function TurnstileGate({ onVerified }) {
                     "expired-callback": () => setEtat("pret"),
                 });
             } catch {
-                // Script bloqué par une extension : on laisse passer plutôt que
-                // d'enfermer quelqu'un de légitime devant un écran vide.
-                onVerified();
+                setErreur("Impossible de charger la vérification. Vérifiez vos extensions puis rechargez la page.");
+                setEtat("erreur");
             }
         })();
         return () => { annule = true; };
-    }, [onVerified, valider, contourner]);
+    }, [onVerified, valider]);
 
     const reessayer = () => {
         setErreur("");
         setCode("");
         setEtat("pret");
+        if (!widget.current) { window.location.reload(); return; }
         try { window.turnstile?.reset(widget.current); } catch { }
     };
 
@@ -145,7 +127,7 @@ export default function TurnstileGate({ onVerified }) {
                     <p className="text-[11px] leading-relaxed text-neutral-500">
                         C&apos;est presque toujours un bloqueur de publicité, une extension de confidentialité
                         ou un VPN qui empêche la connexion à Cloudflare. Désactive-les sur cette page, puis
-                        réessaie — au second échec, la lecture se débloque d&apos;elle-même.
+                        réessaie. La vérification doit réussir avant la lecture.
                     </p>
                     <Button
                         onClick={reessayer}

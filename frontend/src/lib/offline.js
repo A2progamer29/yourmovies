@@ -80,7 +80,6 @@ export function savePremiumOfflineSession(user) {
 
 export function readPremiumOfflineSession() {
     try {
-        if (!lireLocal("ym_token")) return null;
         const session = JSON.parse(lireLocal(SESSION_KEY) || "null");
         return hasPremiumOfflineAccess(session?.user) ? session.user : null;
     } catch {
@@ -263,21 +262,9 @@ function resolvePlaylistUrl(value, parentUrl) {
     return resolved.toString();
 }
 
-function fetchHeaders(url) {
-    const headers = {};
-    try {
-        if (new URL(url).origin === new URL(API).origin) {
-            const token = lireLocal("ym_token");
-            if (token) headers.Authorization = `Bearer ${token}`;
-        }
-    } catch {
-        // Les URL invalides seront rejetées par fetch avec leur erreur naturelle.
-    }
-    return headers;
-}
-
 async function fetchSource(url, signal) {
-    const response = await fetch(url, { headers: fetchHeaders(url), cache: "no-store", signal });
+    const credentials = new URL(url).origin === new URL(API).origin ? "include" : "omit";
+    const response = await fetch(url, { credentials, cache: "no-store", signal });
     if (!response.ok) throw new Error(`La vidéo n’est pas téléchargeable pour le moment (${response.status}).`);
     return response;
 }
