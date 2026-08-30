@@ -68,6 +68,9 @@ api.interceptors.response.use(
 
 // Session is an HttpOnly cookie; only non-secret profile selection is readable.
 api.interceptors.request.use((config) => {
+    // The public startup check needs only the session cookie, never a profile
+    // identifier or the mutation-only CSRF header (which causes a preflight).
+    if (config.publicBootstrap) return config;
     config.headers = config.headers || {};
     config.headers["X-YM-Request"] = "1";
     const profileId = lireLocal("ym_profile_id");

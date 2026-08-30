@@ -3290,9 +3290,20 @@ class MaintenanceInput(BaseModel):
 
 
 @api_router.get("/maintenance")
-async def get_maintenance():
+async def get_maintenance(request: Request):
     doc = await db.settings.find_one({"id": "maintenance"}, {"_id": 0})
-    return _effective_maintenance(doc)
+    config = _effective_maintenance(doc)
+    config["can_bypass"] = False
+    # Return only a UI decision, not account details. This lets the maintenance
+    # screen avoid mounting the full app and fetching user/catalogue data.
+    if config["enabled"] and (request.cookies.get(AUTH_COOKIE) or request.headers.get("authorization")):
+        try:
+            user = await get_current_user(request, request.headers.get("authorization"))
+            config["can_bypass"] = bool(user.get("is_admin"))
+        except HTTPException as exc:
+            if exc.status_code not in (401, 403):
+                raise
+    return config
 
 
 @api_router.get("/admin/maintenance")

@@ -120,6 +120,37 @@ async def test_public_routes_never_return_sources():
 
 
 @pytest.mark.asyncio
+async def test_maintenance_bootstrap_is_minimal_and_checks_admin_session():
+    await appmod.db.settings.insert_one({"id": "maintenance", "enabled": True, "private_note": "never-public"})
+    async with client() as c:
+        result = await c.get("/api/maintenance")
+        assert result.status_code == 200
+        assert set(result.json()) == {"enabled", "message", "discord_url", "can_bypass"}
+        assert result.json()["can_bypass"] is False
+        assert result.headers["cache-control"] == "private, no-store"
+        await account(c)
+        assert (await c.get("/api/maintenance")).json()["can_bypass"] is False
+        await account(c, uid="admin", admin=True)
+        result = await c.get("/api/maintenance")
+        assert result.json()["can_bypass"] is True
+        assert "user_id" not in result.text and "email" not in result.text and "token" not in result.text
+        await appmod.db.users.update_one({"user_id": "admin"}, {"$set": {"blocked_at": "blocked"}})
+        assert (await c.get("/api/maintenance")).json()["can_bypass"] is False
+
+
+@pytest.mark.asyncio
+async def test_maintenance_invalid_or_revoked_credentials_do_not_open_the_app():
+    await appmod.db.settings.insert_one({"id": "maintenance", "enabled": True})
+    async with client() as c:
+        await account(c, admin=True)
+        await appmod.db.auth_sessions.delete_many({})
+        result = await c.get("/api/maintenance")
+        assert result.status_code == 200 and result.json()["can_bypass"] is False
+        result = await c.get("/api/maintenance", headers={"Authorization": "Bearer forged"})
+        assert result.status_code == 200 and result.json()["can_bypass"] is False
+
+
+@pytest.mark.asyncio
 async def test_cookie_login_logout_revocation_and_legacy_rejection():
     async with client() as c:
         await account(c)

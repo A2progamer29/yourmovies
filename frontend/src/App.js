@@ -49,9 +49,7 @@ import DiscordInvitePopup from "@/components/DiscordInvitePopup";
 import AideChargement from "@/components/AideChargement";
 import VisitTracker from "@/components/VisitTracker";
 import SettingsTabsRuntimeFix from "@/components/SettingsTabsRuntimeFix";
-import MaintenancePage from "@/pages/MaintenancePage";
-import { api } from "@/lib/api";
-import { useAuth } from "@/context/AuthContext";
+import MaintenanceGate from "@/components/MaintenanceGate";
 
 function ScrollToTop() {
     const { pathname } = useLocation();
@@ -67,23 +65,10 @@ function ScrollToTop() {
 
 function AppRouter() {
     const location = useLocation();
-    const { user, loading: authLoading } = useAuth();
-    const [maintenance, setMaintenance] = React.useState(null);
-    React.useEffect(() => {
-        let active = true;
-        api.get("/maintenance", { silent: true })
-            .then((response) => active && setMaintenance(response.data))
-            .catch(() => active && setMaintenance({ enabled: false }));
-        return () => { active = false; };
-    }, []);
     if (location.hash?.includes("session_id=")) {
         return <AuthCallback />;
     }
     const p = location.pathname;
-    const isAdminRoute = p.startsWith("/admin");
-    if (!authLoading && maintenance?.enabled && !user?.is_admin && !p.startsWith("/login") && !p.startsWith("/cagnotte") && !p.startsWith("/don") && !isAdminRoute) {
-        return <MaintenancePage config={maintenance} />;
-    }
     const noFooter = p.startsWith("/watch/") || p.startsWith("/offline/") || p.startsWith("/messages") || p.startsWith("/login")
         || p.startsWith("/admin") || p === "/about" || p === "/cgu" || p === "/politique" || p === "/dmca" || p === "/documentation";
     return (
@@ -141,6 +126,7 @@ function App() {
             <Splash />
             <BrowserRouter>
                 <ErrorBoundary>
+                    <MaintenanceGate>
                     <AuthProvider>
                         <OfflineDownloadsProvider>
                         <UploadProvider>
@@ -151,12 +137,13 @@ function App() {
                                 <VersionChecker />
                                 <BetaNoticeDialog />
                                 <DiscordInvitePopup />
-                                <AideChargement />
-                                <Toaster theme="dark" richColors position="top-right" />
                             </FavoritesProvider>
                         </UploadProvider>
                         </OfflineDownloadsProvider>
                     </AuthProvider>
+                    </MaintenanceGate>
+                    <AideChargement />
+                    <Toaster theme="dark" richColors position="top-right" />
                 </ErrorBoundary>
             </BrowserRouter>
         </div>
