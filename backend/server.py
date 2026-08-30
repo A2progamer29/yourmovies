@@ -2511,15 +2511,17 @@ UQFLEX_PROXY_HEADERS_PASSTHROUGH = {
 
 
 @api_router.api_route("/uqflex/stream", methods=["GET", "HEAD"])
-async def uqflex_stream(request: Request, id: str = Query(...), season: str = Query(""), episode: str = Query("")):
+async def uqflex_stream(request: Request, id: str = Query(...), season: str = Query(""), episode: str = Query(""), viewer: Optional[dict] = Depends(get_optional_user)):
     """Relaie la vidéo depuis le serveur du partenaire UQFlex vers le
     navigateur : le lecteur ne peut pas envoyer la clé d'API partenaire
     lui-même, donc c'est notre serveur qui s'authentifie et transmet le
     flux (avec le support de l'avance/recul via Range)."""
     try:
-        capability = pyjwt.decode(request.query_params.get("access", ""), JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "typ", "media_id", "season", "episode"]})
+        capability = pyjwt.decode(request.query_params.get("access", ""), JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "typ", "media_id", "season", "episode", "binding"]})
         if capability["typ"] != "uqflex-stream" or capability["media_id"] != id or capability["season"] != season or capability["episode"] != episode:
             raise pyjwt.InvalidTokenError("wrong resource")
+        if not isinstance(capability["binding"], str) or not secrets.compare_digest(capability["binding"], playback_binding(request, viewer)):
+            raise pyjwt.InvalidTokenError("wrong session")
     except pyjwt.InvalidTokenError:
         raise HTTPException(status_code=403, detail="Autorisation de lecture requise")
     if not uqflex_catalog.configured():
@@ -2549,6 +2551,8 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
 
     en_tetes_reponse = {cle: valeur for cle, valeur in amont.headers.items() if cle.lower() in UQFLEX_PROXY_HEADERS_PASSTHROUGH}
     en_tetes_reponse.setdefault("Accept-Ranges", "bytes")
+    en_tetes_reponse["Content-Disposition"] = "inline"
+    en_tetes_reponse["Cache-Control"] = "private, no-store"
     type_contenu = amont.headers.get("content-type", "video/mp4")
 
     if request.method == "HEAD":
@@ -5002,11 +5006,14 @@ async def bunny_playback(
         item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
         if not item:
             raise HTTPException(status_code=404, detail="Contenu introuvable")
+        public_base = urlparse(UQFLEX_API_BASE)
+        if public_base.scheme != "https" or not public_base.hostname or public_base.username or public_base.password or public_base.query or public_base.fragment:
+            raise HTTPException(status_code=503, detail="Adresse sécurisée du relais non configurée")
         expires = int(time.time()) + 4 * 3600
         capability = pyjwt.encode({"typ": "uqflex-stream", "media_id": media_id,
-            "season": season_number or "", "episode": episode_number or "", "exp": expires}, JWT_SECRET, algorithm=JWT_ALGO)
+            "season": season_number or "", "episode": episode_number or "", "binding": playback_binding(request, viewer), "exp": expires}, JWT_SECRET, algorithm=JWT_ALGO)
         params = urlencode({"id": media_id, "season": season_number or "", "episode": episode_number or "", "access": capability})
-        return {"qualities": [{"quality": "720p", "url": f"{str(request.base_url).rstrip('/')}/api/uqflex/stream?{params}"}], "expires": expires, "signed": True}
+        return {"qualities": [{"quality": "720p", "url": f"{UQFLEX_API_BASE}/api/uqflex/stream?{params}"}], "expires": expires, "signed": True}
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")

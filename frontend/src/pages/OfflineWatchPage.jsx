@@ -1,3 +1,4 @@
+import PlayerLoading from "@/components/PlayerLoading";
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, Crown, WifiOff } from "lucide-react";
@@ -51,7 +52,7 @@ export default function OfflineWatchPage() {
                 </button>
 
                 {searching || loading ? (
-                    <div className="aspect-video animate-pulse rounded-2xl border border-[#262626] bg-[#111]" />
+                    <PlayerLoading label="Ouverture de la vidéo hors connexion…" />
                 ) : !download ? (
                     <section className="rounded-3xl border border-[#262626] bg-[#0a0a0a] px-6 py-14 text-center">
                         <Crown size={28} className="mx-auto text-[#E8D2A6]" />

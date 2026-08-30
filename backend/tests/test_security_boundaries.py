@@ -249,8 +249,76 @@ async def test_unauthorized_partner_stream_never_contacts_upstream(monkeypatch):
     monkeypatch.setattr(appmod, "run_in_threadpool", probe)
     async with client() as c:
         for method in ["GET", "HEAD"]:
-            assert (await c.request(method, "/api/uqflex/stream?id=uqflex_movie1")).status_code == 403
+            assert (await c.request(method, "/api/uqflex/stream?id=uq_movie1")).status_code == 403
         assert not probe.called
+
+
+@pytest.mark.asyncio
+async def test_partner_stream_requires_issuing_session_and_preserves_range(monkeypatch):
+    from unittest.mock import Mock
+    from urllib.parse import urlsplit, parse_qs
+    monkeypatch.setattr(appmod.uqflex_catalog, "configured", lambda: True)
+    monkeypatch.setattr(appmod.uqflex_catalog, "find_item", lambda _: {"id": "movie1", "type": "movie"})
+    monkeypatch.setattr(appmod.uqflex_catalog, "partner_stream_url", lambda *args: "https://partner.example/stream")
+    monkeypatch.setattr(appmod.uqflex_catalog, "_headers", lambda: {"X-Api-Key": "test-private-key"})
+    monkeypatch.setattr(appmod, "UQFLEX_API_BASE", "https://testserver")
+    upstream = Mock(status_code=206, headers={"content-type": "video/mp4", "content-range": "bytes 0-3/100", "content-length": "4", "content-disposition": "attachment", "X-Api-Key": "never-forward"})
+    upstream.iter_content.return_value = iter([b"test"])
+    get = Mock(return_value=upstream)
+    head = Mock(return_value=upstream)
+    monkeypatch.setattr(appmod.requests, "get", get)
+    monkeypatch.setattr(appmod.requests, "head", head)
+    async with client() as c:
+        await account(c, premium=True)
+        r = await c.get("/api/media/uq_movie1/playback")
+        assert r.status_code == 200, r.text
+        url = r.json()["qualities"][0]["url"]
+        assert url.startswith("https://testserver/api/uqflex/stream?")
+        async with client() as other:
+            for method in ("GET", "HEAD"):
+                assert (await other.request(method, url)).status_code == 403
+            await account(other, uid="other", premium=True)
+            assert (await other.get(url)).status_code == 403
+        assert not get.called and not head.called
+        r = await c.get(url, headers={"Range": "bytes=0-3"})
+        assert r.status_code == 206 and r.content == b"test"
+        assert r.headers["content-range"] == "bytes 0-3/100"
+        assert r.headers["content-disposition"] == "inline"
+        assert r.headers["cache-control"] == "private, no-store"
+        assert "x-api-key" not in r.headers
+        assert get.call_args.kwargs["headers"] == {"X-Api-Key": "test-private-key", "Range": "bytes=0-3"}
+        assert get.call_args.kwargs["allow_redirects"] is False
+        assert (await c.head(url, headers={"Range": "bytes=0-3"})).status_code == 206
+        assert (await c.get(url.replace("id=uq_movie1", "id=uq_other"))).status_code == 403
+        claims = jwt.decode(parse_qs(urlsplit(url).query)["access"][0], appmod.JWT_SECRET, algorithms=["HS256"])
+        claims["exp"] = 1
+        expired = jwt.encode(claims, appmod.JWT_SECRET, algorithm="HS256")
+        assert (await c.get("/api/uqflex/stream", params={"id": "uq_movie1", "access": expired})).status_code == 403
+        await c.post("/api/auth/logout")
+        assert (await c.get(url)).status_code == 403
+        assert get.call_count == 1 and head.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_anonymous_partner_stream_is_bound_to_visitor_cookie(monkeypatch):
+    from unittest.mock import Mock
+    upstream = Mock(return_value=None)
+    monkeypatch.setattr(appmod.requests, "get", upstream)
+    visitor = "test-visitor-cookie"
+    claims = {"typ": "uqflex-stream", "media_id": "uq_movie1", "season": "", "episode": "",
+              "binding": appmod.fingerprint(visitor, appmod.JWT_SECRET),
+              "exp": datetime.now(timezone.utc) + timedelta(minutes=1)}
+    token = jwt.encode(claims, appmod.JWT_SECRET, algorithm="HS256")
+    monkeypatch.setattr(appmod.uqflex_catalog, "configured", lambda: False)
+    async with client() as c:
+        path = "/api/uqflex/stream?id=uq_movie1&access=" + token
+        assert (await c.get(path)).status_code == 403
+        c.cookies.set(appmod.VISITOR_COOKIE, "different-visitor", domain="testserver.local", path="/")
+        assert (await c.get(path)).status_code == 403
+        c.cookies.set(appmod.VISITOR_COOKIE, visitor, domain="testserver.local", path="/")
+        # Correct session reaches the configured-service check, without network.
+        assert (await c.get(path)).status_code == 503
+        assert not upstream.called
 
 
 @pytest.mark.asyncio

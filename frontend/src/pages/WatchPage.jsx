@@ -1,3 +1,5 @@
+import PlayerLoading from "@/components/PlayerLoading";
+import EmbeddedPlayer from "@/components/EmbeddedPlayer";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import Chargement from "@/components/Chargement";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
@@ -507,6 +509,7 @@ export default function WatchPage() {
                 if (!user?.premium) await api.post("/playback/access/complete", {}, { headers, silent: true });
                 const r = await api.get(`/media/${id}/playback`, { params, headers, silent: true });
                 if (!active) return;
+                setBunnyPlaybackError(null);
                 setSource(r.data);
                 setManifestUrl(r.data.manifest_url || null);
                 if (!r.data.manifest_url && r.data.url) setApiPlayerActive(true);
@@ -815,7 +818,7 @@ export default function WatchPage() {
                                 </div>
                             </div>
                         ) : !access ? (
-                            <div className="p-12 text-center text-neutral-400">{bunnyPlaybackError || "Préparation de la lecture…"}</div>
+                            bunnyPlaybackError ? <div role="alert" className="flex aspect-video items-center justify-center p-8 text-center text-neutral-300">{bunnyPlaybackError}</div> : <PlayerLoading label="Préparation de la lecture…" />
                         ) : showGate ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <AdGate access={access} onUnlock={() => setGateDone(true)} />
@@ -828,9 +831,11 @@ export default function WatchPage() {
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <TurnstileGate onVerified={() => setVerifie(true)} />
                             </div>
+                        ) : bunnySource && !source && !bunnyPlaybackError ? (
+                            <PlayerLoading />
                         ) : apiPlayerActive && apiPlayerUrl ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <iframe
+                                <EmbeddedPlayer
                                     src={apiPlayerUrl}
                                     title={`Lecteur API — ${media.title}`}
                                     data-testid="api-player-fallback"
@@ -859,7 +864,10 @@ export default function WatchPage() {
                             </div>
                         ) : (
                             <VideoPlayer
+                                key={`${id}:${selectedEpisodeKey}:${piste || "main"}`}
                                 qualitySources={qualities}
+                                fiche={ficheLecteur}
+                                boostInitial={Number(user?.audio_boost) || 1}
                                 poster={media.banner_url || media.poster_url}
                                 onProgress={suivreProgression}
                                 startAt={resumeAt}

@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, SkipBack, SkipForward, Zap, X } from "lucide-react";
 import { Link } from "react-router-dom";
+import PlayerLoading from "./PlayerLoading";
+import { videoProtection, videoCrossOrigin } from "@/lib/videoProtection";
+import { API } from "@/lib/api";
 
 // Google IMA sample VAST tag (linear ad, production-grade Google IMA infrastructure).
 // Change to your real ad server VAST/VMAP URL in production.
@@ -31,7 +34,7 @@ function loadIma() {
 }
 
 function fmt(seconds) {
-    if (!seconds || isNaN(seconds)) return "0:00";
+    if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
@@ -62,7 +65,8 @@ export default function VideoPlayer({
     // Expose the internal video element to parents (e.g. Watch Party)
     useEffect(() => {
         if (videoRefOut) videoRefOut.current = videoRef.current;
-    });
+        return () => { if (videoRefOut) videoRefOut.current = null; };
+    }, [videoRefOut]);
     const adContainerRef = useRef(null);
     const adsManagerRef = useRef(null);
     const adsLoaderRef = useRef(null);
@@ -74,11 +78,24 @@ export default function VideoPlayer({
     const preferred = preferredQuality && preferredQuality !== "auto"
         ? availableQualities.find((q) => q.quality === preferredQuality)
         : null;
-    const initialSrc = preferred || availableQualities[0] || qualitySources[qualitySources.length - 1];
+    const initialSrc = preferred || availableQualities[0];
 
     const [currentQuality, setCurrentQuality] = useState(initialSrc?.quality || "720p");
     const [src, setSrc] = useState(initialSrc?.url || "");
     const [playing, setPlaying] = useState(false);
+    const [buffering, setBuffering] = useState(true);
+    const [playbackError, setPlaybackError] = useState(false);
+    const [slow, setSlow] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
+    const pendingSeek = useRef(startAt);
+    const resumeAfterQuality = useRef(false);
+    const fallbackRef = useRef(onFluxImpossible);
+    fallbackRef.current = onFluxImpossible;
+    const failPlayback = useCallback(() => {
+        setBuffering(false);
+        setPlaybackError(true);
+        fallbackRef.current?.();
+    }, []);
     const [muted, setMuted] = useState(false);
     const [volume, setVolume] = useState(1);
     const [progress, setProgress] = useState(0);
@@ -86,6 +103,7 @@ export default function VideoPlayer({
     const [showSettings, setShowSettings] = useState(false);
     const [showControls, setShowControls] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [compact, setCompact] = useState(false);
     const [adsRunning, setAdsRunning] = useState(false);
     const [adInfo, setAdInfo] = useState(null); // {remainingTime, skippable, canSkip, index, total}
     const [adsFinished, setAdsFinished] = useState(!runAds);
@@ -99,6 +117,48 @@ export default function VideoPlayer({
     const hideTimer = useRef(null);
     const demarrageAuto = useRef(false);
     const progressTimer = useRef(null);
+
+    useEffect(() => {
+        const element = wrapRef.current;
+        if (!element) return undefined;
+        const resize = () => setCompact(element.clientWidth < 520);
+        resize();
+        if (typeof ResizeObserver === "undefined") {
+            window.addEventListener("resize", resize);
+            return () => window.removeEventListener("resize", resize);
+        }
+        const observer = new ResizeObserver(resize);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        setSrc(initialSrc?.url || "");
+        setCurrentQuality(initialSrc?.quality || "720p");
+        pendingSeek.current = startAt;
+        demarrageAuto.current = false;
+        setPlaying(false);
+        setBuffering(true);
+        setPlaybackError(false);
+        setDuration(0);
+        setProgress(0);
+        setNiveaux([]);
+        setNiveauChoisi(-1);
+        // startAt is a resume hint; progress updates must not restart playback.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialSrc?.url, initialSrc?.quality, manifestUrl]);
+
+    useEffect(() => {
+        setSlow(false);
+        if (!buffering || playbackError) return undefined;
+        const timer = setTimeout(() => setSlow(true), 15000);
+        return () => clearTimeout(timer);
+    }, [buffering, playbackError, retryCount]);
+
+    useEffect(() => () => {
+        clearTimeout(hideTimer.current);
+        clearTimeout(progressTimer.current);
+    }, []);
 
     // Flux adaptatif : Safari lit le HLS nativement, les autres passent par
     // hls.js, chargé à la demande pour ne pas alourdir le reste du site.
@@ -117,6 +177,7 @@ export default function VideoPlayer({
                 if (annule) return;
                 if (!Hls.isSupported()) {
                     if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = manifestUrl;
+                    else failPlayback();
                     return;
                 }
                 instance = new Hls({ capLevelToPlayerSize: true });
@@ -130,7 +191,7 @@ export default function VideoPlayer({
                 // écran noir, on rend la main au lecteur intégré.
                 instance.on(Hls.Events.ERROR, (_evenement, donnees) => {
                     if (annule || !donnees?.fatal) return;
-                    if (onFluxImpossible) onFluxImpossible();
+                    failPlayback();
                 });
                 instance.loadSource(manifestUrl);
                 instance.attachMedia(video);
@@ -139,7 +200,7 @@ export default function VideoPlayer({
                 // et à défaut le lecteur intégré reprend la main.
                 if (annule) return;
                 if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = manifestUrl;
-                else if (onFluxImpossible) onFluxImpossible();
+                else failPlayback();
             }
         })();
 
@@ -148,7 +209,7 @@ export default function VideoPlayer({
             if (instance) instance.destroy();
             hlsRef.current = null;
         };
-    }, [manifestUrl, onFluxImpossible]);
+    }, [manifestUrl, retryCount, failPlayback]);
 
     // Amplification au-delà de 100 %. Le graphe audio n'est construit qu'au
     // premier usage : tant que personne n'y touche, le son suit son chemin
@@ -330,7 +391,12 @@ export default function VideoPlayer({
         if (!adsFinished || demarrageAuto.current || !video) return;
         // La tentative peut échouer tant que le flux n'est pas rattaché, ou si le
         // navigateur refuse une lecture non sollicitée : on réessaie à « canplay ».
-        video.play().then(() => { demarrageAuto.current = true; }).catch(() => { });
+        video.play().then(() => { demarrageAuto.current = true; }).catch((error) => {
+            if (error?.name === "NotAllowedError") {
+                demarrageAuto.current = true;
+                setBuffering(false);
+            }
+        });
     }, [adsFinished]);
 
     useEffect(() => { demarrerSiPossible(); }, [demarrerSiPossible]);
@@ -345,13 +411,20 @@ export default function VideoPlayer({
         setCurrentQuality(q);
         setSrc(found.url);
         setShowSettings(false);
-        // After src change, restore time
-        setTimeout(() => {
-            if (videoRef.current) {
-                videoRef.current.currentTime = time;
-                if (wasPlaying) videoRef.current.play().catch(() => { });
-            }
-        }, 100);
+        pendingSeek.current = time;
+        resumeAfterQuality.current = wasPlaying;
+        setBuffering(true);
+        setPlaybackError(false);
+    };
+
+    const retryPlayback = () => {
+        pendingSeek.current = videoRef.current?.currentTime || startAt;
+        demarrageAuto.current = false;
+        setPlaybackError(false);
+        setBuffering(true);
+        setSlow(false);
+        setRetryCount(n => n + 1);
+        if (!manifestUrl) videoRef.current?.load();
     };
 
     const togglePlay = () => {
@@ -360,7 +433,12 @@ export default function VideoPlayer({
         // Commander la lecture soi-même clôt le démarrage automatique : sans
         // cela, une pause suivie d'un saut le relancerait.
         demarrageAuto.current = true;
-        if (v.paused) v.play(); else v.pause();
+        if (v.paused) {
+            v.play().catch((error) => {
+                setBuffering(false);
+                if (error?.name !== "NotAllowedError" && error?.name !== "AbortError") failPlayback();
+            });
+        } else v.pause();
     };
     const toggleMute = () => {
         const v = videoRef.current;
@@ -378,22 +456,22 @@ export default function VideoPlayer({
     };
     const seek = (val) => {
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
         v.currentTime = (val / 100) * v.duration;
     };
     const skip = (delta) => {
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
         v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
     };
     const toggleFs = async () => {
         const el = wrapRef.current;
         if (!el) return;
-        if (!document.fullscreenElement) {
-            await el.requestFullscreen();
-        } else {
-            await document.exitFullscreen();
-        }
+        try {
+            if (document.fullscreenElement) await document.exitFullscreen();
+            else if (el.requestFullscreen) await el.requestFullscreen();
+            else videoRef.current?.webkitEnterFullscreen?.();
+        } catch { /* Unsupported fullscreen must not interrupt playback. */ }
     };
 
     useEffect(() => {
@@ -403,8 +481,18 @@ export default function VideoPlayer({
     }, []);
 
     const onLoadedMetadata = () => {
-        if (startAt > 0 && videoRef.current) videoRef.current.currentTime = startAt;
-        setDuration(videoRef.current?.duration || 0);
+        const video = videoRef.current;
+        const length = Number.isFinite(video?.duration) ? video.duration : 0;
+        setDuration(length);
+        if (video && length > 0 && pendingSeek.current != null) {
+            video.currentTime = Math.max(0, Math.min(pendingSeek.current, Math.max(0, length - 0.1)));
+            pendingSeek.current = null;
+        }
+        if (video) video.playbackRate = vitesse;
+        if (resumeAfterQuality.current) {
+            resumeAfterQuality.current = false;
+            video?.play().catch(() => setBuffering(false));
+        }
     };
     const onTimeUpdate = () => {
         if (!videoRef.current) return;
@@ -421,32 +509,50 @@ export default function VideoPlayer({
         setShowControls(true);
         if (hideTimer.current) clearTimeout(hideTimer.current);
         hideTimer.current = setTimeout(() => {
-            if (playing) setShowControls(false);
+            if (playing && !showSettings && !wrapRef.current?.contains(document.activeElement)) setShowControls(false);
         }, 3000);
-    }, [playing]);
+    }, [playing, showSettings]);
 
     return (
         <div
             ref={wrapRef}
             data-testid="video-player-wrapper"
-            className="relative w-full aspect-video bg-black rounded-lg overflow-hidden group"
+            className="relative w-full aspect-video bg-black rounded-xl overflow-hidden group text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#E8D2A6]"
+            tabIndex={0}
+            role="region"
+            aria-label="Lecteur vidéo"
+            onContextMenu={videoProtection.onContextMenu}
             onMouseMove={bumpControls}
-            onMouseLeave={() => playing && setShowControls(false)}
+            onTouchStart={bumpControls}
+            onFocus={bumpControls}
+            onKeyDown={(event) => {
+                if (event.target !== event.currentTarget || adsRunning) return;
+                const action = { " ": togglePlay, k: togglePlay, m: toggleMute, f: toggleFs, ArrowLeft: () => skip(-10), ArrowRight: () => skip(10), Escape: () => setShowSettings(false) }[event.key];
+                if (action) { event.preventDefault(); bumpControls(); action(); }
+            }}
         >
             <video
+                {...videoProtection}
+                preload="metadata"
                 ref={videoRef}
                 data-testid="video-player"
                 src={manifestUrl ? undefined : src}
-                crossOrigin={manifestUrl ? "anonymous" : undefined}
+                crossOrigin={videoCrossOrigin(manifestUrl || src, API) || (manifestUrl ? "anonymous" : undefined)}
                 poster={poster}
                 className="w-full h-full"
                 onLoadedMetadata={onLoadedMetadata}
                 onTimeUpdate={onTimeUpdate}
-                onCanPlay={demarrerSiPossible}
+                onLoadStart={() => { setBuffering(true); setPlaybackError(false); }}
+                onWaiting={() => setBuffering(true)}
+                onStalled={() => { if (videoRef.current?.readyState < 3) setBuffering(true); }}
+                onSeeking={() => setBuffering(true)}
+                onSeeked={() => { if (videoRef.current?.readyState >= 2) setBuffering(false); }}
+                onCanPlay={() => { setBuffering(false); demarrerSiPossible(); }}
                 onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
-                onError={() => onFluxImpossible?.()}
+                onPlaying={() => { setPlaying(true); setBuffering(false); setPlaybackError(false); bumpControls(); }}
+                onPause={() => { setPlaying(false); setShowControls(true); }}
+                onEnded={() => { setPlaying(false); setBuffering(false); }}
+                onError={failPlayback}
                 onClick={() => !adsRunning && togglePlay()}
                 playsInline
             />
@@ -483,39 +589,56 @@ export default function VideoPlayer({
                 </div>
             )}
 
+            {buffering && !playbackError && !adsRunning && <PlayerLoading overlay label={slow ? "Le chargement prend plus de temps…" : "Chargement de la vidéo…"} />}
+            {(playbackError || (buffering && slow)) && !adsRunning && (
+                <div role={playbackError ? "alert" : undefined} className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/90 px-5 text-center">
+                    <p className="text-sm text-neutral-200">{playbackError ? "La vidéo n’a pas pu être chargée." : "Le flux met du temps à répondre."}</p>
+                    <button type="button" onClick={retryPlayback} className="rounded-full bg-[#E8D2A6] px-5 py-2.5 text-sm font-semibold text-black">Réessayer</button>
+                </div>
+            )}
+            {fiche && !adsRunning && (showControls || !playing) && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 to-transparent px-4 pb-8 pt-4 sm:px-6">
+                    <p className="truncate text-sm font-medium sm:text-base">{fiche.titre}</p>
+                    {fiche.sousTitre && <p className="mt-1 truncate text-xs text-neutral-400">{fiche.sousTitre}</p>}
+                </div>
+            )}
+
             {/* Controls */}
             {!adsRunning && (
                 <div
-                    className={`absolute inset-x-0 bottom-0 z-20 transition-opacity duration-300 ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
+                    className={`absolute inset-x-0 bottom-0 z-20 transition-opacity duration-300 ${showControls || !playing || showSettings ? "opacity-100" : "opacity-0 pointer-events-none"}`}
                 >
-                    <div className="bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-16 pb-4 px-5">
+                    <div className={`bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-10 pb-2 ${compact ? "px-3" : "px-5 pb-3"}`}>
                         {/* Progress bar */}
                         <div className="mb-3 flex items-center gap-3 text-xs text-white/80">
                             <span>{fmt(progress)}</span>
                             <input
                                 data-testid="player-seek"
+                                aria-label="Position de lecture"
+                                aria-valuetext={`${fmt(progress)} sur ${fmt(duration)}`}
+                                disabled={!duration || playbackError}
                                 type="range"
                                 min="0"
                                 max="100"
-                                value={duration ? (progress / duration) * 100 : 0}
+                                value={duration ? Math.min(100, Math.max(0, (progress / duration) * 100)) : 0}
                                 onChange={(e) => seek(Number(e.target.value))}
                                 className="flex-1 accent-[#E8D2A6] cursor-pointer"
                             />
                             <span>{fmt(duration)}</span>
                         </div>
                         {/* Buttons */}
-                        <div className="flex items-center gap-3 text-white">
-                            <button data-testid="player-play" onClick={togglePlay} className="hover:text-[#E8D2A6]">
+                        <div className={`flex items-center text-white ${compact ? "gap-1" : "gap-2"}`}>
+                            <button data-testid="player-play" aria-label={playing ? "Mettre en pause" : "Lire"} onClick={togglePlay} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
                                 {playing ? <Pause size={22} /> : <Play size={22} fill="currentColor" />}
                             </button>
-                            <button onClick={() => skip(-10)} className="hover:text-[#E8D2A6]">
+                            <button aria-label="Reculer de 10 secondes" title="−10 s" onClick={() => skip(-10)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
                                 <SkipBack size={18} />
                             </button>
-                            <button onClick={() => skip(10)} className="hover:text-[#E8D2A6]">
+                            <button aria-label="Avancer de 10 secondes" title="+10 s" onClick={() => skip(10)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
                                 <SkipForward size={18} />
                             </button>
                             <div className="flex items-center gap-2">
-                                <button onClick={toggleMute} className="hover:text-[#E8D2A6]">
+                                <button aria-label={muted ? "Activer le son" : "Couper le son"} onClick={toggleMute} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
                                     {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
                                 </button>
                                 <input
@@ -525,9 +648,10 @@ export default function VideoPlayer({
                                     step="0.05"
                                     value={muted ? 0 : volume}
                                     onChange={(e) => setVol(Number(e.target.value))}
-                                    className="w-20 accent-[#E8D2A6] cursor-pointer"
+                                    aria-label="Volume"
+                                    className={`${compact ? "hidden" : "block"} w-16 accent-[#E8D2A6] cursor-pointer`}
                                 />
-                                {boost > 1 && (
+                                {boost > 1 && !compact && (
                                     <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#E8D2A6]">
                                         x{boost.toFixed(1)}
                                     </span>
@@ -537,11 +661,13 @@ export default function VideoPlayer({
                             <div className="relative">
                                 <button
                                     data-testid="player-settings"
+                                    aria-label="Réglages de lecture"
+                                    aria-expanded={showSettings}
                                     onClick={() => setShowSettings((s) => !s)}
-                                    className="flex items-center gap-1.5 hover:text-[#E8D2A6] text-sm"
+                                    className="flex h-11 items-center gap-1.5 rounded-full px-3 hover:bg-white/10 hover:text-[#E8D2A6] text-sm"
                                 >
                                     <Settings size={18} />
-                                    <span className="text-xs uppercase tracking-widest">
+                                    <span className={`${compact ? "hidden" : ""} text-xs uppercase tracking-widest`}>
                                         {niveaux.length > 0
                                             ? (niveauChoisi === -1 ? "Auto" : `${niveaux[niveauChoisi]?.height}p`)
                                             : currentQuality}
@@ -550,7 +676,8 @@ export default function VideoPlayer({
                                 {showSettings && (
                                     <div
                                         data-testid="quality-menu"
-                                        className="absolute bottom-full right-0 z-30 mb-2 max-h-[min(60vh,300px)] min-w-[220px] overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] shadow-2xl"
+                                        style={{ maxHeight: Math.max(90, Math.min(300, (wrapRef.current?.clientHeight || 400) - 72)) }}
+                                        className="absolute bottom-full right-0 z-30 mb-2 min-w-[220px] overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] shadow-2xl"
                                     >
                                         <div className="sticky top-0 border-b border-[#262626] bg-[#0a0a0a] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
                                             Qualité
@@ -634,6 +761,7 @@ export default function VideoPlayer({
                                                 step="0.1"
                                                 value={boost}
                                                 data-testid="player-boost"
+                                                aria-label="Amplification du son"
                                                 onChange={(e) => appliquerBoost(Number(e.target.value))}
                                                 className="mt-2 w-full cursor-pointer accent-[#E8D2A6]"
                                             />
@@ -644,7 +772,7 @@ export default function VideoPlayer({
                                     </div>
                                 )}
                             </div>
-                            <button onClick={toggleFs} className="hover:text-[#E8D2A6]">
+                            <button aria-label={isFullscreen ? "Quitter le plein écran" : "Plein écran"} onClick={toggleFs} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
                                 {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                             </button>
                         </div>
@@ -652,39 +780,8 @@ export default function VideoPlayer({
                 </div>
             )}
 
-            {/* À l'arrêt, la fiche du titre prend la place de l'image figée.
-                Sans capture de clic : un clic n'importe où relance la lecture. */}
-            {!playing && !adsRunning && fiche && (
-                <div
-                    data-testid="fiche-pause"
-                    className="pointer-events-none absolute inset-0 z-20 flex items-center gap-5 bg-gradient-to-r from-black/90 via-black/60 to-transparent p-6 sm:p-10"
-                >
-                    {fiche.affiche && (
-                        <img
-                            src={fiche.affiche}
-                            alt=""
-                            className="hidden h-40 w-[112px] shrink-0 rounded-lg object-cover shadow-2xl ring-1 ring-white/10 sm:block"
-                        />
-                    )}
-                    <div className="min-w-0 max-w-xl">
-                        <div className="text-[10px] uppercase tracking-[0.2em] text-[#E8D2A6]">En pause</div>
-                        <h2 className="mt-1.5 font-display text-2xl leading-tight text-white sm:text-4xl">
-                            {fiche.titre}
-                        </h2>
-                        {fiche.sousTitre && (
-                            <div className="mt-1.5 text-sm text-neutral-400">{fiche.sousTitre}</div>
-                        )}
-                        {fiche.description && (
-                            <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-neutral-300 sm:line-clamp-4">
-                                {fiche.description}
-                            </p>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* Center play when paused */}
-            {!playing && !adsRunning && (
+            {!playing && !buffering && !playbackError && !adsRunning && (
                 <button
                     onClick={togglePlay}
                     aria-label="Lancer la lecture"

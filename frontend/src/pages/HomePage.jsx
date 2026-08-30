@@ -1,3 +1,4 @@
+import { videoProtection } from "@/lib/videoProtection";
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Play, Info, Sparkles, Crown, ChevronLeft, ChevronRight, Search, ArrowRight, Tag, X } from "lucide-react";
@@ -203,7 +204,7 @@ export default function HomePage() {
                         className="absolute inset-0"
                     >
                         {showTrailerVideo ? (
-                            <video
+                            <video {...videoProtection}
                                 data-testid="hero-trailer-video"
                                 src={current.trailer_video_url}
                                 autoPlay muted loop playsInline

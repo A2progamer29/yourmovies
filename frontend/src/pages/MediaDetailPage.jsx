@@ -356,7 +356,7 @@ export default function MediaDetailPage() {
                                     className="w-full h-full"
                                     src={`https://www.youtube.com/embed/${media.trailer_youtube_id}`}
                                     title="Bande-annonce"
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
                                     allowFullScreen
                                 />
                             </div>

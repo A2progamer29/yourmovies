@@ -51,6 +51,18 @@ async function click(id) {
     await act(async () => container.querySelector(`[data-testid="${id}"]`).click());
 }
 
+test("pending authorized source displays loading instead of a missing-stream error", async () => {
+    const previous = api.get.getMockImplementation();
+    let complete;
+    api.get.mockImplementation((url, config) => url.endsWith("/playback")
+        ? new Promise(resolve => { complete = resolve; }) : previous(url, config));
+    await mount({ user_id: "premium", premium: true });
+    expect(container.querySelector('[role="status"]').textContent).toContain("Chargement");
+    expect(container.textContent).not.toContain("Aucun flux");
+    await act(async () => complete({ data: { manifest_url: "https://cdn.example/signed.m3u8" } }));
+    expect(container.querySelector('[data-testid="source"]').textContent).toContain("signed.m3u8");
+});
+
 test("anonymous playback waits for gates then obtains only the server-authorized source", async () => {
     await mount(null);
     expect(api.get.mock.calls.some(([url]) => url.endsWith("/playback"))).toBe(false);

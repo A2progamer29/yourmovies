@@ -1,3 +1,5 @@
+import PlayerLoading from "@/components/PlayerLoading";
+import { videoProtection } from "@/lib/videoProtection";
 import React, { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { loadAdsConfig, frequencyAllows, markShown, fetchVast, fireTrackers } from "@/lib/ads";
@@ -81,7 +83,7 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vast, campaign]);
 
-    if (!vast && !campaign) return null;
+    if (!vast && !campaign) return <PlayerLoading label="Préparation de la publicité…" />;
 
     const total = vast ? Math.max(1, left) : campaign.duration;
     const elapsed = Math.max(0, (vast ? (videoRef.current?.duration || total) : total) - left);
@@ -101,7 +103,7 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
     if (vast) {
         return (
             <div className="absolute inset-0 overflow-hidden bg-black text-white">
-                <video
+                <video {...videoProtection}
                     ref={videoRef}
                     src={vast.mediaUrl}
                     autoPlay
