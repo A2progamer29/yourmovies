@@ -27,6 +27,7 @@ from security import client_ip, jwt_secret, sign_bunny_directory
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
+    appmod.party_service.rooms.clear()
     monkeypatch.setattr(appmod, "db", AsyncMongoMockClient(tz_aware=True).security)
     monkeypatch.setattr(appmod, "BUNNY_TOKEN_AUTH_KEY", "test-signing-key")
     monkeypatch.setattr(appmod, "BUNNY_CDN_HOST", "test.b-cdn.net")
@@ -447,3 +448,178 @@ def test_missing_or_weak_secret_stops_startup(monkeypatch):
         monkeypatch.setenv("JWT_SECRET", value)
         with pytest.raises(RuntimeError):
             jwt_secret()
+
+
+@pytest.mark.asyncio
+async def test_party_codes_are_generated_and_unknown_codes_never_create_rooms():
+    from watch_party import CODE
+    await media()
+    async with client() as c:
+        assert (await c.post("/api/party/create", json={"media_id": "movie1"})).status_code == 401
+        await account(c)
+        assert (await c.post("/api/party/create", json={"media_id": "movie1", "code": "NAKED"})).status_code == 422
+        assert (await c.post("/api/party/create", json={"media_id": "missing"})).status_code == 404
+        for code in ["NAKED", "ABCDEF", "00000000"]:
+            assert (await c.get(f"/api/party/{code}")).status_code == 404
+        assert await appmod.db.parties.count_documents({}) == 0
+        result = await c.post("/api/party/create", json={"media_id": "movie1"})
+        assert result.status_code == 200, result.text
+        room = result.json()
+        assert len(room["code"]) == 8 and CODE.fullmatch(room["code"])
+        assert room["is_public"] is False and "secret-" not in result.text
+        assert (await c.get(f"/api/party/{room['code']}" )).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_party_directory_privacy_and_host_only_settings():
+    from unittest.mock import AsyncMock
+    await media()
+    async with client() as host, client() as guest:
+        await account(host, "host")
+        await account(guest, "guest")
+        data = (await host.post("/api/party/create", json={"media_id": "movie1"})).json()
+        code = data["code"]
+        room = await appmod.party_service.load(code)
+        room.connections.append({"id": "host-connection", "account_id": "host", "ws": AsyncMock()})
+        assert (await guest.get("/api/party/public")).json() == {"rooms": []}
+        settings = {"name": "Soirée cinéma", "is_public": True, "max_members": 6}
+        assert (await guest.patch(f"/api/party/{code}/settings", json=settings)).status_code == 403
+        assert (await host.patch(f"/api/party/{code}/settings", json={**settings, "code": "CUSTOM"})).status_code == 422
+        result = await host.patch(f"/api/party/{code}/settings", json=settings)
+        assert result.status_code == 200, result.text
+        assert result.json()["code"] == code
+        directory = await guest.get("/api/party/public")
+        assert directory.json()["rooms"][0]["name"] == "Soirée cinéma"
+        assert directory.json()["rooms"][0]["participants_count"] == 1
+        assert "host_id" not in directory.text and "secret-" not in directory.text
+        await host.patch(f"/api/party/{code}/settings", json={**settings, "is_public": False})
+        assert (await guest.get("/api/party/public")).json()["rooms"] == []
+
+
+@pytest.mark.asyncio
+async def test_party_guest_commands_and_invalid_numbers_never_mutate_playback():
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    await media()
+    async with client() as c:
+        await account(c, "host")
+        code = (await c.post("/api/party/create", json={"media_id": "movie1"})).json()["code"]
+        room = await appmod.party_service.load(code)
+        guest = {"account_id": "guest", "ws": AsyncMock(), "ready": True}
+        for kind in ["sync", "episode", "start", "kick", "close"]:
+            with pytest.raises(HTTPException) as error:
+                await appmod.party_service.command(room, guest, {"type": kind, "playback_rate": 1.25})
+            assert error.value.status_code == 403
+        host = {**guest, "account_id": "host"}
+        for position, rate in [(float("nan"), 1), (float("inf"), 1), (-5, 1), (3, 100), (True, 1)]:
+            with pytest.raises(HTTPException):
+                await appmod.party_service.command(room, host, {"type": "sync", "position_seconds": position, "playback_rate": rate, "playing": True})
+        assert room.state["position_seconds"] == 0 and not room.doc["started"]
+
+
+@pytest.mark.asyncio
+async def test_party_start_and_episode_state_survive_reload():
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    doc = await media()
+    await appmod.db.media.update_one({"id": "movie1"}, {"$set": {"type": "series", "seasons.0.episodes": [doc["seasons"][0]["episodes"][0], {"ep_number": 2, "video_url": "secret-video-2"}]}})
+    async with client() as c:
+        await account(c, "host", premium=True)
+        response = await c.post("/api/party/create", json={"media_id": "movie1", "season_number": "1", "episode_number": "1"})
+        assert response.status_code == 200, response.text
+        code = response.json()["code"]
+        room = await appmod.party_service.load(code)
+        conn = {"id": "host", "account_id": "host", "name": "Host", "ws": AsyncMock(), "ready": False, "needs_ads": False}
+        room.connections.append(conn)
+        with pytest.raises(HTTPException):
+            await appmod.party_service.command(room, conn, {"type": "start"})
+        conn["ready"] = True
+        await appmod.party_service.command(room, conn, {"type": "start"})
+        await appmod.party_service.command(room, conn, {"type": "sync", "position_seconds": 30, "playing": True, "playback_rate": 1.25, "season_number": "1", "episode_number": "1"})
+        assert room.state["playback_rate"] == 1.25 and room.state["season_number"] == "1"
+        appmod.party_service.rooms.clear()
+        restored = await appmod.party_service.load(code)
+        assert restored.doc["started"] and restored.state["position_seconds"] == 30
+        assert restored.state["playing"] is False  # No phantom playback after deployment.
+        await appmod.party_service.command(room, conn, {"type": "episode", "season_number": "1", "episode_number": "2"})
+        assert room.state["episode_number"] == "2" and room.state["playback_rate"] == 1.25
+        assert not room.doc["started"] and not conn["ready"]
+        with pytest.raises(HTTPException):
+            await appmod.party_service.command(room, conn, {"type": "episode", "season_number": "1", "episode_number": "999"})
+
+
+@pytest.mark.asyncio
+async def test_party_ready_requires_completed_grant_bound_to_session_and_media():
+    await media()
+    async with client() as c:
+        token = await account(c, "host")
+        access = (await c.post("/api/playback/access", json={"media_id": "movie1"})).json()
+        code = (await c.post("/api/party/create", json={"media_id": "movie1"})).json()["code"]
+        room = await appmod.party_service.load(code)
+        request = Request({"type": "http", "headers": [(b"cookie", f"{appmod.AUTH_COOKIE}={token}".encode())]})
+        conn = {"ws": request, "user": {"user_id": "host"}}
+        assert not await appmod._party_ready(conn, room, access["grant"])
+        await appmod.db.playback_grants.update_many({}, {"$set": {"completed": True, "captcha_verified": True}})
+        assert await appmod._party_ready(conn, room, access["grant"])
+        await appmod.db.playback_grants.update_many({}, {"$set": {"media_id": "other"}})
+        assert not await appmod._party_ready(conn, room, access["grant"])
+        await appmod.db.playback_grants.update_many({}, {"$set": {"media_id": "movie1", "binding": "another-session"}})
+        assert not await appmod._party_ready(conn, room, access["grant"])
+
+
+@pytest.mark.asyncio
+async def test_party_websocket_checks_session_origin_capacity_and_guest_commands(monkeypatch):
+    from starlette.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+    await media()
+    async with client() as host, client() as guest:
+        host_token = await account(host, "host", premium=True)
+        guest_token = await account(guest, "guest", premium=True)
+        code = (await host.post("/api/party/create", json={"media_id": "movie1"})).json()["code"]
+        monkeypatch.setattr(appmod.party_service, "host_grace", AsyncMock())
+        web = TestClient(appmod.app)
+        def headers(token, origin="https://yourmovies.space"):
+            return {"origin": origin, "cookie": f"{appmod.AUTH_COOKIE}={token}"}
+        for token, origin in [("fake", "https://yourmovies.space"), (host_token, "https://evil.example")]:
+            with pytest.raises(WebSocketDisconnect):
+                with web.websocket_connect(f"/api/party/{code}/ws", headers=headers(token, origin)):
+                    pass
+        with web.websocket_connect(f"/api/party/{code}/ws", headers=headers(host_token)) as ws:
+            ws.send_json({"type": "auth"})
+            assert ws.receive_json()["you"]["is_host"] is True
+            assert len(ws.receive_json()["participants"]) == 1
+            with web.websocket_connect(f"/api/party/{code}/ws", headers=headers(guest_token)) as member:
+                member.send_json({"type": "auth"})
+                assert member.receive_json()["you"]["is_host"] is False
+                assert len(member.receive_json()["participants"]) == 2
+                ws.receive_json()
+                member.send_json({"type": "sync", "position_seconds": 20, "playing": True, "playback_rate": 2})
+                assert member.receive_json()["type"] == "error"
+                member.send_json({"type": "ready", "done": True})
+                assert member.receive_json()["participants"][1]["ready"] is True
+                ws.receive_json()
+                ws.send_json({"type": "ready", "done": True})
+                assert all(p["ready"] for p in ws.receive_json()["participants"])
+                member.receive_json()
+                ws.send_json({"type": "start"})
+                assert ws.receive_json()["type"] == "started"
+                assert member.receive_json()["state"]["playing"] is True
+                ws.send_json({"type": "sync", "position_seconds": 30, "playing": False, "playback_rate": 1.25})
+                sync = member.receive_json()
+                assert sync["state"]["position_seconds"] == 30 and sync["state"]["playback_rate"] == 1.25
+
+
+@pytest.mark.asyncio
+async def test_party_expiration_checks_memory_and_creation_is_rate_limited():
+    await media()
+    async with client() as c:
+        await account(c)
+        rooms = []
+        for _ in range(5):
+            r = await c.post("/api/party/create", json={"media_id": "movie1"})
+            assert r.status_code == 200
+            rooms.append(r.json()["code"])
+        assert (await c.post("/api/party/create", json={"media_id": "movie1"})).status_code == 429
+        room = await appmod.party_service.load(rooms[0])
+        room.doc["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+        assert (await c.get(f"/api/party/{rooms[0]}" )).status_code == 404

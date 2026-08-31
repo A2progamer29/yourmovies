@@ -13,6 +13,7 @@ import HomePage from "@/pages/HomePage";
 import BrowsePage from "@/pages/BrowsePage";
 import MediaDetailPage from "@/pages/MediaDetailPage";
 import WatchPage from "@/pages/WatchPage";
+import RoomPartyPage from "@/pages/RoomPartyPage";
 import OfflineWatchPage from "@/pages/OfflineWatchPage";
 import LoginPage from "@/pages/LoginPage";
 import ProfilePage from "@/pages/ProfilePage";
@@ -82,6 +83,7 @@ function AppRouter() {
             <Route path="/browse" element={<BrowsePage />} />
             <Route path="/media/:id" element={<MediaDetailPage />} />
             <Route path="/watch/:id" element={<WatchPage />} />
+            <Route path="/room-party" element={<RoomPartyPage />} />
             <Route path="/offline/:downloadId" element={<OfflineWatchPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/profile" element={<ProfilePage />} />

@@ -144,3 +144,5 @@
 @media (hover: none) { .ym-player-button::after { display: none; } }
 @media (prefers-reduced-motion: reduce) { .ym-player *, .ym-player *::after { animation: none !important; transition: none !important; } }
 @keyframes ym-player-panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.ym-player-button:disabled { opacity: .3; cursor: not-allowed; }

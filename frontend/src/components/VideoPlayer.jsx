@@ -63,6 +63,9 @@ export default function VideoPlayer({
     fiche = null,
     boostInitial = 1,
     downloadControl = null,
+    playbackLocked = false,
+    settingsLocked = false,
+    partyMode = false,
 }) {
     const wrapRef = useRef(null);
     const videoRef = useRef(null);
@@ -119,6 +122,7 @@ export default function VideoPlayer({
         if (restoreFocus) settingsOpenerRef.current?.focus();
     }, []);
     const openSettings = (section, trigger) => {
+        if (settingsLocked) return;
         settingsOpenerRef.current = trigger.current;
         setSettingsSection(section);
         setShowSettings(true);
@@ -294,6 +298,7 @@ export default function VideoPlayer({
     }, [boostInitial, playing, appliquerBoost]);
 
     const choisirNiveau = (index) => {
+        if (settingsLocked) return;
         setNiveauChoisi(index);
         const hls = hlsRef.current;
         if (hls) {
@@ -305,6 +310,7 @@ export default function VideoPlayer({
     };
 
     const changerVitesse = (valeur) => {
+        if (settingsLocked) return;
         setVitesse(valeur);
         if (videoRef.current) videoRef.current.playbackRate = valeur;
         closeSettings();
@@ -422,7 +428,7 @@ export default function VideoPlayer({
     // premier démarrage réussi, ou dès que la lecture est commandée à la main.
     const demarrerSiPossible = useCallback(() => {
         const video = videoRef.current;
-        if (!adsFinished || demarrageAuto.current || !video) return;
+        if (partyMode || !adsFinished || demarrageAuto.current || !video) return;
         // La tentative peut échouer tant que le flux n'est pas rattaché, ou si le
         // navigateur refuse une lecture non sollicitée : on réessaie à « canplay ».
         video.play().then(() => { demarrageAuto.current = true; }).catch((error) => {
@@ -431,12 +437,13 @@ export default function VideoPlayer({
                 setBuffering(false);
             }
         });
-    }, [adsFinished]);
+    }, [adsFinished, partyMode]);
 
     useEffect(() => { demarrerSiPossible(); }, [demarrerSiPossible]);
 
     // Change quality preserves position
     const changeQuality = (q) => {
+        if (settingsLocked) return;
         if (!videoRef.current) return;
         const time = videoRef.current.currentTime;
         const wasPlaying = !videoRef.current.paused;
@@ -463,6 +470,7 @@ export default function VideoPlayer({
     };
 
     const togglePlay = () => {
+        if (playbackLocked) return;
         const v = videoRef.current;
         if (!v) return;
         // Commander la lecture soi-même clôt le démarrage automatique : sans
@@ -490,11 +498,13 @@ export default function VideoPlayer({
         setMuted(val === 0);
     };
     const seek = (val) => {
+        if (playbackLocked) return;
         const v = videoRef.current;
         if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
         v.currentTime = (val / 100) * v.duration;
     };
     const skip = (delta) => {
+        if (playbackLocked) return;
         const v = videoRef.current;
         if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
         v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
@@ -602,6 +612,7 @@ export default function VideoPlayer({
                 onSeeking={() => setBuffering(true)}
                 onSeeked={() => { if (videoRef.current?.readyState >= 2) setBuffering(false); }}
                 onCanPlay={() => { setBuffering(false); demarrerSiPossible(); }}
+                onRateChange={() => setVitesse(videoRef.current?.playbackRate || 1)}
                 onPlay={() => { setPlaying(true); setPaused(false); }}
                 onPlaying={() => { hasPlayed.current = true; setPaused(false); setPlaying(true); setBuffering(false); setPlaybackError(false); bumpControls(); }}
                 onPause={() => { setPaused(hasPlayed.current && !videoRef.current?.ended); setPlaying(false); setShowControls(true); }}
@@ -662,7 +673,7 @@ export default function VideoPlayer({
                                 <div className="ym-player-timeline-track" />
                                 <div className="ym-player-timeline-buffer" />
                                 <input data-testid="player-seek" aria-label="Position de lecture" aria-valuetext={`${fmt(progress)} sur ${fmt(duration)}`}
-                                    type="range" min="0" max="100" step="0.1" value={percent} disabled={!duration || playbackError}
+                                    type="range" min="0" max="100" step="0.1" value={percent} disabled={playbackLocked || !duration || playbackError}
                                     onChange={event => seek(Number(event.target.value))} className="ym-player-seek" />
                             </div>
                             <span className="ym-player-time" aria-label={`Temps restant : ${fmt(Math.max(0, duration - progress))}`}>
@@ -671,14 +682,14 @@ export default function VideoPlayer({
                         </div>
                         <div className="ym-player-toolbar">
                             <div className="ym-player-toolbar-group">
-                                <button type="button" data-testid="player-play" aria-label={playing ? "Mettre en pause" : "Lire"}
+                                <button type="button" data-testid="player-play" disabled={playbackLocked} aria-label={playing ? "Mettre en pause" : "Lire"}
                                     data-tooltip={playing ? "Pause (Espace)" : "Lecture (Espace)"} onClick={togglePlay} className="ym-player-button">
                                     {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
                                 </button>
-                                <button type="button" aria-label="Reculer de 10 secondes" data-tooltip="Reculer de 10 s" onClick={() => skip(-10)} className="ym-player-button">
+                                <button type="button" disabled={playbackLocked} aria-label="Reculer de 10 secondes" data-tooltip="Reculer de 10 s" onClick={() => skip(-10)} className="ym-player-button">
                                     <span className="ym-player-skip" aria-hidden="true"><RotateCcw /><span>10</span></span>
                                 </button>
-                                <button type="button" aria-label="Avancer de 10 secondes" data-tooltip="Avancer de 10 s" onClick={() => skip(10)} className="ym-player-button">
+                                <button type="button" disabled={playbackLocked} aria-label="Avancer de 10 secondes" data-tooltip="Avancer de 10 s" onClick={() => skip(10)} className="ym-player-button">
                                     <span className="ym-player-skip" aria-hidden="true"><RotateCw /><span>10</span></span>
                                 </button>
                                 <div className="ym-player-volume">
@@ -692,13 +703,13 @@ export default function VideoPlayer({
                                 </div>
                             </div>
                             <div className="ym-player-toolbar-group">
-                                {!compact && <button type="button" ref={speedTriggerRef} aria-label="Vitesse de lecture" data-tooltip="Vitesse de lecture"
+                                {!compact && <button type="button" ref={speedTriggerRef} disabled={settingsLocked} aria-label="Vitesse de lecture" data-tooltip="Vitesse de lecture"
                                     aria-expanded={showSettings && settingsSection === "speed"} aria-haspopup="dialog"
                                     onClick={() => showSettings && settingsSection === "speed" ? closeSettings() : openSettings("speed", speedTriggerRef)} className="ym-player-button">
                                     <Gauge />{vitesse !== 1 && <span className="ym-player-speed-badge">{vitesse}×</span>}
                                 </button>}
                                 {downloadControl}
-                                <button type="button" ref={settingsTriggerRef} data-testid="player-settings" aria-label="Réglages de lecture"
+                                <button type="button" ref={settingsTriggerRef} disabled={settingsLocked} data-testid="player-settings" aria-label="Réglages de lecture"
                                     data-tooltip="Réglages" aria-expanded={showSettings} aria-haspopup="dialog"
                                     onClick={() => showSettings ? closeSettings() : openSettings("quality", settingsTriggerRef)} className="ym-player-button">
                                     <Settings />
@@ -709,13 +720,13 @@ export default function VideoPlayer({
                             </div>
                         </div>
                     </div>
-                    {showSettings && <PlayerSettings panelRef={settingsPanelRef} section={settingsSection} onSection={setSettingsSection} onClose={closeSettings}
+                    {showSettings && !settingsLocked && <PlayerSettings panelRef={settingsPanelRef} section={settingsSection} onSection={setSettingsSection} onClose={closeSettings}
                         levels={niveaux} level={niveauChoisi} onLevel={choisirNiveau} qualities={availableQualities} allQualities={qualitySources}
                         quality={currentQuality} onQuality={changeQuality} speed={vitesse} onSpeed={changerVitesse}
                         volume={volume} muted={muted} onVolume={setVol} boost={boost} onBoost={appliquerBoost} />}
                 </>
             )}
-            {!playing && !paused && !buffering && !playbackError && !adsRunning && !showSettings && (
+            {!playbackLocked && !playing && !paused && !buffering && !playbackError && !adsRunning && !showSettings && (
                 <button type="button" onClick={togglePlay} aria-label="Lancer la lecture" data-testid="player-center-play" className="ym-player-center">
                     <Play fill="currentColor" />
                 </button>

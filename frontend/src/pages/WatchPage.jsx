@@ -22,6 +22,7 @@ import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
 import AdGate from "@/components/AdGate";
 import SuiteAutomatique from "@/components/SuiteAutomatique";
+import { partyPath, validPartyCode } from "@/lib/partySync";
 
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
 const SEUIL_FIN = 0.95;
@@ -233,9 +234,15 @@ export default function WatchPage() {
     const [episodePanelOpen, setEpisodePanelOpen] = useState(false);
     const [isPartyHost, setIsPartyHost] = useState(false);
     const [partyStarted, setPartyStarted] = useState(false);
-    const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
+    const partyCode = (searchParams.get("party") || "").toUpperCase();
     const [joinInput, setJoinInput] = useState("");
-    const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
+    const partyOpen = Boolean(searchParams.get("party"));
+    const [partyValidated, setPartyValidated] = useState(false);
+    const [partyError, setPartyError] = useState(null);
+    const [partyConnected, setPartyConnected] = useState(false);
+    const [partyPlayerReady, setPartyPlayerReady] = useState(false);
+    const [creatingParty, setCreatingParty] = useState(false);
+    const guestLocked = partyOpen && (!isPartyHost || !partyConnected);
     const videoElRef = useRef(null);
     const [manifestUrl, setManifestUrl] = useState(null);
     const [apiPlayerActive, setApiPlayerActive] = useState(false);
@@ -244,18 +251,8 @@ export default function WatchPage() {
     // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
     const lecteurAvanceDemande = (Number(user?.audio_boost) || 1) > 1;
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
-    // En salon, la fin des publicités change la mise en page et reconstruit
-    // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
-    // L'état est donc mémorisé le temps de la session, sinon le rechargement
-    // rejouerait les publicités et bouclerait indéfiniment.
-    const adsMemoryKey = searchParams.get("party") ? `ym_party_ads:${searchParams.get("party")}:${id}` : null;
-    const readAdsMemory = () => {
-        if (!adsMemoryKey) return false;
-        try { return sessionStorage.getItem(adsMemoryKey) === "1"; } catch { return false; }
-    };
-    const adsAlreadyCleared = useRef(readAdsMemory());
-    const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
-    const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
+    const [adDone, setAdDone] = useState(false);
+    const [gateDone, setGateDone] = useState(false);
     const [access, setAccess] = useState(null);
     const [source, setSource] = useState(null);
     const [verifie, setVerifie] = useState(false);
@@ -309,8 +306,8 @@ export default function WatchPage() {
         suiteRefusee.current = false;
     }, [id, selectedEpisodeKey, searchParams]);
 
-    const selectEpisode = (episode) => {
-        if (!episode) return;
+    const selectEpisode = (episode, fromHost = false) => {
+        if (!episode || (guestLocked && !fromHost) || selectedEpisode?._key === episode._key) return;
         const isSameEpisode = selectedEpisode?._key === episode._key;
         setSelectedEpisodeKey(episode._key);
         setSelectedSeason(String(episode.season_number));
@@ -324,7 +321,7 @@ export default function WatchPage() {
         const matchesSavedProgress = watchProgress
             && String(watchProgress.season_number) === String(episode.season_number)
             && String(watchProgress.episode_number) === String(episode.ep_number);
-        setResumeAt(matchesSavedProgress && Number(watchProgress.position_seconds) > 5
+        setResumeAt(!partyOpen && matchesSavedProgress && Number(watchProgress.position_seconds) > 5
             ? Number(watchProgress.position_seconds)
             : 0);
 
@@ -473,7 +470,7 @@ export default function WatchPage() {
         .filter((p) => p && p.label && p.available);
 
     useEffect(() => {
-        if (!media || authEnCours) return;
+        if (!media || authEnCours || (partyOpen && !partyValidated)) return;
         let active = true;
         setAccess(null);
         setSource(null);
@@ -489,7 +486,7 @@ export default function WatchPage() {
         }, { silent: true }).then(r => { if (active) setAccess(r.data); })
             .catch(e => { if (active) setBunnyPlaybackError(e?.response?.data?.detail || "Autorisation indisponible."); });
         return () => { active = false; };
-    }, [id, media, selectedEpisode?.season_number, selectedEpisode?.ep_number, authEnCours, user?.user_id]);
+    }, [id, media, selectedEpisode?.season_number, selectedEpisode?.ep_number, authEnCours, user?.user_id, partyOpen, partyValidated]);
 
     useEffect(() => {
         if (!access || !bunnySource || authEnCours || (!user?.premium && (!verifie || !gateDone || !adDone))) return;
@@ -664,14 +661,6 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
     ]);
 
-    useEffect(() => {
-        if (!adsMemoryKey || adsAlreadyCleared.current) return;
-        if (!user || user.premium) return;
-        if (!gateDone || !adDone) return;
-        try { sessionStorage.setItem(adsMemoryKey, "1"); } catch { }
-        window.location.reload();
-    }, [adsMemoryKey, gateDone, adDone, user]);
-
     // Entrer dans un salon recharge la page : le lecteur est reconstruit
     // par le changement de mise en page, et l'ancienne instance restait
     // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
@@ -684,33 +673,57 @@ export default function WatchPage() {
 
     const createParty = async () => {
         if (!user) { navigate("/login"); return; }
+        if (creatingParty) return;
+        setCreatingParty(true);
         try {
-            const r = await api.post("/party/create", { media_id: id });
-            gotoParty(r.data.code);
+            const r = await api.post("/party/create", { media_id: id,
+                season_number: media.type === "movie" ? null : String(selectedEpisode?.season_number),
+                episode_number: media.type === "movie" ? null : String(selectedEpisode?.ep_number) });
+            window.location.assign(partyPath(r.data));
         } catch (e) { showError(toast, e, "Impossible de créer le salon"); }
+        finally { setCreatingParty(false); }
     };
 
-    const joinParty = async (rawCode) => {
+    const joinParty = async () => {
         if (!user) { navigate("/login"); return; }
-        const source = typeof rawCode === "string" ? rawCode : joinInput;
-        if (!source.trim()) return;
-        const code = source.trim().toUpperCase();
-        // Sans cette vérification, un code inexistant ouvrait un salon vide.
+        const code = joinInput.trim().toUpperCase();
+        if (!validPartyCode(code)) { toast.error("Utilisez un code généré par Watch Party."); return; }
         try {
-            await api.get(`/party/${code}`);
-        } catch (e) {
-            if (e?.response?.status === 404) {
-                toast.error(`Aucun salon ne porte le code ${code}.`);
-                setJoinInput("");
+            const response = await api.get(`/party/${code}`);
+            window.location.assign(partyPath(response.data));
+        } catch (e) { showError(toast, e, "Ce salon n’existe pas ou n’est plus disponible"); }
+    };
+
+    useEffect(() => {
+        if (!partyOpen || authEnCours) return undefined;
+        if (!user) { navigate("/login", { replace: true }); return undefined; }
+        if (!validPartyCode(partyCode)) { setPartyError("Ce code de salon n’est pas valide."); return undefined; }
+        let active = true;
+        api.get(`/party/${partyCode}`, { silent: true }).then(response => {
+            if (!active) return;
+            const room = response.data;
+            const expected = partyPath(room);
+            const params = new URLSearchParams(window.location.search);
+            if (room.media_id !== id || String(room.state?.season_number || "") !== (params.get("season") || "") || String(room.state?.episode_number || "") !== (params.get("episode") || "")) {
+                window.location.replace(expected);
                 return;
             }
-            showError(toast, e, "Impossible de rejoindre le salon");
-            return;
-        }
-        gotoParty(code);
-    };
+            setPartyValidated(true);
+        }).catch(() => { if (active) setPartyError("Ce salon n’existe plus ou son accès est refusé."); });
+        return () => { active = false; };
+    }, [partyOpen, partyCode, authEnCours, user?.user_id, id, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!partyOpen) return undefined;
+        const timer = setInterval(() => setPartyPlayerReady(Boolean(videoElRef.current && videoElRef.current.readyState >= 2 && !videoElRef.current.error)), 400);
+        return () => clearInterval(timer);
+    }, [partyOpen]);
 
     const closeParty = () => { gotoParty(null); };
+
+    if (partyOpen && !partyValidated) {
+        return <div className="min-h-screen bg-[#050505] text-white"><Header /><div className="mx-auto max-w-xl px-6 py-20 text-center">{partyError ? <><p role="alert" className="text-neutral-300">{partyError}</p><Link to="/room-party" className="mt-6 inline-block text-[#E8D2A6]">Trouver une séance dans Room Party →</Link></> : <Chargement pleinePage />}</div></div>;
+    }
 
     if (media?.in_theaters && searchParams.get("cinema-warning") !== "accepted") {
         return (
@@ -748,7 +761,7 @@ export default function WatchPage() {
     const hasVideo = estJouable(playbackMedia);
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
-    const adsDone = !runAds || adDone;
+    const sourceReady = Boolean(source && partyPlayerReady && !apiPlayerActive && (user?.premium || (verifie && adDone && gateDone)));
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -768,44 +781,42 @@ export default function WatchPage() {
                     <h1 className={`font-display text-3xl sm:text-4xl ${lecteurDirectActif ? "sr-only" : ""}`}>
                         {media.title}
                     </h1>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Link to="/room-party" className="flex h-10 items-center gap-2 rounded-full border border-[#E8D2A6]/40 px-5 text-sm text-[#E8D2A6] hover:bg-[#E8D2A6]/10"><Users size={14} />Room Party</Link>
                         {!partyOpen ? (
                             <>
                                 <Button
                                     onClick={createParty}
+                                    disabled={creatingParty}
                                     data-testid="party-create-btn"
                                     className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-10 px-5"
                                 >
                                     <Users size={14} className="mr-2" /> {user ? "Watch Party" : "Se connecter pour une Watch Party"}
                                 </Button>
-                                {/* Code à 6 caractères : dès qu'il est complet, on entre dans
-                                    le salon. Évite un bouton « Rejoindre » hors écran sur mobile. */}
+
                                 <div className="relative w-full sm:w-48">
                                     <Input
                                         data-testid="party-join-input"
                                         value={joinInput}
                                         onChange={(e) => {
-                                            const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+                                            const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
                                             setJoinInput(value);
-                                            if (value.length === 6) joinParty(value);
                                         }}
                                         onKeyDown={(e) => { if (e.key === "Enter") joinParty(); }}
                                         placeholder="Code du salon"
                                         inputMode="text"
                                         autoComplete="off"
-                                        maxLength={6}
+                                        maxLength={8}
                                         className="h-10 w-full bg-[#111] border-[#262626] pr-16 text-white tracking-[0.3em] uppercase placeholder:tracking-normal"
                                     />
-                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] tabular-nums text-neutral-500">
-                                        {joinInput.length}/6
-                                    </span>
+                                    <button type="button" onClick={joinParty} aria-label="Rejoindre avec ce code" className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#E8D2A6]">Entrer</button>
                                 </div>
                             </>
                         ) : null}
                     </div>
                 </div>
 
-                <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
+                <div className="grid lg:grid-cols-[minmax(0,1fr)_auto] gap-6 items-start">
                     <div>
                         <div className="relative overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             {media.player_broken ? (
@@ -834,6 +845,8 @@ export default function WatchPage() {
                             </div>
                         ) : bunnySource && !source && !bunnyPlaybackError ? (
                             <PlayerLoading />
+                        ) : partyOpen && apiPlayerActive ? (
+                            <div role="alert" className="flex aspect-video items-center justify-center px-8 text-center text-sm text-neutral-400">Ce flux externe ne permet pas la synchronisation. Choisissez un autre contenu pour cette Watch Party.</div>
                         ) : apiPlayerActive && apiPlayerUrl ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
                                 <EmbeddedPlayer
@@ -852,9 +865,12 @@ export default function WatchPage() {
                                 downloadControl={<OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} player />}
                                 poster={media.banner_url || media.poster_url}
                                 onProgress={suivreProgression}
-                                startAt={resumeAt}
+                                startAt={partyOpen ? 0 : resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
+                                partyMode={partyOpen}
+                                playbackLocked={partyOpen && (guestLocked || !partyStarted)}
+                                settingsLocked={guestLocked}
                                 videoRefOut={videoElRef}
                                 onFluxImpossible={basculerVersLecteurApi}
                                 fiche={ficheLecteur}
@@ -873,9 +889,12 @@ export default function WatchPage() {
                                 boostInitial={Number(user?.audio_boost) || 1}
                                 poster={media.banner_url || media.poster_url}
                                 onProgress={suivreProgression}
-                                startAt={resumeAt}
+                                startAt={partyOpen ? 0 : resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
+                                partyMode={partyOpen}
+                                playbackLocked={partyOpen && (guestLocked || !partyStarted)}
+                                settingsLocked={guestLocked}
                                 videoRefOut={videoElRef}
                                 onFluxImpossible={basculerVersLecteurApi}
                             />
@@ -886,6 +905,7 @@ export default function WatchPage() {
                                     <span className="text-[10px] uppercase tracking-widest text-neutral-500">Version</span>
                                     <button
                                         type="button"
+                                        disabled={guestLocked}
                                         onClick={() => setPiste(null)}
                                         className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === null
                                             ? "bg-[#E8D2A6] text-black"
@@ -897,6 +917,7 @@ export default function WatchPage() {
                                         <button
                                             key={p.label}
                                             type="button"
+                                            disabled={guestLocked}
                                             onClick={() => setPiste(p.label)}
                                             data-testid={`piste-${p.label}`}
                                             className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === p.label
@@ -930,11 +951,11 @@ export default function WatchPage() {
                                     watchProgress={watchProgress}
                                     onSeasonChange={setSelectedSeason}
                                     onEpisodeSelect={selectEpisode}
-                                    locked={partyOpen && !isPartyHost}
+                                    locked={guestLocked}
                                 />
                             )}
 
-                        {partyOpen && !partyStarted && !showGate && !showAd && (
+                        {partyOpen && !partyStarted && sourceReady && !showGate && !showAd && (
                             <div className="absolute inset-x-0 top-0 bottom-[60px] z-40 flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center backdrop-blur-sm" data-testid="party-waiting">
                                 <Users size={22} className="text-[#E8D2A6]" />
                                 <div className="font-display text-lg text-white">
@@ -953,7 +974,7 @@ export default function WatchPage() {
                                 <Button
                                     variant="outline"
                                     onClick={() => previousEpisode && selectEpisode(previousEpisode)}
-                                    disabled={!previousEpisode}
+                                    disabled={guestLocked || !previousEpisode}
                                     data-testid="episode-prev"
                                     title={previousEpisode ? `S${previousEpisode.season_number}E${previousEpisode.ep_number} — ${previousEpisode.title || "Sans titre"}` : "Aucun épisode précédent"}
                                     className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
@@ -964,7 +985,7 @@ export default function WatchPage() {
 
                                 <button
                                     type="button"
-                                    disabled={partyOpen && !isPartyHost}
+                                    disabled={guestLocked}
                                     onClick={() => setEpisodePanelOpen((v) => !v)}
                                     aria-expanded={episodePanelOpen}
                                     aria-controls="episode-selector-panel"
@@ -986,7 +1007,7 @@ export default function WatchPage() {
                                 <Button
                                     variant="outline"
                                     onClick={() => nextEpisode && selectEpisode(nextEpisode)}
-                                    disabled={!nextEpisode}
+                                    disabled={guestLocked || !nextEpisode}
                                     data-testid="episode-next"
                                     title={nextEpisode ? `S${nextEpisode.season_number}E${nextEpisode.ep_number} — ${nextEpisode.title || "Sans titre"}` : "Aucun épisode suivant"}
                                     className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
@@ -1031,13 +1052,15 @@ export default function WatchPage() {
                             profileName={activeProfile?.name}
                             videoRef={videoElRef}
                             onHostChange={setIsPartyHost}
-                            currentEpisode={selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
+                            currentEpisode={media.type !== "movie" && selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
                             onEpisodeSync={(sn, en) => {
                                 const target = episodes.find((e) => String(e.season_number) === String(sn) && String(e.ep_number) === String(en));
-                                if (target) selectEpisode(target);
+                                if (target) selectEpisode(target, true);
                             }}
                             onClose={closeParty}
-                            adsDone={adsDone}
+                            sourceReady={sourceReady}
+                            grant={access?.grant}
+                            onConnectionChange={setPartyConnected}
                             onStartedChange={setPartyStarted}
                         />
                     )}

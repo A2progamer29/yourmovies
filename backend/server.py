@@ -7071,316 +7071,34 @@ async def verify_profile_pin(profile_id: str, inp: ProfilePinInput, request: Req
     return {"ok": True}
 
 # ---------- Watch Party (WebSocket) ----------
-from fastapi import WebSocket, WebSocketDisconnect
+try:
+    from .watch_party import PartyService
+except ImportError:
+    from watch_party import PartyService
 
-class Party:
-    def __init__(self, code: str, media_id: str, host_id: str):
-        self.code = code
-        self.media_id = media_id
-        self.host_id = host_id
-        self.state = {"position_seconds": 0.0, "playing": False, "updated_at": datetime.now(timezone.utc).timestamp()}
-        # La séance ne démarre que lorsque l'hôte l'autorise, et il ne peut le
-        # faire qu'une fois toutes les publicités des participants terminées.
-        self.started = False
-        self.connections: List[dict] = []
 
-    async def broadcast(self, payload: dict, exclude_ws: Optional[WebSocket] = None):
-        dead = []
-        for c in list(self.connections):
-            if c["ws"] is exclude_ws:
-                continue
-            try:
-                await c["ws"].send_json(payload)
-            except Exception:
-                dead.append(c)
-        for d in dead:
-            if d in self.connections:
-                self.connections.remove(d)
+async def _party_media(media_id):
+    # Public metadata only: rooms must never expose playback sources.
+    return await get_media(media_id, None)
 
-PARTIES: dict = {}
-PARTY_TTL_HOURS = 12
-_party_state_saved: dict = {}
 
-async def _load_party(code: str) -> Optional["Party"]:
-    """Un salon vit en mémoire, mais il est aussi persisté : sans cela, tout
-    redéploiement ou mise en veille du serveur le ferait disparaître et
-    personne ne pourrait plus rejoindre."""
-    party = PARTIES.get(code)
-    if party:
-        return party
-    doc = await db.parties.find_one({"code": code}, {"_id": 0})
-    if not doc:
-        return None
-    created = doc.get("created_at")
-    try:
-        dt = datetime.fromisoformat(created) if isinstance(created, str) else created
-        if dt and dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        if dt and (datetime.now(timezone.utc) - dt) > timedelta(hours=PARTY_TTL_HOURS):
-            await db.parties.delete_one({"code": code})
-            return None
-    except Exception:
-        pass
-    party = Party(code=code, media_id=doc.get("media_id", ""), host_id=doc.get("host_id", ""))
-    if isinstance(doc.get("state"), dict):
-        party.state = doc["state"]
-    PARTIES[code] = party
-    return party
-
-async def _persist_party_state(party: "Party") -> None:
-    """Sauvegarde throttlée : la position bouge toutes les 2 s côté hôte."""
-    now = time.time()
-    if now - _party_state_saved.get(party.code, 0) < 5:
-        return
-    _party_state_saved[party.code] = now
-    try:
-        await db.parties.update_one({"code": party.code}, {"$set": {"state": party.state}})
-    except Exception:
-        pass
-
-class PartyCreateInput(BaseModel):
-    media_id: str
-
-@api_router.post("/party/create")
-async def create_party(inp: PartyCreateInput, user: dict = Depends(get_current_user)):
-    code = uuid.uuid4().hex[:6].upper()
-    while code in PARTIES or await db.parties.find_one({"code": code}, {"_id": 0, "code": 1}):
-        code = uuid.uuid4().hex[:6].upper()
-    party = Party(code=code, media_id=inp.media_id, host_id=user["user_id"])
-    PARTIES[code] = party
-    await db.parties.insert_one({
-        "code": code,
-        "media_id": inp.media_id,
-        "host_id": user["user_id"],
-        "state": party.state,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+async def _party_ready(conn, room, token):
+    if _is_premium(conn["user"]):
+        return True
+    if not isinstance(token, str) or len(token) > 200:
+        return False
+    grant = await db.playback_grants.find_one({
+        "_id": _token_fingerprint(token), "binding": playback_binding(conn["ws"], conn["user"]),
+        "media_id": room.doc["media_id"], "completed": True, "captcha_verified": True,
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
     })
-    return {"code": code, "media_id": inp.media_id}
+    return bool(grant and all(str(grant.get(key) or "") == str(room.state.get(key) or "")
+                              for key in ("season_number", "episode_number")))
 
-@api_router.get("/party/{code}")
-async def get_party(code: str, user: dict = Depends(get_current_user)):
-    party = await _load_party(code.upper())
-    if not party:
-        raise HTTPException(status_code=404, detail="Salon introuvable")
-    return {
-        "code": party.code,
-        "media_id": party.media_id,
-        "host_id": party.host_id,
-        "state": party.state,
-        "participants": _party_participants(party),
-    }
 
-def _party_participants(party: "Party") -> list:
-    return [{
-        "user_id": c["user_id"],
-        "name": c["name"],
-        "is_host": c.get("account_id") == party.host_id,
-        "needs_ads": bool(c.get("needs_ads")),
-        "ads_done": bool(c.get("ads_done")),
-    } for c in party.connections]
-
-def _party_all_ready(party: "Party") -> bool:
-    return all((not c.get("needs_ads")) or c.get("ads_done") for c in party.connections)
-
-async def _close_party_if_host_gone(party: "Party", delay: int = 15) -> None:
-    """Délai de grâce : une micro-coupure réseau chez l'hôte ne doit pas
-    détruire le salon, seul un départ réel le ferme."""
-    await asyncio.sleep(delay)
-    if PARTIES.get(party.code) is not party:
-        return
-    if any(c.get("account_id") == party.host_id for c in party.connections):
-        return
-    await _close_party(party, "L'hôte a quitté le salon.")
-
-async def _close_party(party: "Party", reason: str) -> None:
-    """L'hôte parti, le salon n'a plus lieu d'être : tout le monde sort."""
-    for c in list(party.connections):
-        try:
-            await c["ws"].send_json({"type": "party_closed", "reason": reason})
-        except Exception:
-            pass
-        try:
-            await c["ws"].close(code=4410)
-        except Exception:
-            pass
-    party.connections.clear()
-    PARTIES.pop(party.code, None)
-    try:
-        await db.parties.delete_one({"code": party.code})
-    except Exception:
-        pass
-
-@app.websocket("/api/party/{code}/ws")
-async def party_ws(websocket: WebSocket, code: str):
-    code = code.upper()
-    party = await _load_party(code)
-    if not party:
-        await websocket.close(code=4404)
-        return
-
-    allowed_origins = ALLOWED_ORIGINS
-    origin = websocket.headers.get("origin")
-    if origin not in allowed_origins:
-        await websocket.close(code=4403)
-        return
-    await websocket.accept()
-    try:
-        auth = await asyncio.wait_for(websocket.receive_json(), timeout=10)
-        if auth.get("type") != "auth":
-            raise ValueError("auth required")
-        user = await get_current_user(websocket, None)
-    except Exception:
-        await websocket.close(code=4401)
-        return
-
-    profile = auth.get("profile")
-    account_id = user["user_id"]
-    display_name = user.get("name", "Utilisateur")
-    if profile:
-        owned_profile = await db.profiles.find_one({"id": profile, "user_id": account_id}, {"_id": 0, "name": 1})
-        if not owned_profile:
-            await websocket.close(code=4403)
-            return
-        display_name = owned_profile.get("name") or display_name
-    conn_id = f"{account_id}:{profile}" if profile else account_id
-    needs_ads = not _is_premium(user)
-    conn = {
-        "ws": websocket, "user_id": conn_id, "account_id": account_id, "name": display_name,
-        "needs_ads": needs_ads, "ads_done": not needs_ads,
-    }
-    party.connections.append(conn)
-
-    # Send initial state + participant list
-    await websocket.send_json({
-        "type": "hello",
-        "code": party.code,
-        "media_id": party.media_id,
-        "host_id": party.host_id,
-        "state": party.state,
-        "started": party.started,
-        "you": {
-            "user_id": conn["user_id"], "name": conn["name"],
-            "is_host": account_id == party.host_id, "needs_ads": needs_ads,
-        },
-    })
-    await party.broadcast({
-        "type": "participants",
-        "participants": _party_participants(party),
-    })
-
-    try:
-        message_times = []
-        while True:
-            data = await websocket.receive_json()
-            now_tick = time.monotonic()
-            message_times = [stamp for stamp in message_times if now_tick - stamp < 10]
-            if len(message_times) >= 20:
-                await websocket.close(code=4429)
-                break
-            message_times.append(now_tick)
-            t = data.get("type")
-            if t == "sync":
-                # Only host controls playback (comparaison par compte)
-                if conn["account_id"] == party.host_id:
-                    party.state = {
-                        "position_seconds": float(data.get("position_seconds", 0)),
-                        "playing": bool(data.get("playing", False)),
-                        "updated_at": datetime.now(timezone.utc).timestamp(),
-                    }
-                    await party.broadcast({"type": "sync", "state": party.state}, exclude_ws=websocket)
-                    await _persist_party_state(party)
-            elif t == "chat":
-                text = str(data.get("text", ""))[:500]
-                if text.strip():
-                    await party.broadcast({
-                        "type": "chat",
-                        "user_id": conn["user_id"],
-                        "name": conn["name"],
-                        "text": text,
-                        "at": datetime.now(timezone.utc).timestamp(),
-                    })
-            elif t == "episode":
-                # Changement d'épisode : réservé à l'hôte, répercuté sur tout le salon.
-                if conn["account_id"] == party.host_id:
-                    payload = {
-                        "type": "episode",
-                        "season_number": data.get("season_number"),
-                        "episode_number": data.get("episode_number"),
-                    }
-                    party.state = {
-                        "position_seconds": 0.0,
-                        "playing": True,
-                        "updated_at": datetime.now(timezone.utc).timestamp(),
-                        "season_number": payload["season_number"],
-                        "episode_number": payload["episode_number"],
-                    }
-                    await party.broadcast(payload, exclude_ws=websocket)
-                    await _persist_party_state(party)
-            elif t == "request_pause":
-                # Un participant ne contrôle pas la lecture : il la demande à l'hôte.
-                if conn["account_id"] != party.host_id:
-                    for other in list(party.connections):
-                        if other.get("account_id") == party.host_id:
-                            try:
-                                await other["ws"].send_json({
-                                    "type": "pause_request",
-                                    "name": conn["name"],
-                                    "at": datetime.now(timezone.utc).timestamp(),
-                                })
-                            except Exception:
-                                pass
-            elif t == "request_state":
-                await websocket.send_json({"type": "sync", "state": party.state})
-            elif t == "ad_status":
-                # Chaque participant annonce où il en est de ses publicités :
-                # l'hôte les voit tous et ne peut lancer qu'une fois tous prêts.
-                if conn.get("needs_ads"):
-                    conn["ads_done"] = bool(data.get("done"))
-                    await party.broadcast({
-                        "type": "participants",
-                        "participants": _party_participants(party),
-                    })
-            elif t == "start":
-                if conn["account_id"] == party.host_id and _party_all_ready(party):
-                    party.started = True
-                    await party.broadcast({"type": "started"})
-            elif t == "close":
-                if conn["account_id"] == party.host_id:
-                    await _close_party(party, "L'hôte a fermé le salon.")
-                    break
-            elif t == "kick":
-                if conn["account_id"] == party.host_id:
-                    target_id = str(data.get("user_id") or "")
-                    for other in list(party.connections):
-                        if other["user_id"] != target_id or other is conn:
-                            continue
-                        try:
-                            await other["ws"].send_json({"type": "kicked"})
-                        except Exception:
-                            pass
-                        try:
-                            await other["ws"].close(code=4410)
-                        except Exception:
-                            pass
-                        if other in party.connections:
-                            party.connections.remove(other)
-                    await party.broadcast({
-                        "type": "participants",
-                        "participants": _party_participants(party),
-                    })
-    except WebSocketDisconnect:
-        pass
-    finally:
-        if conn in party.connections:
-            party.connections.remove(conn)
-        await party.broadcast({
-            "type": "participants",
-            "participants": _party_participants(party),
-        })
-        if conn["account_id"] == party.host_id:
-            asyncio.create_task(_close_party_if_host_gone(party))
-        elif not party.connections:
-            PARTIES.pop(party.code, None)
+party_service = PartyService(lambda: db, get_current_user, _is_premium, _enforce_rate_limit,
+                             _party_media, _party_ready, lambda: ALLOWED_ORIGINS)
+party_service.install(app, api_router)
 
 # ---------- Root ----------
 @api_router.get("/")
@@ -7425,6 +7143,7 @@ app.add_middleware(
 async def startup():
     await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.playback_grants.create_index("expires_at", expireAfterSeconds=0)
+    await party_service.indexes()
     await db.playback_ad_history.create_index("expires_at", expireAfterSeconds=0)
     logger.info(f"Storage: {'Cloudinary configuré' if CLOUDINARY_CONFIGURED else 'AUCUN (CLOUDINARY_URL manquant)'}")
     # nettoyage des comptes en double (même email/pseudo) au démarrage

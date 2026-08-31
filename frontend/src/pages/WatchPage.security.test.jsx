@@ -43,9 +43,9 @@ afterEach(async () => {
     container.remove();
 });
 
-async function mount(user) {
+async function mount(user, path = "/watch/movie1") {
     useAuth.mockReturnValue({ user, loading: false, activeProfile: null });
-    await act(async () => root.render(<MemoryRouter initialEntries={["/watch/movie1"]}><Routes><Route path="/watch/:id" element={<WatchPage />} /></Routes></MemoryRouter>));
+    await act(async () => root.render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/watch/:id" element={<WatchPage />} /></Routes></MemoryRouter>));
 }
 async function click(id) {
     await act(async () => container.querySelector(`[data-testid="${id}"]`).click());
@@ -90,4 +90,21 @@ test("premium member requests playback without waiting for ads", async () => {
     expect(container.querySelector('[data-testid="gate"]')).toBeNull();
     expect(container.querySelector('[data-testid="source"]').textContent).toContain("bcdn_token=signed");
     expect(api.post.mock.calls.some(([url]) => url === "/playback/access/complete")).toBe(false);
+});
+
+
+test("an invented room in the URL cannot mount a party or request playback", async () => {
+    await mount({ user_id: "member", premium: true }, "/watch/movie1?party=NAKED");
+    expect(container.querySelector('[role="alert"]').textContent).toContain("code de salon");
+    expect(api.post.mock.calls.some(([url]) => url === "/playback/access")).toBe(false);
+});
+
+test("party waiting never covers the final Cloudflare check", async () => {
+    const previous = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => url === "/party/ABCDEF12"
+        ? Promise.resolve({ data: { code: "ABCDEF12", media_id: "movie1", state: {} } }) : previous(url, config));
+    await mount({ user_id: "member", premium: false }, "/watch/movie1?party=ABCDEF12");
+    await click("gate"); await click("preroll");
+    expect(container.querySelector('[data-testid="captcha"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="party-waiting"]')).toBeNull();
 });
