@@ -139,6 +139,32 @@ test("cookies go only to the authenticated API relay", () => {
     }
 });
 
+test("settings tabs select speed and return keyboard focus to the trigger", async () => {
+    const video = await mount();
+    await click('[data-testid="player-settings"]');
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    await click('[role="tab"]:nth-child(2)');
+    await click('[data-testid="vitesse-1.5"]');
+    expect(video.playbackRate).toBe(1.5);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('[data-testid="player-settings"]'));
+    await click('[data-testid="player-settings"]');
+    await act(async () => document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    expect(document.activeElement.textContent).toBe("Son");
+    expect(container.querySelector('[data-testid="player-boost"]')).not.toBeNull();
+    await act(async () => document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+});
+
+test("selecting the current quality does not restart loading", async () => {
+    const video = await mount();
+    await event(video, "canplay");
+    await click('[data-testid="player-settings"]');
+    await click('[data-testid="quality-720p"]');
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(video.src).toContain("first.mp4");
+});
+
 test("fatal HLS failure has a fallback, retry and cleanup", async () => {
     const Hls = require("hls.js").default;
     Hls.mockClear();

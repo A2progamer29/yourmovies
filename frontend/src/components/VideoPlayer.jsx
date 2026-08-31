@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, SkipBack, SkipForward, Zap, X } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, RotateCcw, RotateCw, Gauge, Zap, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import PlayerLoading from "./PlayerLoading";
+import PlayerSettings from "./PlayerSettings";
+import "./VideoPlayer.css";
 import { videoProtection, videoCrossOrigin } from "@/lib/videoProtection";
 import { API } from "@/lib/api";
 
@@ -19,7 +21,6 @@ const SAMPLE_VAST_TAG =
 const AD_TAG_URL = process.env.REACT_APP_AD_TAG_URL || SAMPLE_VAST_TAG;
 
 const QUALITY_ORDER = ["4k", "1080p", "720p", "480p"];
-const VITESSES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function loadIma() {
     return new Promise((resolve, reject) => {
@@ -37,6 +38,7 @@ function fmt(seconds) {
     if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
+    if (m >= 60) return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
     return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
@@ -101,6 +103,30 @@ export default function VideoPlayer({
     const [progress, setProgress] = useState(0);
     const [duration, setDuration] = useState(0);
     const [showSettings, setShowSettings] = useState(false);
+    const [settingsSection, setSettingsSection] = useState("quality");
+    const settingsPanelRef = useRef(null);
+    const settingsTriggerRef = useRef(null);
+    const speedTriggerRef = useRef(null);
+    const settingsOpenerRef = useRef(null);
+    const [buffered, setBuffered] = useState(0);
+    const closeSettings = useCallback((restoreFocus = true) => {
+        setShowSettings(false);
+        setShowControls(true);
+        if (restoreFocus) settingsOpenerRef.current?.focus();
+    }, []);
+    const openSettings = (section, trigger) => {
+        settingsOpenerRef.current = trigger.current;
+        setSettingsSection(section);
+        setShowSettings(true);
+    };
+    useEffect(() => {
+        if (!showSettings) return undefined;
+        const outside = event => {
+            if (![settingsPanelRef, settingsTriggerRef, speedTriggerRef].some(ref => ref.current?.contains(event.target))) closeSettings(false);
+        };
+        document.addEventListener("pointerdown", outside);
+        return () => document.removeEventListener("pointerdown", outside);
+    }, [showSettings, closeSettings]);
     const [showControls, setShowControls] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [compact, setCompact] = useState(false);
@@ -121,7 +147,7 @@ export default function VideoPlayer({
     useEffect(() => {
         const element = wrapRef.current;
         if (!element) return undefined;
-        const resize = () => setCompact(element.clientWidth < 520);
+        const resize = () => setCompact(element.clientWidth < 640);
         resize();
         if (typeof ResizeObserver === "undefined") {
             window.addEventListener("resize", resize);
@@ -142,6 +168,7 @@ export default function VideoPlayer({
         setPlaybackError(false);
         setDuration(0);
         setProgress(0);
+        setBuffered(0);
         setNiveaux([]);
         setNiveauChoisi(-1);
         // startAt is a resume hint; progress updates must not restart playback.
@@ -267,13 +294,13 @@ export default function VideoPlayer({
             hls.autoLevelCapping = -1;
             hls.currentLevel = index;
         }
-        setShowSettings(false);
+        closeSettings();
     };
 
     const changerVitesse = (valeur) => {
         setVitesse(valeur);
         if (videoRef.current) videoRef.current.playbackRate = valeur;
-        setShowSettings(false);
+        closeSettings();
     };
 
     // Init IMA
@@ -408,9 +435,10 @@ export default function VideoPlayer({
         const wasPlaying = !videoRef.current.paused;
         const found = availableQualities.find((s) => s.quality === q);
         if (!found) return;
+        if (found.url === src) { closeSettings(); return; }
         setCurrentQuality(q);
         setSrc(found.url);
-        setShowSettings(false);
+        closeSettings();
         pendingSeek.current = time;
         resumeAfterQuality.current = wasPlaying;
         setBuffering(true);
@@ -513,11 +541,21 @@ export default function VideoPlayer({
         }, 3000);
     }, [playing, showSettings]);
 
+    useEffect(() => {
+        bumpControls();
+        return () => clearTimeout(hideTimer.current);
+    }, [bumpControls]);
+
+    const percent = duration ? Math.min(100, Math.max(0, (progress / duration) * 100)) : 0;
+    const controlsVisible = showControls || !playing || showSettings || buffering;
+
     return (
         <div
             ref={wrapRef}
             data-testid="video-player-wrapper"
-            className="relative w-full aspect-video bg-black rounded-xl overflow-hidden group text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#E8D2A6]"
+            className="ym-player"
+            data-compact={compact}
+            data-controls={controlsVisible ? "visible" : "hidden"}
             tabIndex={0}
             role="region"
             aria-label="Lecteur vidéo"
@@ -527,7 +565,7 @@ export default function VideoPlayer({
             onFocus={bumpControls}
             onKeyDown={(event) => {
                 if (event.target !== event.currentTarget || adsRunning) return;
-                const action = { " ": togglePlay, k: togglePlay, m: toggleMute, f: toggleFs, ArrowLeft: () => skip(-10), ArrowRight: () => skip(10), Escape: () => setShowSettings(false) }[event.key];
+                const action = { " ": togglePlay, k: togglePlay, m: toggleMute, f: toggleFs, ArrowLeft: () => skip(-10), ArrowRight: () => skip(10), Escape: () => closeSettings() }[event.key];
                 if (action) { event.preventDefault(); bumpControls(); action(); }
             }}
         >
@@ -542,6 +580,12 @@ export default function VideoPlayer({
                 className="w-full h-full"
                 onLoadedMetadata={onLoadedMetadata}
                 onTimeUpdate={onTimeUpdate}
+                onProgress={() => {
+                    const video = videoRef.current;
+                    if (video?.buffered.length && Number.isFinite(video.duration) && video.duration > 0) {
+                        setBuffered(Math.min(100, video.buffered.end(video.buffered.length - 1) / video.duration * 100));
+                    }
+                }}
                 onLoadStart={() => { setBuffering(true); setPlaybackError(false); }}
                 onWaiting={() => setBuffering(true)}
                 onStalled={() => { if (videoRef.current?.readyState < 3) setBuffering(true); }}
@@ -596,199 +640,77 @@ export default function VideoPlayer({
                     <button type="button" onClick={retryPlayback} className="rounded-full bg-[#E8D2A6] px-5 py-2.5 text-sm font-semibold text-black">Réessayer</button>
                 </div>
             )}
-            {fiche && !adsRunning && (showControls || !playing) && (
-                <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 to-transparent px-4 pb-8 pt-4 sm:px-6">
-                    <p className="truncate text-sm font-medium sm:text-base">{fiche.titre}</p>
-                    {fiche.sousTitre && <p className="mt-1 truncate text-xs text-neutral-400">{fiche.sousTitre}</p>}
-                </div>
-            )}
-
-            {/* Controls */}
             {!adsRunning && (
-                <div
-                    className={`absolute inset-x-0 bottom-0 z-20 transition-opacity duration-300 ${showControls || !playing || showSettings ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-                >
-                    <div className={`bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-10 pb-2 ${compact ? "px-3" : "px-5 pb-3"}`}>
-                        {/* Progress bar */}
-                        <div className="mb-3 flex items-center gap-3 text-xs text-white/80">
-                            <span>{fmt(progress)}</span>
-                            <input
-                                data-testid="player-seek"
-                                aria-label="Position de lecture"
-                                aria-valuetext={`${fmt(progress)} sur ${fmt(duration)}`}
-                                disabled={!duration || playbackError}
-                                type="range"
-                                min="0"
-                                max="100"
-                                value={duration ? Math.min(100, Math.max(0, (progress / duration) * 100)) : 0}
-                                onChange={(e) => seek(Number(e.target.value))}
-                                className="flex-1 accent-[#E8D2A6] cursor-pointer"
-                            />
-                            <span>{fmt(duration)}</span>
+                <>
+                    <div className="ym-player-brand" aria-hidden="true">
+                        <div className="ym-player-top-title"><strong>{fiche?.titre}</strong><span>{fiche?.sousTitre}</span></div>
+                        <div className="ym-player-wordmark">your<span>movies</span></div>
+                    </div>
+                    <div className="ym-player-controls">
+                        <div className="ym-player-progress-row">
+                            <div className="ym-player-timeline" style={{ "--played": `${percent}%`, "--buffered": `${buffered}%` }}>
+                                <div className="ym-player-timeline-track" />
+                                <div className="ym-player-timeline-buffer" />
+                                <input data-testid="player-seek" aria-label="Position de lecture" aria-valuetext={`${fmt(progress)} sur ${fmt(duration)}`}
+                                    type="range" min="0" max="100" step="0.1" value={percent} disabled={!duration || playbackError}
+                                    onChange={event => seek(Number(event.target.value))} className="ym-player-seek" />
+                            </div>
+                            <span className="ym-player-time" aria-label={`Temps restant : ${fmt(Math.max(0, duration - progress))}`}>
+                                −{fmt(Math.max(0, duration - progress))}
+                            </span>
                         </div>
-                        {/* Buttons */}
-                        <div className={`flex items-center text-white ${compact ? "gap-1" : "gap-2"}`}>
-                            <button data-testid="player-play" aria-label={playing ? "Mettre en pause" : "Lire"} onClick={togglePlay} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
-                                {playing ? <Pause size={22} /> : <Play size={22} fill="currentColor" />}
-                            </button>
-                            <button aria-label="Reculer de 10 secondes" title="−10 s" onClick={() => skip(-10)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
-                                <SkipBack size={18} />
-                            </button>
-                            <button aria-label="Avancer de 10 secondes" title="+10 s" onClick={() => skip(10)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
-                                <SkipForward size={18} />
-                            </button>
-                            <div className="flex items-center gap-2">
-                                <button aria-label={muted ? "Activer le son" : "Couper le son"} onClick={toggleMute} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
-                                    {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                        <div className="ym-player-toolbar">
+                            <div className="ym-player-toolbar-group">
+                                <button type="button" data-testid="player-play" aria-label={playing ? "Mettre en pause" : "Lire"}
+                                    data-tooltip={playing ? "Pause (Espace)" : "Lecture (Espace)"} onClick={togglePlay} className="ym-player-button">
+                                    {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
                                 </button>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.05"
-                                    value={muted ? 0 : volume}
-                                    onChange={(e) => setVol(Number(e.target.value))}
-                                    aria-label="Volume"
-                                    className={`${compact ? "hidden" : "block"} w-16 accent-[#E8D2A6] cursor-pointer`}
-                                />
-                                {boost > 1 && !compact && (
-                                    <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#E8D2A6]">
-                                        x{boost.toFixed(1)}
-                                    </span>
-                                )}
-                            </div>
-                            <div className="flex-1" />
-                            <div className="relative">
-                                <button
-                                    data-testid="player-settings"
-                                    aria-label="Réglages de lecture"
-                                    aria-expanded={showSettings}
-                                    onClick={() => setShowSettings((s) => !s)}
-                                    className="flex h-11 items-center gap-1.5 rounded-full px-3 hover:bg-white/10 hover:text-[#E8D2A6] text-sm"
-                                >
-                                    <Settings size={18} />
-                                    <span className={`${compact ? "hidden" : ""} text-xs uppercase tracking-widest`}>
-                                        {niveaux.length > 0
-                                            ? (niveauChoisi === -1 ? "Auto" : `${niveaux[niveauChoisi]?.height}p`)
-                                            : currentQuality}
-                                    </span>
+                                <button type="button" aria-label="Reculer de 10 secondes" data-tooltip="Reculer de 10 s" onClick={() => skip(-10)} className="ym-player-button">
+                                    <span className="ym-player-skip" aria-hidden="true"><RotateCcw /><span>10</span></span>
                                 </button>
-                                {showSettings && (
-                                    <div
-                                        data-testid="quality-menu"
-                                        style={{ maxHeight: Math.max(90, Math.min(300, (wrapRef.current?.clientHeight || 400) - 72)) }}
-                                        className="absolute bottom-full right-0 z-30 mb-2 min-w-[220px] overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] shadow-2xl"
-                                    >
-                                        <div className="sticky top-0 border-b border-[#262626] bg-[#0a0a0a] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
-                                            Qualité
-                                        </div>
-                                        {niveaux.length > 0 ? (
-                                            <>
-                                                <button
-                                                    onClick={() => choisirNiveau(-1)}
-                                                    className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === -1 ? "text-[#E8D2A6]" : "text-white"}`}
-                                                >
-                                                    Automatique
-                                                </button>
-                                                {[...niveaux].reverse().map((n) => (
-                                                    <button
-                                                        key={n.index}
-                                                        data-testid={`niveau-${n.height}`}
-                                                        onClick={() => choisirNiveau(n.index)}
-                                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === n.index ? "text-[#E8D2A6]" : "text-white"}`}
-                                                    >
-                                                        {n.height}p
-                                                    </button>
-                                                ))}
-                                            </>
-                                        ) : (
-                                            <>
-                                                {availableQualities.length === 0 && (
-                                                    <div className="px-3 py-2 text-xs text-neutral-500">Aucune option</div>
-                                                )}
-                                                {availableQualities.map((q) => (
-                                                    <button
-                                                        key={q.quality}
-                                                        data-testid={`quality-${q.quality}`}
-                                                        onClick={() => changeQuality(q.quality)}
-                                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${currentQuality === q.quality ? "text-[#E8D2A6]" : "text-white"}`}
-                                                    >
-                                                        {q.quality.toUpperCase()}
-                                                    </button>
-                                                ))}
-                                                {qualitySources
-                                                    .filter((source) => !availableQualities.find((a) => a.quality === source.quality))
-                                                    .map((q) => (
-                                                        <Link
-                                                            key={q.quality}
-                                                            to="/pricing"
-                                                            className="flex items-center justify-between border-t border-[#262626] px-3 py-2 text-sm text-neutral-500 hover:bg-white/5"
-                                                        >
-                                                            <span>{q.quality.toUpperCase()}</span>
-                                                            <Zap size={12} className="text-[#E8D2A6]" />
-                                                        </Link>
-                                                    ))}
-                                            </>
-                                        )}
-
-                                        <div className="border-y border-[#262626] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
-                                            Vitesse
-                                        </div>
-                                        <div className="grid grid-cols-3 gap-1 p-2">
-                                            {VITESSES.map((v) => (
-                                                <button
-                                                    key={v}
-                                                    data-testid={`vitesse-${v}`}
-                                                    onClick={() => changerVitesse(v)}
-                                                    className={`rounded px-2 py-1.5 text-xs tabular-nums transition-colors ${vitesse === v
-                                                        ? "bg-[#E8D2A6] font-semibold text-black"
-                                                        : "bg-white/5 text-neutral-300 hover:bg-white/10"}`}
-                                                >
-                                                    {v === 1 ? "Normal" : `${v}x`}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div className="border-t border-[#262626] px-3 py-2.5">
-                                            <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-neutral-500">
-                                                <span>Amplification</span>
-                                                <span className="tabular-nums text-[#E8D2A6]">{Math.round(boost * 100)} %</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="1"
-                                                max="2.5"
-                                                step="0.1"
-                                                value={boost}
-                                                data-testid="player-boost"
-                                                aria-label="Amplification du son"
-                                                onChange={(e) => appliquerBoost(Number(e.target.value))}
-                                                className="mt-2 w-full cursor-pointer accent-[#E8D2A6]"
-                                            />
-                                            <p className="mt-1.5 text-[10px] leading-snug text-neutral-600">
-                                                Au-delà de 100 %, le son peut saturer selon la piste.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
+                                <button type="button" aria-label="Avancer de 10 secondes" data-tooltip="Avancer de 10 s" onClick={() => skip(10)} className="ym-player-button">
+                                    <span className="ym-player-skip" aria-hidden="true"><RotateCw /><span>10</span></span>
+                                </button>
+                                <div className="ym-player-volume">
+                                    <button type="button" aria-label={muted ? "Activer le son" : "Couper le son"} data-tooltip="Volume (M)" onClick={toggleMute} className="ym-player-button">
+                                        {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
+                                    </button>
+                                    {!compact && <div className="ym-player-volume-panel">
+                                        <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume"
+                                            onChange={event => setVol(Number(event.target.value))} />
+                                    </div>}
+                                </div>
                             </div>
-                            <button aria-label={isFullscreen ? "Quitter le plein écran" : "Plein écran"} onClick={toggleFs} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10 hover:text-[#E8D2A6] focus-visible:outline focus-visible:outline-[#E8D2A6]">
-                                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                            </button>
+                            <div className="ym-player-title">
+                                <strong>{fiche?.titre || "Votre séance"}</strong>
+                                {fiche?.sousTitre && <span>{fiche.sousTitre}</span>}
+                            </div>
+                            <div className="ym-player-toolbar-group">
+                                {!compact && <button type="button" ref={speedTriggerRef} aria-label="Vitesse de lecture" data-tooltip="Vitesse de lecture"
+                                    aria-expanded={showSettings && settingsSection === "speed"} aria-haspopup="dialog"
+                                    onClick={() => showSettings && settingsSection === "speed" ? closeSettings() : openSettings("speed", speedTriggerRef)} className="ym-player-button">
+                                    <Gauge />{vitesse !== 1 && <span className="ym-player-speed-badge">{vitesse}×</span>}
+                                </button>}
+                                <button type="button" ref={settingsTriggerRef} data-testid="player-settings" aria-label="Réglages de lecture"
+                                    data-tooltip="Réglages" aria-expanded={showSettings} aria-haspopup="dialog"
+                                    onClick={() => showSettings ? closeSettings() : openSettings("quality", settingsTriggerRef)} className="ym-player-button">
+                                    <Settings />
+                                </button>
+                                <button type="button" aria-label={isFullscreen ? "Quitter le plein écran" : "Plein écran"} data-tooltip="Plein écran (F)" onClick={toggleFs} className="ym-player-button">
+                                    {isFullscreen ? <Minimize /> : <Maximize />}
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                    {showSettings && <PlayerSettings panelRef={settingsPanelRef} section={settingsSection} onSection={setSettingsSection} onClose={closeSettings}
+                        levels={niveaux} level={niveauChoisi} onLevel={choisirNiveau} qualities={availableQualities} allQualities={qualitySources}
+                        quality={currentQuality} onQuality={changeQuality} speed={vitesse} onSpeed={changerVitesse}
+                        volume={volume} muted={muted} onVolume={setVol} boost={boost} onBoost={appliquerBoost} />}
+                </>
             )}
-
-            {/* Center play when paused */}
-            {!playing && !buffering && !playbackError && !adsRunning && (
-                <button
-                    onClick={togglePlay}
-                    aria-label="Lancer la lecture"
-                    data-testid="player-center-play"
-                    className="ym-play-surgit absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#E8D2A6]/95 shadow-2xl transition-transform duration-150 hover:scale-105 hover:bg-[#E8D2A6] sm:h-16 sm:w-16"
-                >
-                    <Play size={22} className="ml-1 text-black" fill="currentColor" />
+            {!playing && !buffering && !playbackError && !adsRunning && !showSettings && (
+                <button type="button" onClick={togglePlay} aria-label="Lancer la lecture" data-testid="player-center-play" className="ym-player-center">
+                    <Play fill="currentColor" />
                 </button>
             )}
         </div>
