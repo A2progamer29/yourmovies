@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useOfflineDownloads } from "@/context/OfflineDownloadsContext";
 import { makeDownloadId } from "@/lib/offline";
 
-export default function OfflineDownloadButton({ media, episode = null, compact = false, className = "" }) {
+export default function OfflineDownloadButton({ media, episode = null, compact = false, player = false, className = "" }) {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { eligible, download, getDownload, progress } = useOfflineDownloads();
@@ -36,25 +36,29 @@ export default function OfflineDownloadButton({ media, episode = null, compact =
         }
     };
 
-    const Icon = current ? LoaderCircle : completed ? Check : eligible ? Download : Crown;
+    const Icon = current ? LoaderCircle : completed ? Check : player || eligible ? Download : Crown;
     const label = current
         ? current.percent == null ? "Téléchargement…" : `${current.percent} %`
         : completed ? "Téléchargé" : "Télécharger";
     const accessibleLabel = `${label}${episode ? ` l’épisode ${episode.ep_number || episode.episode_number}` : " ce film"}${!eligible ? " — réservé à Premium" : ""}`;
+    const Control = player ? "button" : Button;
 
     return (
-        <Button
+        <Control
             type="button"
-            variant="outline"
+            variant={player ? undefined : "outline"}
             aria-label={accessibleLabel}
             title={accessibleLabel}
+            data-tooltip={player ? accessibleLabel : undefined}
+            aria-busy={Boolean(current)}
             disabled={Boolean(current)}
             onClick={onClick}
             data-testid={episode ? `offline-download-${episode.season_number}-${episode.ep_number || episode.episode_number}` : "offline-download-movie"}
-            className={`rounded-full border-[#262626] bg-[#111] text-white hover:border-[#E8D2A6]/60 hover:bg-white/5 hover:text-[#E8D2A6] ${completed ? "border-[#E8D2A6]/45 text-[#E8D2A6]" : ""} ${compact ? "h-10 w-10 shrink-0 p-0" : "h-12 px-5"} ${className}`}
+            className={player ? `ym-player-button ym-player-download ${className}` : `rounded-full border-[#262626] bg-[#111] text-white hover:border-[#E8D2A6]/60 hover:bg-white/5 hover:text-[#E8D2A6] ${completed ? "border-[#E8D2A6]/45 text-[#E8D2A6]" : ""} ${compact ? "h-10 w-10 shrink-0 p-0" : "h-12 px-5"} ${className}`}
         >
-            <Icon size={16} className={`${current ? "animate-spin" : ""} ${compact ? "" : "mr-2"}`} />
-            {!compact && label}
-        </Button>
+            <Icon size={16} aria-hidden="true" className={`${current ? "animate-spin" : ""} ${compact || player ? "" : "mr-2"}`} />
+            {player && !eligible && <Crown aria-hidden="true" className="ym-player-download-lock" />}
+            {!compact && !player && label}
+        </Control>
     );
 }

@@ -3,6 +3,7 @@ import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, RotateCcw,
 import { Link } from "react-router-dom";
 import PlayerLoading from "./PlayerLoading";
 import PlayerSettings from "./PlayerSettings";
+import PlayerPauseInfo from "./PlayerPauseInfo";
 import "./VideoPlayer.css";
 import { videoProtection, videoCrossOrigin } from "@/lib/videoProtection";
 import { API } from "@/lib/api";
@@ -61,6 +62,7 @@ export default function VideoPlayer({
     onFluxImpossible = null,
     fiche = null,
     boostInitial = 1,
+    downloadControl = null,
 }) {
     const wrapRef = useRef(null);
     const videoRef = useRef(null);
@@ -85,6 +87,8 @@ export default function VideoPlayer({
     const [currentQuality, setCurrentQuality] = useState(initialSrc?.quality || "720p");
     const [src, setSrc] = useState(initialSrc?.url || "");
     const [playing, setPlaying] = useState(false);
+    const [paused, setPaused] = useState(false);
+    const hasPlayed = useRef(false);
     const [buffering, setBuffering] = useState(true);
     const [playbackError, setPlaybackError] = useState(false);
     const [slow, setSlow] = useState(false);
@@ -130,6 +134,7 @@ export default function VideoPlayer({
     const [showControls, setShowControls] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [compact, setCompact] = useState(false);
+    const [narrow, setNarrow] = useState(false);
     const [adsRunning, setAdsRunning] = useState(false);
     const [adInfo, setAdInfo] = useState(null); // {remainingTime, skippable, canSkip, index, total}
     const [adsFinished, setAdsFinished] = useState(!runAds);
@@ -147,7 +152,7 @@ export default function VideoPlayer({
     useEffect(() => {
         const element = wrapRef.current;
         if (!element) return undefined;
-        const resize = () => setCompact(element.clientWidth < 640);
+        const resize = () => { setCompact(element.clientWidth < 640); setNarrow(element.clientWidth < 360); };
         resize();
         if (typeof ResizeObserver === "undefined") {
             window.addEventListener("resize", resize);
@@ -164,6 +169,8 @@ export default function VideoPlayer({
         pendingSeek.current = startAt;
         demarrageAuto.current = false;
         setPlaying(false);
+        setPaused(false);
+        hasPlayed.current = false;
         setBuffering(true);
         setPlaybackError(false);
         setDuration(0);
@@ -548,6 +555,7 @@ export default function VideoPlayer({
 
     const percent = duration ? Math.min(100, Math.max(0, (progress / duration) * 100)) : 0;
     const controlsVisible = showControls || !playing || showSettings || buffering;
+    const showPauseInfo = paused && !playing && !buffering && !playbackError && !adsRunning && !showSettings && Boolean(fiche);
 
     return (
         <div
@@ -555,6 +563,8 @@ export default function VideoPlayer({
             data-testid="video-player-wrapper"
             className="ym-player"
             data-compact={compact}
+            data-narrow={narrow}
+            data-paused-info={showPauseInfo}
             data-controls={controlsVisible ? "visible" : "hidden"}
             tabIndex={0}
             role="region"
@@ -592,10 +602,10 @@ export default function VideoPlayer({
                 onSeeking={() => setBuffering(true)}
                 onSeeked={() => { if (videoRef.current?.readyState >= 2) setBuffering(false); }}
                 onCanPlay={() => { setBuffering(false); demarrerSiPossible(); }}
-                onPlay={() => setPlaying(true)}
-                onPlaying={() => { setPlaying(true); setBuffering(false); setPlaybackError(false); bumpControls(); }}
-                onPause={() => { setPlaying(false); setShowControls(true); }}
-                onEnded={() => { setPlaying(false); setBuffering(false); }}
+                onPlay={() => { setPlaying(true); setPaused(false); }}
+                onPlaying={() => { hasPlayed.current = true; setPaused(false); setPlaying(true); setBuffering(false); setPlaybackError(false); bumpControls(); }}
+                onPause={() => { setPaused(hasPlayed.current && !videoRef.current?.ended); setPlaying(false); setShowControls(true); }}
+                onEnded={() => { setPaused(false); setPlaying(false); setBuffering(false); }}
                 onError={failPlayback}
                 onClick={() => !adsRunning && togglePlay()}
                 playsInline
@@ -640,6 +650,7 @@ export default function VideoPlayer({
                     <button type="button" onClick={retryPlayback} className="rounded-full bg-[#E8D2A6] px-5 py-2.5 text-sm font-semibold text-black">Réessayer</button>
                 </div>
             )}
+            {showPauseInfo && <PlayerPauseInfo fiche={fiche} />}
             {!adsRunning && (
                 <>
                     <div className="ym-player-brand" aria-hidden="true">
@@ -691,6 +702,7 @@ export default function VideoPlayer({
                                     onClick={() => showSettings && settingsSection === "speed" ? closeSettings() : openSettings("speed", speedTriggerRef)} className="ym-player-button">
                                     <Gauge />{vitesse !== 1 && <span className="ym-player-speed-badge">{vitesse}×</span>}
                                 </button>}
+                                {downloadControl}
                                 <button type="button" ref={settingsTriggerRef} data-testid="player-settings" aria-label="Réglages de lecture"
                                     data-tooltip="Réglages" aria-expanded={showSettings} aria-haspopup="dialog"
                                     onClick={() => showSettings ? closeSettings() : openSettings("quality", settingsTriggerRef)} className="ym-player-button">

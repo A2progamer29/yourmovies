@@ -165,6 +165,25 @@ test("selecting the current quality does not restart loading", async () => {
     expect(video.src).toContain("first.mp4");
 });
 
+test("title artwork and synopsis appear only during a real pause, with a text fallback", async () => {
+    const video = await mount({ fiche: { titre: "Titre du film", logo: "https://images.example/title.png", description: "Résumé du film" } });
+    await event(video, "canplay");
+    await event(video, "pause");
+    expect(container.querySelector('[data-testid="player-pause-info"]')).toBeNull();
+    await event(video, "playing");
+    await event(video, "pause");
+    const info = container.querySelector('[data-testid="player-pause-info"]');
+    expect(info.textContent).toContain("Résumé du film");
+    expect(info.querySelector("img").alt).toBe("Titre du film");
+    await event(info.querySelector("img"), "error");
+    expect(info.querySelector("img")).toBeNull();
+    expect(info.querySelector("h2").textContent).toBe("Titre du film");
+    await event(video, "waiting");
+    expect(container.querySelector('[data-testid="player-pause-info"]')).toBeNull();
+    await event(video, "playing");
+    expect(container.querySelector('[data-testid="player-pause-info"]')).toBeNull();
+});
+
 test("fatal HLS failure has a fallback, retry and cleanup", async () => {
     const Hls = require("hls.js").default;
     Hls.mockClear();

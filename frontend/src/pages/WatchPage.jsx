@@ -426,6 +426,7 @@ export default function WatchPage() {
         const episode = media.type === "movie" ? null : selectedEpisode;
         return {
             titre: media.title,
+            logo: media.title_logo_url,
             affiche: media.poster_url,
             sousTitre: episode
                 ? `Saison ${episode.season_number} · Épisode ${episode.ep_number}${episode.title ? ` — ${episode.title}` : ""}`
@@ -848,6 +849,7 @@ export default function WatchPage() {
                             <VideoPlayer
                                 key={manifestUrl}
                                 manifestUrl={manifestUrl}
+                                downloadControl={<OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} player />}
                                 poster={media.banner_url || media.poster_url}
                                 onProgress={suivreProgression}
                                 startAt={resumeAt}
@@ -866,6 +868,7 @@ export default function WatchPage() {
                             <VideoPlayer
                                 key={`${id}:${selectedEpisodeKey}:${piste || "main"}`}
                                 qualitySources={qualities}
+                                downloadControl={<OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} player />}
                                 fiche={ficheLecteur}
                                 boostInitial={Number(user?.audio_boost) || 1}
                                 poster={media.banner_url || media.poster_url}
