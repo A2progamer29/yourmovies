@@ -57,7 +57,8 @@ test("loading follows media events, not the poster or pause state", async () => 
     await event(video, "playing");
     await event(video, "pause");
     expect(container.querySelector('[role="status"]')).toBeNull();
-    expect(container.querySelector('[data-testid="player-center-play"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="player-center-play"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Lire"]')).not.toBeNull();
     expect(play).toHaveBeenCalledTimes(1);
 });
 

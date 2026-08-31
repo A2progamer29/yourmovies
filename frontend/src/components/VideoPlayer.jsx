@@ -719,7 +719,7 @@ export default function VideoPlayer({
                         volume={volume} muted={muted} onVolume={setVol} boost={boost} onBoost={appliquerBoost} />}
                 </>
             )}
-            {!playing && !buffering && !playbackError && !adsRunning && !showSettings && (
+            {!playing && !paused && !buffering && !playbackError && !adsRunning && !showSettings && (
                 <button type="button" onClick={togglePlay} aria-label="Lancer la lecture" data-testid="player-center-play" className="ym-player-center">
                     <Play fill="currentColor" />
                 </button>
