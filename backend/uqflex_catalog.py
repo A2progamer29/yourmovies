@@ -220,11 +220,11 @@ def _dedupe_items(rows: list[dict]) -> list[dict]:
     return [by_id[item_id] for item_id in order]
 
 
-def _fetch_http_catalog(base: str, media_type: str = "") -> tuple[list[dict], Optional[int], str]:
+def _fetch_http_catalog(base: str, media_type: str = "", resource: str = "/v1/catalog") -> tuple[list[dict], Optional[int], str]:
     query = {"limit": "500", "page": "1"}
     if media_type:
         query["type"] = media_type
-    url = "%s/v1/catalog?%s" % (base, urlencode(query))
+    url = "%s%s?%s" % (base, resource, urlencode(query))
     rows: list[dict] = []
     expected = None
     seen_urls = set()
@@ -374,6 +374,21 @@ def fetch_items(force: bool = False) -> list[dict]:
                                      if str(row.get("id") or "") not in known_ids)
                 else:
                     warnings.append("%s rail: %s" % (requested_type, typed_error))
+            if "anime" not in {item_kind(item) for item in candidate}:
+                anime_errors = []
+                for resource in ("/v1/animes", "/v1/anime", "/v1/catalog/anime"):
+                    typed, _, typed_error = _fetch_http_catalog(base, resource=resource)
+                    if typed_error:
+                        anime_errors.append(typed_error)
+                        continue
+                    known_ids = {str(item.get("id") or "") for item in candidate}
+                    new_rows = [{**row, "_uqflex_media_type": "anime"} for row in typed
+                                if str(row.get("id") or "") not in known_ids]
+                    candidate.extend(new_rows)
+                    if new_rows:
+                        break
+                if not any(item_kind(item) == "anime" for item in candidate) and anime_errors:
+                    warnings.append("anime endpoints: %s" % ", ".join(dict.fromkeys(anime_errors)))
             _last_sync_warning = "; ".join(warnings)
             raw_items, source = candidate, base
         if not raw_items:
@@ -400,6 +415,22 @@ def fetch_items(force: bool = False) -> list[dict]:
         _write_disk(grouped)
         print("uqflex catalog ok via %s: %s raw, %s grouped" % (source, len(raw_items), len(grouped)), flush=True)
         return list(_cache_items)
+
+
+def seed_cache(rows: list[dict], synced_at: float = 0.0, raw_count: int = 0) -> list[dict]:
+    """Restore the last healthy private snapshot before contacting partner."""
+    global _cache_items, _cache_at, _last_sync_at, _last_raw_count
+    clean = [dict(row) for row in rows or [] if isinstance(row, dict) and row.get("id")]
+    if not clean:
+        return list(_cache_items)
+    with _fetch_lock:
+        if not _cache_items or len(clean) > len(_cache_items):
+            _cache_items = clean
+            _last_raw_count = max(_last_raw_count, int(raw_count or 0), len(clean))
+            if synced_at:
+                _last_sync_at = synced_at
+                _cache_at = synced_at
+    return list(_cache_items)
 
 
 def is_uqflex_id(media_id: str) -> bool:

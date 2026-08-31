@@ -664,3 +664,23 @@ async def test_uqflex_episode_cache_is_revalidated_and_temporary_empty_result_is
     await appmod._uqflex_update_details([item], enrichment_limit=0, episode_limit=1)
     cached = await appmod.db.uqflex_episode_cache.find_one({"id": "uq_show"})
     assert [episode["ep_number"] for episode in cached["seasons"][0]["episodes"]] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_uqflex_healthy_snapshot_survives_a_fresh_process(monkeypatch):
+    rows = [{"id": str(index), "title": "Title %s" % index, "type": "movie"} for index in range(12)]
+    monkeypatch.setattr(appmod.uqflex_catalog, "_last_sync_at", datetime.now(timezone.utc).timestamp())
+    monkeypatch.setattr(appmod.uqflex_catalog, "_last_raw_count", 15)
+    monkeypatch.setattr(appmod.uqflex_catalog, "_active_base", "https://partner.example/api")
+    await appmod._uqflex_store_snapshot(rows)
+
+    monkeypatch.setattr(appmod.uqflex_catalog, "_cache_items", [])
+    monkeypatch.setattr(appmod.uqflex_catalog, "_cache_at", 0.0)
+    monkeypatch.setattr(appmod.uqflex_catalog, "_last_sync_at", 0.0)
+    monkeypatch.setattr(appmod.uqflex_catalog, "_last_raw_count", 0)
+    restored = await appmod._uqflex_restore_snapshot()
+
+    assert restored == rows
+    assert appmod.uqflex_catalog._last_raw_count == 15
+    meta = await appmod.db.uqflex_catalog_cache_meta.find_one({"_id": "healthy"})
+    assert meta["count"] == 12

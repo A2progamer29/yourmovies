@@ -101,6 +101,25 @@ def test_missing_anime_rail_is_fetched_with_explicit_type(monkeypatch):
     assert any("type=anime" in url for url in calls)
 
 
+def test_dedicated_anime_endpoint_is_used_when_catalog_filter_is_ignored(monkeypatch):
+    calls = []
+
+    def get(url, **_kwargs):
+        calls.append(url)
+        if urlsplit(url).path.endswith("/v1/animes"):
+            return Response({"items": [{"id": "anime", "title": "Anime", "type": "series"}]})
+        if "/v1/anime" in urlsplit(url).path:
+            return Response({}, status=404)
+        # Simulates the production provider returning its generic movie dump
+        # even when `type=anime` is present.
+        return Response({"items": [{"id": "movie", "title": "Movie", "type": "movie"}]})
+
+    monkeypatch.setattr(catalog.requests, "get", get)
+    result = catalog.fetch_items(True)
+    assert {catalog.item_kind(item) for item in result} == {"movie", "anime"}
+    assert any(urlsplit(url).path.endswith("/v1/animes") for url in calls)
+
+
 def test_grouping_uses_provider_identity_and_keeps_remakes_separate():
     rows = [
         {"id": "s1", "tmdb_id": 10, "type": "series", "title": "Same", "year": 2000},

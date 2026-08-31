@@ -1367,7 +1367,7 @@ async def _uqflex_media_docs(type_filter: Optional[str] = None, q: Optional[str]
     if not items:
         # A fresh Render process has no runtime disk cache. The first visitor
         # must not see an empty catalogue while the background task starts.
-        items = await run_in_threadpool(uqflex_catalog.fetch_items, False)
+        items = await _uqflex_fetch(False)
     if not items:
         return []
     ids = ["uq_%s" % str(item.get("id") or "") for item in items]
@@ -2459,6 +2459,93 @@ _uqflex_sync_task = None
 _uqflex_detail_task = None
 _uqflex_detail_error = ""
 _uqflex_detail_at = None
+_uqflex_snapshot_lock = asyncio.Lock()
+
+
+async def _uqflex_restore_snapshot() -> list[dict]:
+    """Restore the last complete catalogue kept outside Render's ephemeral disk."""
+    try:
+        meta = await db.uqflex_catalog_cache_meta.find_one({"_id": "healthy"}, {"_id": 0})
+        if not meta or not meta.get("snapshot"):
+            return []
+        cursor = db.uqflex_catalog_cache.find(
+            {"snapshot": meta["snapshot"]}, {"_id": 0, "payload": 1, "position": 1}
+        ).sort("position", 1)
+        documents = await cursor.to_list(length=uqflex_catalog.MAX_CATALOG_ITEMS)
+        rows = []
+        for document in documents:
+            try:
+                item = json.loads(document.get("payload") or "")
+            except (TypeError, ValueError):
+                continue
+            if isinstance(item, dict) and item.get("id"):
+                rows.append(item)
+        expected = int(meta.get("count") or 0)
+        if not rows or (expected and len(rows) != expected):
+            logger.warning("Instantané UQFlex incomplet dans MongoDB: %s/%s", len(rows), expected)
+            return []
+        synced_at = meta.get("synced_at")
+        if isinstance(synced_at, datetime):
+            synced_at = synced_at.timestamp()
+        else:
+            try:
+                synced_at = float(synced_at or 0)
+            except (TypeError, ValueError):
+                synced_at = 0
+        return uqflex_catalog.seed_cache(rows, synced_at, int(meta.get("raw_count") or 0))
+    except Exception:
+        logger.exception("Restauration de l'instantané UQFlex échouée")
+        return []
+
+
+async def _uqflex_store_snapshot(items: list[dict]) -> None:
+    """Publish a new Mongo snapshot only after every row has been written."""
+    if not items:
+        return
+    async with _uqflex_snapshot_lock:
+        snapshot = secrets.token_hex(12)
+        documents = [
+            {"snapshot": snapshot, "position": position,
+             "payload": json.dumps(item, ensure_ascii=False, separators=(",", ":"))}
+            for position, item in enumerate(items)
+            if isinstance(item, dict) and item.get("id")
+        ]
+        if not documents:
+            return
+        try:
+            for start in range(0, len(documents), 500):
+                await db.uqflex_catalog_cache.insert_many(documents[start:start + 500], ordered=False)
+            synced_at = datetime.fromtimestamp(uqflex_catalog._last_sync_at, tz=timezone.utc)
+            await db.uqflex_catalog_cache_meta.update_one(
+                {"_id": "healthy"},
+                {"$set": {
+                    "snapshot": snapshot,
+                    "count": len(documents),
+                    "raw_count": uqflex_catalog._last_raw_count,
+                    "synced_at": synced_at,
+                    "transport": uqflex_catalog.current_base(),
+                }},
+                upsert=True,
+            )
+            await db.uqflex_catalog_cache.delete_many({"snapshot": {"$ne": snapshot}})
+        except Exception:
+            # Until the metadata pointer changes, readers keep using the old
+            # complete snapshot. Remove this unfinished candidate when possible.
+            await db.uqflex_catalog_cache.delete_many({"snapshot": snapshot})
+            raise
+
+
+async def _uqflex_fetch(force: bool) -> list[dict]:
+    if not uqflex_catalog._cache_items:
+        await _uqflex_restore_snapshot()
+    previous_sync = uqflex_catalog._last_sync_at
+    items = await run_in_threadpool(uqflex_catalog.fetch_items, force)
+    if items and uqflex_catalog._last_sync_at and uqflex_catalog._last_sync_at != previous_sync:
+        try:
+            await _uqflex_store_snapshot(items)
+        except Exception:
+            logger.exception("Sauvegarde de l'instantané UQFlex échouée")
+    return items
 
 
 def _uqflex_cache_due(cached: Optional[dict], reference: datetime) -> bool:
@@ -2531,7 +2618,7 @@ def _start_uqflex_details(items: list[dict]) -> None:
 async def _uqflex_sync_loop() -> None:
     while True:
         try:
-            items = await run_in_threadpool(uqflex_catalog.fetch_items, True)
+            items = await _uqflex_fetch(True)
             await _uqflex_update_details(items)
         except asyncio.CancelledError:
             raise
@@ -2546,7 +2633,7 @@ async def admin_uqflex_status(user: dict = Depends(require_perm("content.add")))
         # Lecture du cache existant sans forcer d'appel réseau bloquant : le
         # statut doit s'afficher tout de suite, la synchro se fait via le
         # bouton dédié ci-dessous.
-        await run_in_threadpool(uqflex_catalog.fetch_items, False)
+        await _uqflex_fetch(False)
     return await _uqflex_status_payload()
 
 
@@ -2554,7 +2641,7 @@ async def admin_uqflex_status(user: dict = Depends(require_perm("content.add")))
 async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="Clé partenaire UQFlex absente (variable UQFLEX_PARTNER_KEY non configurée).")
-    items = await run_in_threadpool(uqflex_catalog.fetch_items, True)
+    items = await _uqflex_fetch(True)
     _start_uqflex_details(items)
     return await _uqflex_status_payload()
 
@@ -7274,6 +7361,7 @@ async def startup():
     global _uqflex_sync_task
     await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.playback_grants.create_index("expires_at", expireAfterSeconds=0)
+    await db.uqflex_catalog_cache.create_index([("snapshot", 1), ("position", 1)])
     await party_service.indexes()
     await db.playback_ad_history.create_index("expires_at", expireAfterSeconds=0)
     logger.info(f"Storage: {'Cloudinary configuré' if CLOUDINARY_CONFIGURED else 'AUCUN (CLOUDINARY_URL manquant)'}")
@@ -7334,6 +7422,7 @@ async def startup():
     if uqflex_catalog.configured() and (_uqflex_sync_task is None or _uqflex_sync_task.done()):
         # Start immediately on every Render boot; previously the partner
         # catalogue stayed empty until an administrator opened its tab.
+        await _uqflex_restore_snapshot()
         _uqflex_sync_task = asyncio.create_task(_uqflex_sync_loop())
 
 async def _blocked_purge_loop():
