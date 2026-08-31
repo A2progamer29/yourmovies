@@ -25,6 +25,7 @@ from uqflex_catalog import (
     _headers,
     is_uqflex_id,
     raw_id,
+    item_kind,
     to_media_doc,
 )
 
@@ -369,18 +370,18 @@ async def stream(request: Request, id: str, episodeId: Optional[str] = Query(def
     item = find_item(id)
     if not item:
         raise HTTPException(status_code=404, detail="Flux introuvable")
-    media_type = "tv" if str(item.get("type") or "") == "series" else "movie"
+    media_type = item_kind(item)
     item_id = raw_id(id) if is_uqflex_id(id) else id
-    upstream = partner_stream_url(item_id, episodeId or "", media_type)
+    upstream = partner_stream_url(item_id, media_type=media_type, episode_id=episodeId or "")
     headers = dict(_headers())
     if request.headers.get("range"):
         headers["Range"] = request.headers["range"]
     if str(current_base() or "").startswith("http"):
         try:
             upstream_resp = await run_in_threadpool(
-                lambda: requests.get(upstream, headers=headers, stream=True, timeout=60)
+                lambda: requests.get(upstream, headers=headers, stream=True, timeout=60, allow_redirects=False)
             )
-            if upstream_resp.status_code < 400:
+            if upstream_resp.status_code in (200, 206):
                 outgoing = {
                     key: upstream_resp.headers[key]
                     for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges")
@@ -394,7 +395,7 @@ async def stream(request: Request, id: str, episodeId: Optional[str] = Query(def
                 )
         except Exception:
             pass
-    proc = ssh_stream(partner_stream_path(item_id, episodeId or "", media_type), request.headers.get("range") or "")
+    proc = ssh_stream(partner_stream_path(item_id, media_type=media_type, episode_id=episodeId or ""), request.headers.get("range") or "")
     if not proc or not proc.stdout:
         raise HTTPException(status_code=502, detail="Flux partenaire injoignable")
     header_buf = b""

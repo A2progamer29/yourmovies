@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from urllib.parse import urljoin
 
 import httpx
@@ -623,3 +623,44 @@ async def test_party_expiration_checks_memory_and_creation_is_rate_limited():
         room = await appmod.party_service.load(rooms[0])
         room.doc["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
         assert (await c.get(f"/api/party/{rooms[0]}" )).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_uqflex_cold_cache_fetches_and_global_sort_does_not_starve_partner(monkeypatch):
+    partner_item = {"id": "partner-new", "type": "movie", "title": "Partner new",
+                    "created_at": "2026-08-31T20:00:00Z", "video_url": "upstream-secret"}
+    monkeypatch.setattr(appmod.uqflex_catalog, "configured", lambda: True)
+    monkeypatch.setattr(appmod.uqflex_catalog, "_cache_items", [])
+    fetch = Mock(return_value=[partner_item])
+    monkeypatch.setattr(appmod.uqflex_catalog, "fetch_items", fetch)
+    await appmod.db.media.insert_many([
+        {"id": "local-old", "title": "Old", "type": "movie", "created_at": "2025-01-01T00:00:00Z"},
+        {"id": "local-new", "title": "New", "type": "movie", "created_at": "2026-08-30T00:00:00Z"},
+    ])
+    async with client() as c:
+        result = await c.get("/api/media", params={"limit": 2, "uqflex": "true"})
+        assert result.status_code == 200, result.text
+        assert [item["id"] for item in result.json()] == ["uq_partner-new", "local-new"]
+        assert "upstream-secret" not in result.text
+    fetch.assert_called_once_with(False)
+
+
+@pytest.mark.asyncio
+async def test_uqflex_episode_cache_is_revalidated_and_temporary_empty_result_is_safe(monkeypatch):
+    item = {"id": "show", "type": "series", "title": "Show"}
+    old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    await appmod.db.uqflex_episode_cache.insert_one({"id": "uq_show", "resolved_at": old,
+        "seasons": [{"season_number": 1, "episodes": [{"ep_number": 1, "title": "Keep"}]}]})
+    monkeypatch.setattr(appmod, "_uqflex_enrich_doc", AsyncMock())
+    monkeypatch.setattr(appmod.uqflex_catalog, "resolve_full_series_item", lambda value: {**value, "episodes": []})
+    await appmod._uqflex_update_details([item], enrichment_limit=0, episode_limit=1)
+    cached = await appmod.db.uqflex_episode_cache.find_one({"id": "uq_show"})
+    assert cached["seasons"][0]["episodes"][0]["title"] == "Keep"
+    assert cached["resolved_at"] == old
+
+    monkeypatch.setattr(appmod.uqflex_catalog, "resolve_full_series_item", lambda value: {
+        **value, "episodes": [{"season": 1, "episode": 1, "title": "Keep"},
+                               {"season": 1, "episode": 2, "title": "New episode"}]})
+    await appmod._uqflex_update_details([item], enrichment_limit=0, episode_limit=1)
+    cached = await appmod.db.uqflex_episode_cache.find_one({"id": "uq_show"})
+    assert [episode["ep_number"] for episode in cached["seasons"][0]["episodes"]] == [1, 2]

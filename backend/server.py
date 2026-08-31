@@ -1365,6 +1365,10 @@ async def _uqflex_media_docs(type_filter: Optional[str] = None, q: Optional[str]
         return []
     items = uqflex_catalog._cache_items
     if not items:
+        # A fresh Render process has no runtime disk cache. The first visitor
+        # must not see an empty catalogue while the background task starts.
+        items = await run_in_threadpool(uqflex_catalog.fetch_items, False)
+    if not items:
         return []
     ids = ["uq_%s" % str(item.get("id") or "") for item in items]
     overrides_map = {o["id"]: o async for o in db.uqflex_overrides.find({"id": {"$in": ids}}, {"_id": 0})}
@@ -1436,6 +1440,16 @@ async def list_media(type: Optional[str] = None, q: Optional[str] = None, featur
             ))
             docs = docs[:limit]
         else:
+            # The old local-first slice hid every partner title as soon as the
+            # local catalogue filled the requested limit.
+            def recent_key(doc):
+                value = doc.get("created_at") or ""
+                if isinstance(value, datetime):
+                    return value.isoformat()
+                if isinstance(value, (int, float)):
+                    return "%020d" % int(value)
+                return str(value)
+            docs.sort(key=recent_key, reverse=True)
             docs = docs[:limit]
     resultats = []
     for d in docs:
@@ -2361,7 +2375,7 @@ async def _uqflex_status_payload() -> dict:
     items = uqflex_catalog._cache_items if configured else []
     counts = {"movie": 0, "series": 0, "anime": 0}
     for item in items:
-        kind = uqflex_catalog.media_kind(item.get("type"))
+        kind = uqflex_catalog.item_kind(item)
         counts[kind] = counts.get(kind, 0) + 1
     last_sync_at = uqflex_catalog._last_sync_at
     next_sync_at = (last_sync_at + uqflex_catalog.SYNC_INTERVAL) if (configured and last_sync_at) else None
@@ -2374,7 +2388,7 @@ async def _uqflex_status_payload() -> dict:
         series_ids = [
             "uq_%s" % str(item.get("id") or "")
             for item in items
-            if uqflex_catalog.media_kind(item.get("type")) in {"series", "anime"}
+            if uqflex_catalog.item_kind(item) in {"series", "anime"}
         ]
         if series_ids:
             resolus = await db.uqflex_episode_cache.count_documents({"id": {"$in": series_ids}})
@@ -2382,6 +2396,7 @@ async def _uqflex_status_payload() -> dict:
     return {
         "configured": configured,
         "error": uqflex_catalog._last_sync_error or None,
+        "warning": uqflex_catalog._last_sync_warning or None,
         "last_sync_at": (
             datetime.fromtimestamp(last_sync_at, tz=timezone.utc).isoformat() if last_sync_at else None
         ),
@@ -2392,8 +2407,16 @@ async def _uqflex_status_payload() -> dict:
         "series": counts.get("series", 0),
         "anime": counts.get("anime", 0),
         "items": len(items),
+        "raw_items": uqflex_catalog._last_raw_count,
+        "last_attempt_at": (
+            datetime.fromtimestamp(uqflex_catalog._last_attempt_at, tz=timezone.utc).isoformat()
+            if uqflex_catalog._last_attempt_at else None
+        ),
+        "transport": uqflex_catalog.current_base() if configured else None,
         "pending_enrichment": pending_enrichment,
         "pending_episodes": pending_episodes,
+        "details_error": _uqflex_detail_error or None,
+        "details_updated_at": _uqflex_detail_at.isoformat() if _uqflex_detail_at else None,
     }
 
 
@@ -2431,6 +2454,92 @@ async def _uqflex_enrich_doc(doc: dict, media_id: str) -> dict:
     return doc
 
 
+UQFLEX_EPISODE_TTL = timedelta(minutes=30)
+_uqflex_sync_task = None
+_uqflex_detail_task = None
+_uqflex_detail_error = ""
+_uqflex_detail_at = None
+
+
+def _uqflex_cache_due(cached: Optional[dict], reference: datetime) -> bool:
+    if not cached or not cached.get("seasons") or not cached.get("resolved_at"):
+        return True
+    try:
+        resolved = datetime.fromisoformat(str(cached["resolved_at"]).replace("Z", "+00:00"))
+        if resolved.tzinfo is None:
+            resolved = resolved.replace(tzinfo=timezone.utc)
+        return reference - resolved >= UQFLEX_EPISODE_TTL
+    except (TypeError, ValueError):
+        return True
+
+
+async def _uqflex_update_details(items: list[dict], enrichment_limit: int = 20, episode_limit: int = 10) -> None:
+    """Gradually enrich new titles and revalidate existing episode lists."""
+    global _uqflex_detail_error, _uqflex_detail_at
+    try:
+        ids = ["uq_%s" % str(item.get("id") or "") for item in items]
+        enriched = set()
+        if ids:
+            cursor = db.uqflex_tmdb_enrichment.find({"id": {"$in": ids}}, {"_id": 0, "id": 1})
+            enriched = {doc["id"] async for doc in cursor}
+        pending = [item for item in items if "uq_%s" % str(item.get("id") or "") not in enriched]
+        for item in pending[:enrichment_limit]:
+            media_id = "uq_%s" % str(item.get("id") or "")
+            try:
+                await _uqflex_enrich_doc(uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE), media_id)
+            except Exception:
+                logger.exception("Enrichissement UQFlex a échoué pour %s", media_id)
+
+        series = [item for item in items if uqflex_catalog.item_kind(item) in {"series", "anime"}]
+        series_ids = ["uq_%s" % str(item.get("id") or "") for item in series]
+        cached = {}
+        if series_ids:
+            cursor = db.uqflex_episode_cache.find({"id": {"$in": series_ids}}, {"_id": 0})
+            cached = {doc["id"]: doc async for doc in cursor}
+        reference = datetime.now(timezone.utc)
+        due = [item for item in series if _uqflex_cache_due(cached.get("uq_%s" % item.get("id")), reference)]
+        due.sort(key=lambda item: str((cached.get("uq_%s" % item.get("id")) or {}).get("resolved_at") or ""))
+        for item in due[:episode_limit]:
+            media_id = "uq_%s" % str(item.get("id") or "")
+            try:
+                complete = await run_in_threadpool(uqflex_catalog.resolve_full_series_item, item)
+                seasons = uqflex_catalog.to_media_doc(complete, UQFLEX_API_BASE).get("seasons") or []
+                # A temporary partner failure must not replace a valid episode
+                # cache with an empty array.
+                if seasons or not (cached.get(media_id) or {}).get("seasons"):
+                    await db.uqflex_episode_cache.update_one(
+                        {"id": media_id},
+                        {"$set": {"id": media_id, "seasons": seasons, "resolved_at": reference.isoformat()}},
+                        upsert=True,
+                    )
+            except Exception:
+                logger.exception("Résolution des épisodes UQFlex a échoué pour %s", media_id)
+        _uqflex_detail_error = ""
+        _uqflex_detail_at = datetime.now(timezone.utc)
+    except Exception as exc:
+        _uqflex_detail_error = type(exc).__name__
+        logger.exception("Mise à jour des détails UQFlex échouée")
+
+
+def _start_uqflex_details(items: list[dict]) -> None:
+    global _uqflex_detail_task
+    if _uqflex_detail_task and not _uqflex_detail_task.done():
+        return
+    _uqflex_detail_task = asyncio.create_task(_uqflex_update_details(list(items)))
+
+
+async def _uqflex_sync_loop() -> None:
+    while True:
+        try:
+            items = await run_in_threadpool(uqflex_catalog.fetch_items, True)
+            await _uqflex_update_details(items)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Synchronisation automatique UQFlex échouée")
+        await asyncio.sleep(uqflex_catalog.SYNC_INTERVAL)
+
+
 @api_router.get("/admin/uqflex/status")
 async def admin_uqflex_status(user: dict = Depends(require_perm("content.add"))):
     if uqflex_catalog.configured():
@@ -2445,45 +2554,8 @@ async def admin_uqflex_status(user: dict = Depends(require_perm("content.add")))
 async def admin_uqflex_sync(user: dict = Depends(require_perm("content.add"))):
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="Clé partenaire UQFlex absente (variable UQFLEX_PARTNER_KEY non configurée).")
-    await run_in_threadpool(uqflex_catalog.fetch_items, True)
-    items = uqflex_catalog._cache_items
-    ids = ["uq_%s" % str(item.get("id") or "") for item in items]
-    deja_enrichis = set()
-    if ids:
-        curseur = db.uqflex_tmdb_enrichment.find({"id": {"$in": ids}}, {"_id": 0, "id": 1})
-        deja_enrichis = {doc["id"] async for doc in curseur}
-    a_enrichir = [item for item in items if ("uq_%s" % str(item.get("id") or "")) not in deja_enrichis]
-    # On limite le nombre d'enrichissements par appel pour ne pas bloquer la
-    # requête trop longtemps (chaque titre implique 1 à 2 appels TMDB) : le
-    # reste se complète automatiquement aux synchros suivantes.
-    for item in a_enrichir[:20]:
-        media_id = "uq_%s" % str(item.get("id") or "")
-        doc = uqflex_catalog.to_media_doc(item, UQFLEX_API_BASE)
-        await _uqflex_enrich_doc(doc, media_id)
-
-    # Idem pour les épisodes des séries : le catalogue ne les fournit pas,
-    # il faut les récupérer à part (potentiellement plusieurs appels par
-    # série, une par variante/saison), donc on limite aussi le lot ici.
-    series_items = [item for item in items if uqflex_catalog.media_kind(item.get("type")) in {"series", "anime"}]
-    series_ids = ["uq_%s" % str(item.get("id") or "") for item in series_items]
-    episodes_deja_resolus = set()
-    if series_ids:
-        curseur = db.uqflex_episode_cache.find({"id": {"$in": series_ids}}, {"_id": 0, "id": 1})
-        episodes_deja_resolus = {doc["id"] async for doc in curseur}
-    series_a_resoudre = [item for item in series_items if ("uq_%s" % str(item.get("id") or "")) not in episodes_deja_resolus]
-    for item in series_a_resoudre[:10]:
-        media_id = "uq_%s" % str(item.get("id") or "")
-        try:
-            item_complet = await run_in_threadpool(uqflex_catalog.resolve_full_series_item, item)
-            doc = uqflex_catalog.to_media_doc(item_complet, UQFLEX_API_BASE)
-        except Exception:
-            logger.exception("Résolution des épisodes UQFlex a échoué pour %s", media_id)
-            continue
-        await db.uqflex_episode_cache.update_one(
-            {"id": media_id},
-            {"$set": {"id": media_id, "seasons": doc.get("seasons") or [], "resolved_at": datetime.now(timezone.utc).isoformat()}},
-            upsert=True,
-        )
+    items = await run_in_threadpool(uqflex_catalog.fetch_items, True)
+    _start_uqflex_details(items)
     return await _uqflex_status_payload()
 
 
@@ -2529,10 +2601,68 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
     item = await run_in_threadpool(uqflex_catalog.find_item, id)
     if not item:
         raise HTTPException(status_code=404, detail="Contenu UQFlex introuvable.")
-    media_type = uqflex_catalog.media_kind(item.get("type"))
+    media_type = uqflex_catalog.item_kind(item)
+    range_demande = request.headers.get("range")
+    if uqflex_catalog.current_base() == "ssh":
+        path = uqflex_catalog.partner_stream_path(str(item.get("id") or ""), season, episode, media_type)
+        process = await run_in_threadpool(uqflex_catalog.ssh_stream, path, range_demande or "")
+        if not process or not process.stdout:
+            raise HTTPException(status_code=502, detail="Lecture UQFlex momentanément indisponible.")
+
+        def ssh_headers():
+            header = bytearray()
+            while len(header) < 65536:
+                byte = process.stdout.read(1)
+                if not byte:
+                    break
+                header.extend(byte)
+                if header.endswith(b"\r\n\r\n") or header.endswith(b"\n\n"):
+                    break
+            raw = bytes(header)
+            separator = b"\r\n\r\n" if b"\r\n\r\n" in raw else b"\n\n"
+            head, _, prefix = raw.partition(separator)
+            lines = head.decode("iso-8859-1", "replace").splitlines()
+            try:
+                status = int(lines[0].split(" ", 2)[1])
+            except (IndexError, ValueError):
+                status = 0
+            headers = {}
+            for line in lines[1:]:
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    if key.lower() in UQFLEX_PROXY_HEADERS_PASSTHROUGH:
+                        headers[key] = value.strip()
+            return status, headers, prefix
+
+        status, ssh_response_headers, prefix = await run_in_threadpool(ssh_headers)
+        if status not in (200, 206):
+            process.terminate()
+            raise HTTPException(status_code=502, detail="Lecture UQFlex momentanément indisponible.")
+        ssh_response_headers.setdefault("Accept-Ranges", "bytes")
+        ssh_response_headers["Content-Disposition"] = "inline"
+        ssh_response_headers["Cache-Control"] = "private, no-store"
+        media_type_header = ssh_response_headers.get("Content-Type", "video/mp4")
+        if request.method == "HEAD":
+            process.terminate()
+            return Response(status_code=status, headers=ssh_response_headers, media_type=media_type_header)
+
+        def ssh_relay():
+            try:
+                if prefix:
+                    yield prefix
+                while True:
+                    chunk = process.stdout.read(262144)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+
+        return StreamingResponse(ssh_relay(), status_code=status, headers=ssh_response_headers, media_type=media_type_header)
+
     cible = uqflex_catalog.partner_stream_url(str(item.get("id") or ""), season, episode, media_type)
     en_tetes = uqflex_catalog._headers()
-    range_demande = request.headers.get("range")
     if range_demande:
         en_tetes = {**en_tetes, "Range": range_demande}
 
@@ -7141,6 +7271,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    global _uqflex_sync_task
     await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.playback_grants.create_index("expires_at", expireAfterSeconds=0)
     await party_service.indexes()
@@ -7200,6 +7331,10 @@ async def startup():
         logger.warning(f"Migration expiration Wishboard échouée : {e}")
     # purge périodique des comptes bloqués depuis > 15 jours
     asyncio.create_task(_blocked_purge_loop())
+    if uqflex_catalog.configured() and (_uqflex_sync_task is None or _uqflex_sync_task.done()):
+        # Start immediately on every Render boot; previously the partner
+        # catalogue stayed empty until an administrator opened its tab.
+        _uqflex_sync_task = asyncio.create_task(_uqflex_sync_loop())
 
 async def _blocked_purge_loop():
     while True:
@@ -7211,4 +7346,10 @@ async def _blocked_purge_loop():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    for task in (_uqflex_sync_task, _uqflex_detail_task):
+        if task and not task.done():
+            task.cancel()
+    pending = [task for task in (_uqflex_sync_task, _uqflex_detail_task) if task]
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
     client.close()

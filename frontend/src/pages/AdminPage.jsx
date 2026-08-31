@@ -154,7 +154,7 @@ export default function AdminPage() {
             const r = await api.post("/admin/uqflex/sync");
             setUqflexStatus(r.data);
             await loadMedia();
-            toast.success("Catalogue UQFlex synchronisé");
+            toast.success("Catalogue UQFlex actualisé · détails en arrière-plan");
         } catch (e) { showError(toast, e, "Synchronisation UQFlex impossible"); }
         finally { setUqflexLoading(false); }
     };
@@ -956,8 +956,15 @@ export default function AdminPage() {
                                             </div>
                                         </div>
                                         {uqflexStatus.error && <div className="mt-4 border-t border-red-500/20 pt-3 text-xs text-red-300">{uqflexStatus.error}</div>}
+                                        {uqflexStatus.warning && <div className="mt-3 text-xs text-amber-300">Avertissement fournisseur : {uqflexStatus.warning}</div>}
+                                        {uqflexStatus.details_error && <div className="mt-3 text-xs text-amber-300">Détails ou épisodes : {uqflexStatus.details_error}</div>}
+                                        <div className="mt-4 grid gap-2 border-t border-[#1a1a1a] pt-3 text-xs text-neutral-500 sm:grid-cols-3">
+                                            <span>Réponse brute : <strong className="text-neutral-300">{uqflexStatus.raw_items ?? uqflexStatus.items}</strong></span>
+                                            <span>Fiches à enrichir : <strong className="text-neutral-300">{uqflexStatus.pending_enrichment ?? 0}</strong></span>
+                                            <span>Séries à résoudre : <strong className="text-neutral-300">{uqflexStatus.pending_episodes ?? 0}</strong></span>
+                                        </div>
                                         <p className="mt-4 border-t border-[#1a1a1a] pt-3 text-xs leading-relaxed text-neutral-500">
-                                            Le bouton force une nouvelle lecture du catalogue partenaire. Les fiches et les liens vidéo sont mis à jour sans copier les fichiers vidéo.
+                                            La synchronisation se lance au démarrage puis automatiquement. Le bouton relit immédiatement le catalogue ; les fiches et épisodes se complètent ensuite sans bloquer cette page.
                                         </p>
                                     </div>
                                 </>

@@ -15,7 +15,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r backend/requirements-test.txt pip-audit
-      - run: python -m pytest backend/tests/test_security_boundaries.py backend/tests/test_discord_economy.py tests/test_discord_api_validation.py -q
+      - run: python -m pytest backend/tests/test_security_boundaries.py backend/tests/test_uqflex_catalog.py backend/tests/test_discord_economy.py tests/test_discord_api_validation.py -q
       - run: python -m pip_audit --progress-spinner off
   frontend:
     runs-on: ubuntu-latest
