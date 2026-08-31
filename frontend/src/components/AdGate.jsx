@@ -1,5 +1,6 @@
 import { api } from "@/lib/api";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import PlayerLoading from "@/components/PlayerLoading";
 import { PlayCircle, Loader2, ShieldCheck, Lock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { loadAdsConfig, frequencyAllows, markShown, injectScript } from "@/lib/ads";
@@ -21,67 +22,88 @@ export default function AdGate({ onUnlock, access }) {
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
     const [open, setOpen] = useState(true);
+    const [attempt, setAttempt] = useState(0);
+    const [until, setUntil] = useState(0);
+    const callback = useRef(onUnlock);
+    const unlocked = useRef(false);
+    const adOpened = useRef(false);
+    useEffect(() => { callback.current = onUnlock; }, [onUnlock]);
 
     useEffect(() => {
         let active = true;
+        setError("");
+        setReady(false);
         (async () => {
-            const config = await loadAdsConfig();
+            if (access && !access.gate_steps) { callback.current(); return; }
+            try {
+            const config = await loadAdsConfig({ force: Boolean(access) || attempt > 0, strict: Boolean(access) });
             if (!active) return;
             const gate = config?.gate || {};
             const popScript = config?.popunder?.script_url || "";
             const directLink = gate.direct_link || "";
-            if (access ? !access.gate_steps : (!config?.enabled || !gate.enabled || (!popScript && !directLink))) { onUnlock(); return; }
-            if (!access && !frequencyAllows(FREQ_KEY, gate.frequency_minutes)) { onUnlock(); return; }
+            if (!access && (!config?.enabled || !gate.enabled || (!popScript && !directLink))) { callback.current(); return; }
+            if (!access && !frequencyAllows(FREQ_KEY, gate.frequency_minutes)) { callback.current(); return; }
+            if (!popScript && !directLink) throw new Error("Publicité non configurée. Contactez le support.");
             setCfg({ ...gate, ...(access ? { steps: access.gate_steps, seconds: access.gate_seconds } : {}), popScript, directLink });
             setReady(true);
+            } catch (error) {
+                if (active) setError(error?.message || "Publicités indisponibles. Réessayez.");
+            }
         })();
         return () => { active = false; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [access, attempt]);
 
     useEffect(() => {
-        if (wait <= 0) return undefined;
-        const timer = window.setTimeout(() => setWait((w) => w - 1), 1000);
-        return () => window.clearTimeout(timer);
-    }, [wait]);
+        const update = () => setWait(Math.max(0, Math.ceil((until - Date.now()) / 1000)));
+        update();
+        if (until <= Date.now()) return undefined;
+        const timer = window.setInterval(update, 250);
+        return () => window.clearInterval(timer);
+    }, [until]);
 
-    if (!ready || !cfg) return null;
+    useEffect(() => {
+        if (!cfg || step < (cfg.steps || 1) || wait > 0 || busy || unlocked.current) return;
+        unlocked.current = true;
+        markShown(FREQ_KEY);
+        setOpen(false);
+        callback.current();
+    }, [cfg, step, wait, busy]);
+
+    if (!ready || !cfg) return error ? <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-sm text-neutral-300"><p>{error}</p><button type="button" onClick={() => setAttempt(value => value + 1)} className="rounded-full bg-[#E8D2A6] px-5 py-2 text-black">Réessayer</button></div> : <PlayerLoading label="Préparation des publicités…" />;
 
     const total = cfg.steps || 1;
     const remaining = Math.max(0, total - step);
 
     const advance = async () => {
-        if (wait > 0 || busy) return;
+        if (wait > 0 || busy || step >= total) return;
         setBusy(true);
         setError("");
         // Ouverture pendant le clic : seule façon fiable d'échapper au bloqueur
         // de fenêtres. Le Direct Link mène à une vraie page publicitaire.
-        if (cfg.directLink) {
+        if (!adOpened.current && cfg.directLink) {
             window.open(cfg.directLink, "_blank", "noopener,noreferrer");
-        } else if (cfg.popScript) {
+            adOpened.current = true;
+        } else if (!adOpened.current && cfg.popScript) {
             injectScript(cfg.popScript);
+            adOpened.current = true;
         }
         if (access) {
             try {
                 await api.post("/playback/access/step", {}, { headers: { "X-Playback-Grant": access.grant }, silent: true });
             } catch (e) {
                 const seconds = Number(e?.response?.headers?.["retry-after"]);
-                if (seconds > 0) setWait(seconds);
+                if (seconds > 0) { setWait(seconds); setUntil(Date.now() + seconds * 1000); }
                 setError(e?.response?.data?.detail || "Étape non validée. Réessayez.");
                 setBusy(false);
                 return;
             }
         }
         setBusy(false);
+        adOpened.current = false;
         const next = step + 1;
-        if (next >= total) {
-            markShown(FREQ_KEY);
-            setOpen(false);
-            onUnlock();
-            return;
-        }
         setStep(next);
         setWait(cfg.seconds || 0);
+        setUntil(Date.now() + (cfg.seconds || 0) * 1000);
     };
 
     return (
@@ -131,13 +153,14 @@ export default function AdGate({ onUnlock, access }) {
                     <button
                         type="button"
                         onClick={advance}
-                        disabled={wait > 0 || busy}
+                        disabled={wait > 0 || busy || step >= total}
                         data-testid="gate-continue-btn"
                         className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#E8D2A6] px-6 font-semibold text-black transition-colors hover:bg-[#D4BB8B] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {wait > 0
                             ? <><Loader2 size={16} className="animate-spin" /> Patiente {wait}s…</>
-                            : <>{step === 0 ? "Continuer" : `Continuer (${step + 1}/${total})`}</>}
+                            : busy ? <><Loader2 size={16} className="animate-spin" /> Validation…</>
+                            : <>Ouvrir la publicité {Math.min(step + 1, total)}/{total}</>}
                     </button>
 
                     <div className="rounded-xl border border-[#262626] bg-[#111] p-3.5 text-left">

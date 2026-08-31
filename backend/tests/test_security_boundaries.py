@@ -183,6 +183,8 @@ async def test_csrf_and_cors():
 
 @pytest.mark.asyncio
 async def test_free_playback_requires_completed_resource_and_session_bound_grant(monkeypatch):
+    monkeypatch.setattr(appmod, "TURNSTILE_CONFIGURED", True)
+    monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": True, "hostname": "yourmovies.space"}))
     await media()
     ads = {"enabled": True, "gate": {"enabled": True, "steps": 2, "seconds": 15, "direct_link": "https://ad.example"}, "preroll": {"enabled": True, "skip_after": 5, "vast_tag_url": "https://ad.example/vast"}}
     monkeypatch.setattr(appmod, "_effective_ads", AsyncMock(return_value=ads))
@@ -193,13 +195,17 @@ async def test_free_playback_requires_completed_resource_and_session_bound_grant
         access = (await c.post("/api/playback/access", json={"media_id": "movie1"})).json()
         c.headers["X-Playback-Grant"] = access["grant"]
         assert (await c.post("/api/playback/access/complete")).status_code == 403
+        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 403
         assert (await c.post("/api/playback/access/step")).status_code == 200
         assert (await c.post("/api/playback/access/step")).status_code == 429
         past = datetime.now(timezone.utc) - timedelta(seconds=1)
         await appmod.db.playback_grants.update_many({}, {"$set": {"ready_at": past}})
         assert (await c.post("/api/playback/access/step")).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 429
+        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 429
         await appmod.db.playback_grants.update_many({}, {"$set": {"ready_at": past}})
+        assert (await c.post("/api/playback/access/complete")).status_code == 403
+        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 200
         r = await c.get("/api/media/movie1/playback")
         assert r.status_code == 200, r.text
@@ -346,6 +352,8 @@ async def test_session_and_playback_tokens_are_not_interchangeable():
 
 @pytest.mark.asyncio
 async def test_ad_frequency_is_server_side(monkeypatch):
+    monkeypatch.setattr(appmod, "TURNSTILE_CONFIGURED", True)
+    monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": True, "hostname": "yourmovies.space"}))
     monkeypatch.setattr(appmod, "_effective_ads", AsyncMock(return_value={"enabled": True, "gate": {
         "enabled": True, "steps": 1, "seconds": 0, "frequency_minutes": 30, "direct_link": "https://ad.example"}}))
     async with client() as c:
@@ -354,9 +362,39 @@ async def test_ad_frequency_is_server_side(monkeypatch):
         assert grant["gate_steps"] == 1
         c.headers["X-Playback-Grant"] = grant["grant"]
         assert (await c.post("/api/playback/access/step")).status_code == 200
+        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 200
         following = (await c.post("/api/playback/access", json={"media_id": "movie2"})).json()
         assert following["gate_steps"] == 0
+        c.headers["X-Playback-Grant"] = following["grant"]
+        assert (await c.post("/api/playback/access/complete")).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_is_required_for_free_accounts_and_proof_is_grant_bound(monkeypatch):
+    monkeypatch.setattr(appmod, "TURNSTILE_CONFIGURED", True)
+    monkeypatch.setattr(appmod, "TURNSTILE_SITE_KEY", "public-test-site-key")
+    monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": True, "hostname": "yourmovies.space"}))
+    async with client() as c:
+        await account(c)
+        assert (await c.get("/api/playback/verification")).json()["required"] is True
+        old_pass = (await c.post("/api/playback/verify", json={"token": "legacy-test-token"})).json()["pass"]
+        grant = (await c.post("/api/playback/access", json={"media_id": "movie1"})).json()
+        assert grant["verification_required"] is True
+        c.headers.update({"X-Playback-Grant": grant["grant"], "X-Playback-Pass": old_pass})
+        assert (await c.post("/api/playback/access/complete")).status_code == 403
+        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": False}))
+        assert (await c.post("/api/playback/verify", json={"token": "invalid-token"})).status_code == 403
+        assert (await c.post("/api/playback/access/complete")).status_code == 403
+        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": True, "hostname": "yourmovies.space"}))
+        assert (await c.post("/api/playback/verify", json={"token": "fresh-token"})).status_code == 200
+        assert (await c.post("/api/playback/access/complete")).status_code == 200
+        following = (await c.post("/api/playback/access", json={"media_id": "movie2"})).json()
+        c.headers["X-Playback-Grant"] = following["grant"]
+        assert (await c.post("/api/playback/access/complete")).status_code == 403
+    async with client() as premium:
+        await account(premium, uid="premium", premium=True)
+        assert (await premium.get("/api/playback/verification")).json()["required"] is False
 
 
 def test_partner_key_is_only_sent_to_explicit_https_destinations(monkeypatch):

@@ -17,7 +17,6 @@ import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
 import TurnstileGate from "@/components/TurnstileGate";
 import AvertissementContenu from "@/components/AvertissementContenu";
-import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
@@ -259,7 +258,7 @@ export default function WatchPage() {
     const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
     const [access, setAccess] = useState(null);
     const [source, setSource] = useState(null);
-    const [verifie, setVerifie] = useState(() => Boolean(lirePass()));
+    const [verifie, setVerifie] = useState(false);
     const [playbackActive, setPlaybackActive] = useState(false);
     const [chronologie, setChronologie] = useState({ titre: "", items: [] });
     const saveProgressRef = useRef(() => { });
@@ -482,6 +481,7 @@ export default function WatchPage() {
         setBunnyPlaybackError(null);
         setGateDone(false);
         setAdDone(false);
+        setVerifie(false);
         api.post("/playback/access", {
             media_id: id,
             season_number: media.type === "movie" ? null : String(selectedEpisode?.season_number ?? ""),
@@ -492,14 +492,14 @@ export default function WatchPage() {
     }, [id, media, selectedEpisode?.season_number, selectedEpisode?.ep_number, authEnCours, user?.user_id]);
 
     useEffect(() => {
-        if (!access || !bunnySource || authEnCours || (!user?.premium && ((!verifie && !user) || !gateDone || !adDone))) return;
+        if (!access || !bunnySource || authEnCours || (!user?.premium && (!verifie || !gateDone || !adDone))) return;
         let active = true;
         let retry;
         setSource(null);
         setManifestUrl(null);
         setApiPlayerActive(false);
         setBunnyPlaybackError(null);
-        const headers = { "X-Playback-Grant": access.grant, ...(lirePass() ? { "X-Playback-Pass": lirePass() } : {}) };
+        const headers = { "X-Playback-Grant": access.grant };
         const params = {
             ...(media?.type === "movie" ? {} : { season_number: selectedEpisode?.season_number, episode_number: selectedEpisode?.ep_number }),
             direct: 1,
@@ -822,15 +822,15 @@ export default function WatchPage() {
                             bunnyPlaybackError ? <div role="alert" className="flex aspect-video items-center justify-center p-8 text-center text-neutral-300">{bunnyPlaybackError}</div> : <PlayerLoading label="Préparation de la lecture…" />
                         ) : showGate ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <AdGate access={access} onUnlock={() => setGateDone(true)} />
+                                <AdGate key={access.grant} access={access} onUnlock={() => setGateDone(true)} />
                             </div>
                         ) : showAd ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <PreRollAd enforce required={access.preroll_seconds > 0} onDone={() => setAdDone(true)} />
+                                <PreRollAd key={access.grant} enforce required={access.preroll_seconds > 0} onDone={() => setAdDone(true)} />
                             </div>
-                        ) : !verifie && !user ? (
-                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <TurnstileGate onVerified={() => setVerifie(true)} />
+                        ) : !verifie && !user?.premium ? (
+                            <div className="relative w-full">
+                                <TurnstileGate key={access.grant} access={access} onVerified={() => setVerifie(true)} />
                             </div>
                         ) : bunnySource && !source && !bunnyPlaybackError ? (
                             <PlayerLoading />

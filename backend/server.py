@@ -2795,15 +2795,21 @@ class TurnstileInput(BaseModel):
 
 @api_router.get("/playback/verification")
 async def playback_verification(user: Optional[dict] = Depends(get_optional_user)):
-    """Un compte connecte n'est pas un robot : l'inscription est elle-meme
-    limitee, et la friction serait payee par les visiteurs les plus fideles.
-    La verification ne s'applique donc qu'aux visiteurs anonymes."""
-    requis = not user
+    """Le parcours gratuit se termine par Turnstile, même avec un compte."""
+    requis = not (user and _is_premium(user))
     return {"required": requis, "site_key": TURNSTILE_SITE_KEY if requis else ""}
 
 
 @api_router.post("/playback/verify")
-async def playback_verify(inp: TurnstileInput, request: Request):
+async def playback_verify(inp: TurnstileInput, request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
+    grant = None
+    if request.headers.get("x-playback-grant"):
+        grant = await read_playback_grant(request, viewer)
+        if grant["done"] != grant["steps"]:
+            raise HTTPException(status_code=403, detail="Terminez les publicités avant la vérification")
+        wait = remaining_wait(grant)
+        if wait:
+            raise HTTPException(status_code=429, detail="Patientez jusqu'à la fin de la publicité", headers={"Retry-After": str(wait)})
     if not TURNSTILE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Vérification non configurée")
     await _enforce_rate_limit(request, "turnstile", 30, 600)
@@ -2824,6 +2830,10 @@ async def playback_verify(inp: TurnstileInput, request: Request):
     if not resultat.get("success") or resultat.get("hostname") not in {urlparse(o).hostname for o in ALLOWED_ORIGINS}:
         logger.info("Verification anti-robots refusee : %s", resultat.get("error-codes"))
         raise HTTPException(status_code=403, detail="Vérification échouée, réessaie")
+
+    if grant:
+        await db.playback_grants.update_one({"_id": grant["_id"]}, {"$set": {"captcha_verified": True}})
+        return {"ok": True}
 
     expire = datetime.now(timezone.utc) + timedelta(minutes=PLAYBACK_PASS_MINUTES)
     laissez_passer = pyjwt.encode(
@@ -4914,9 +4924,10 @@ async def start_playback_access(inp: PlaybackAccessInput, request: Request, resp
         "_id": _token_fingerprint(token), "binding": binding,
         **inp.model_dump(), "steps": steps, "done": 0, "seconds": seconds,
         "pre_seconds": pre_seconds, "ready_at": now + timedelta(seconds=pre_seconds if not steps else 0),
-        "expires_at": now + timedelta(hours=1), "completed": False,
+        "expires_at": now + timedelta(hours=1), "completed": False, "captcha_verified": False,
     })
-    return {"grant": token, "gate_steps": steps, "gate_seconds": seconds, "preroll_seconds": pre_seconds}
+    return {"grant": token, "gate_steps": steps, "gate_seconds": seconds, "preroll_seconds": pre_seconds,
+            "verification_required": not (viewer and _is_premium(viewer))}
 
 
 async def read_playback_grant(request, viewer):
@@ -4948,22 +4959,22 @@ async def playback_access_step(request: Request, viewer: Optional[dict] = Depend
     final = grant["done"] + 1 == grant["steps"]
     result = await db.playback_grants.update_one(
         {"_id": grant["_id"], "done": grant["done"]},
-        {"$inc": {"done": 1}, "$set": {"ready_at": datetime.now(timezone.utc) + timedelta(seconds=grant["pre_seconds"] if final else grant["seconds"])}})
+        {"$inc": {"done": 1}, "$set": {"ready_at": datetime.now(timezone.utc) + timedelta(seconds=grant["seconds"] + (grant["pre_seconds"] if final else 0))}})
     if not result.modified_count:
         raise HTTPException(status_code=409, detail="Étape déjà traitée")
-    return {"ok": True}
+    return {"ok": True, "done": grant["done"] + 1, "wait_seconds": grant["seconds"]}
 
 
 @api_router.post("/playback/access/complete")
 async def complete_playback_access(request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
     grant = await read_playback_grant(request, viewer)
-    if not viewer and not _laissez_passer_valide(request.headers.get("x-playback-pass"), request):
-        raise HTTPException(status_code=403, detail="Vérification requise avant la lecture")
     if grant["done"] != grant["steps"]:
         raise HTTPException(status_code=403, detail="Étapes de lecture incomplètes")
     wait = remaining_wait(grant)
     if wait:
         raise HTTPException(status_code=429, detail="Patientez avant la lecture", headers={"Retry-After": str(wait)})
+    if not (viewer and _is_premium(viewer)) and not grant.get("captcha_verified"):
+        raise HTTPException(status_code=403, detail="Vérification Cloudflare requise après les publicités")
     await db.playback_grants.update_one({"_id": grant["_id"]}, {"$set": {"completed": True}})
     if not grant["completed"]:
         now = datetime.now(timezone.utc)

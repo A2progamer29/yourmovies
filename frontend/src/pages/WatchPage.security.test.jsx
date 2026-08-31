@@ -74,11 +74,14 @@ test("anonymous playback waits for gates then obtains only the server-authorized
     expect(container.querySelector('[data-testid="source"]').textContent).toContain("bcdn_token=signed");
 });
 
-test("signed-in free member does not stall on an unnecessary captcha", async () => {
+test("signed-in free member must verify Cloudflare after the final ad", async () => {
     await mount({ user_id: "free", premium: false });
     await click("gate");
     await click("preroll");
-    expect(container.querySelector('[data-testid="captcha"]')).toBeNull();
+    expect(container.querySelector('[data-testid="captcha"]')).not.toBeNull();
+    expect(api.post.mock.calls.some(([url]) => url === "/playback/access/complete")).toBe(false);
+    expect(api.get.mock.calls.some(([url]) => url.endsWith("/playback"))).toBe(false);
+    await click("captcha");
     expect(container.querySelector('[data-testid="source"]').textContent).toContain("bcdn_token=signed");
 });
 

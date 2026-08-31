@@ -655,7 +655,6 @@ export default function VideoPlayer({
                 <>
                     <div className="ym-player-brand" aria-hidden="true">
                         <div className="ym-player-top-title"><strong>{fiche?.titre}</strong><span>{fiche?.sousTitre}</span></div>
-                        <div className="ym-player-wordmark">your<span>movies</span></div>
                     </div>
                     <div className="ym-player-controls">
                         <div className="ym-player-progress-row">

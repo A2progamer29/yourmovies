@@ -14,6 +14,12 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
     const [campaign, setCampaign] = useState(null);
     const [left, setLeft] = useState(0);
     const [skipAfter, setSkipAfter] = useState(5);
+    const [elapsed, setElapsed] = useState(0);
+    const [duration, setDuration] = useState(15);
+    const [error, setError] = useState("");
+    const [needsPlay, setNeedsPlay] = useState(false);
+    const [attempt, setAttempt] = useState(0);
+    const impressionSent = useRef(false);
 
     useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
@@ -26,30 +32,39 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
     // Sélection de la source : VAST (régie) puis campagne maison, sinon on passe.
     useEffect(() => {
         let active = true;
+        setError(""); setVast(null); setCampaign(null); setElapsed(0); setNeedsPlay(false);
+        finishedRef.current = false;
+        impressionSent.current = false;
         (async () => {
+            try {
             if (!required) { finish(); return; }
-            const cfg = await loadAdsConfig();
+            const cfg = await loadAdsConfig({ force: enforce || attempt > 0, strict: enforce });
             if (!active) return;
             const pre = cfg?.preroll || {};
-            if (!cfg?.enabled || !pre.enabled) { finish(); return; }
+            if (!cfg?.enabled || !pre.enabled) {
+                if (enforce) throw new Error("Publicité indisponible. Réessayez dans un instant.");
+                finish(); return;
+            }
             if (!enforce && !frequencyAllows(FREQ_KEY, pre.frequency_minutes)) { finish(); return; }
 
-            setSkipAfter(Number(pre.skip_after) || 5);
+            setSkipAfter(Math.max(0, Number(pre.skip_after ?? 5)));
 
             if (pre.vast_tag_url) {
                 const parsed = await fetchVast(pre.vast_tag_url);
                 if (!active) return;
                 if (parsed) {
-                    markShown(FREQ_KEY);
-                    fireTrackers(parsed.impressions);
                     setVast(parsed);
+                    setDuration(Number(pre.duration) || 15);
                     setLeft(Number(pre.duration) || 15);
                     return;
                 }
             }
 
             const house = (cfg.campaigns || []).filter((c) => c.url);
-            if (!house.length) { finish(); return; }
+            if (!house.length) {
+                if (enforce) throw new Error("La régie n'a pas fourni de publicité. Réessayez.");
+                finish(); return;
+            }
             let index = 0;
             try {
                 const previous = Number(sessionStorage.getItem("ym_last_ad") || -1);
@@ -59,34 +74,44 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
             const chosen = house[index];
             markShown(FREQ_KEY);
             setCampaign(chosen);
-            setSkipAfter(Number(chosen.skipAfter) || 5);
+            setSkipAfter(Math.max(0, Number(chosen.skipAfter ?? 5)));
+            setDuration(Number(chosen.duration) || 10);
             setLeft(Number(chosen.duration) || 10);
+            } catch (error) {
+                if (active) setError(error?.message || "Chargement de la publicité impossible.");
+            }
         })();
         return () => { active = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [enforce, required, attempt]);
 
-    // Décompte commun aux deux modes.
+    // Une vidéo est comptée à partir de sa progression réelle, jamais d'une
+    // horloge démarrée pendant son chargement ou un refus de lecture automatique.
     useEffect(() => {
-        if (!vast && !campaign) return undefined;
+        if (!campaign) return undefined;
         const timer = window.setInterval(() => {
-            setLeft((current) => {
-                if (current <= 1) {
-                    window.clearInterval(timer);
-                    finish();
-                    return 0;
-                }
-                return current - 1;
-            });
+            if (document.visibilityState === "hidden") return;
+            setElapsed(current => Math.min(duration, current + 1));
+            setLeft(current => Math.max(0, current - 1));
         }, 1000);
         return () => window.clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [vast, campaign]);
+    }, [campaign, duration]);
+
+    useEffect(() => {
+        if (campaign && elapsed >= duration) finish();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [campaign, elapsed, duration]);
+
+    const playAd = () => {
+        setNeedsPlay(false);
+        videoRef.current?.play()?.catch(() => setNeedsPlay(true));
+    };
+
+    if (error) return <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#050505] p-6 text-center text-sm text-neutral-300"><p>{error}</p><button type="button" onClick={() => setAttempt(value => value + 1)} className="rounded-full bg-[#E8D2A6] px-5 py-2 text-black">Réessayer la publicité</button></div>;
 
     if (!vast && !campaign) return <PlayerLoading label="Préparation de la publicité…" />;
 
-    const total = vast ? Math.max(1, left) : campaign.duration;
-    const elapsed = Math.max(0, (vast ? (videoRef.current?.duration || total) : total) - left);
     const canSkip = elapsed >= skipAfter;
 
     const SkipButton = () => canSkip ? (
@@ -111,10 +136,21 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
                     controls={false}
                     data-testid="preroll-vast"
                     className="h-full w-full object-contain"
+                    onCanPlay={playAd}
+                    onPlaying={() => {
+                        setNeedsPlay(false);
+                        if (!impressionSent.current) { impressionSent.current = true; markShown(FREQ_KEY); fireTrackers(vast.impressions); }
+                    }}
+                    onTimeUpdate={event => {
+                        const video = event.currentTarget;
+                        setElapsed(video.currentTime);
+                        setLeft(Math.ceil(Math.max(0, (Number.isFinite(video.duration) ? video.duration : duration) - video.currentTime)));
+                    }}
                     onEnded={finish}
-                    onError={finish}
+                    onError={() => setError("La publicité vidéo n'a pas pu être chargée. Réessayez.")}
                     onClick={() => vast.clickThrough && window.open(vast.clickThrough, "_blank", "noopener,noreferrer")}
                 />
+                {needsPlay && <button type="button" onClick={playAd} className="absolute inset-0 flex items-center justify-center bg-black/60 text-sm text-white">Lancer la publicité</button>}
                 <div className="pointer-events-none absolute left-3 top-3 rounded border border-white/15 bg-black/65 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-white/80 backdrop-blur">
                     Publicité
                 </div>
