@@ -59,9 +59,6 @@
 .ym-player-skip { display: grid; place-items: center; }
 .ym-player-skip svg { grid-area: 1 / 1; width: 25px; height: 25px; stroke-width: 1.7; }
 .ym-player-skip span { grid-area: 1 / 1; margin-top: 3px; font-size: 8px; font-weight: 700; }
-.ym-player-title { flex: 1; min-width: 0; text-align: center; }
-.ym-player-title strong { display: block; font-family: Outfit, system-ui, sans-serif; font-size: clamp(14px, 1.7vw, 20px); font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-.ym-player-title span { display: block; margin-top: 3px; font-size: 11px; color: #a9a9a9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ym-player-volume { position: relative; }
 .ym-player-volume-panel { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); padding: 14px 12px; width: 44px; height: 128px; background: #1b1b1bf5; border-radius: 6px; display: none; }
 .ym-player-volume:hover .ym-player-volume-panel, .ym-player-volume:focus-within .ym-player-volume-panel { display: flex; justify-content: center; }
@@ -106,7 +103,6 @@
 .ym-player[data-compact="true"] .ym-player-toolbar, .ym-player[data-compact="true"] .ym-player-toolbar-group { gap: 2px; }
 .ym-player[data-compact="true"] .ym-player-button > svg { width: 19px; height: 19px; }
 .ym-player[data-compact="true"] .ym-player-time { font-size: 10px; }
-.ym-player[data-compact="true"] .ym-player-title { display: none; }
 .ym-player[data-compact="true"] .ym-player-center { width: 42px; height: 42px; }
 .ym-player[data-compact="true"] .ym-player-center svg { width: 19px; height: 19px; }
 .ym-player[data-compact="true"] .ym-player-settings { inset: 8px; width: auto; max-width: none; max-height: none; }
@@ -120,7 +116,6 @@
 .ym-player[data-compact="true"] .ym-player-speed-choices .ym-player-choice-check svg { width: 14px; }
 .ym-player[data-compact="true"] .ym-player-speed-choices .ym-player-choice-detail { display: none; }
 .ym-player[data-compact="true"] .ym-player-button::after { display: none; }
-.ym-player .ym-player-button > .ym-player-download-lock { position: absolute; right: 4px; bottom: 6px; width: 10px; height: 10px; color: var(--player-gold); }
 .ym-player-download:disabled { cursor: progress; opacity: .65; }
 .ym-player[data-narrow="true"] .ym-player-button { width: 38px; }
 .ym-player[data-narrow="true"] .ym-player-volume { display: none; }

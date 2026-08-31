@@ -998,8 +998,7 @@ export default function WatchPage() {
                         )}
                         </div>
 
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                            <OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} className="h-10" />
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
                             <div className="flex items-center">
                             <AvertissementContenu media={media} />
                             <ReportDialog

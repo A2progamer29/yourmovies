@@ -57,7 +57,6 @@ export default function OfflineDownloadButton({ media, episode = null, compact =
             className={player ? `ym-player-button ym-player-download ${className}` : `rounded-full border-[#262626] bg-[#111] text-white hover:border-[#E8D2A6]/60 hover:bg-white/5 hover:text-[#E8D2A6] ${completed ? "border-[#E8D2A6]/45 text-[#E8D2A6]" : ""} ${compact ? "h-10 w-10 shrink-0 p-0" : "h-12 px-5"} ${className}`}
         >
             <Icon size={16} aria-hidden="true" className={`${current ? "animate-spin" : ""} ${compact || player ? "" : "mr-2"}`} />
-            {player && !eligible && <Crown aria-hidden="true" className="ym-player-download-lock" />}
             {!compact && !player && label}
         </Control>
     );

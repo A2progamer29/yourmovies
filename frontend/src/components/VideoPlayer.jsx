@@ -691,10 +691,6 @@ export default function VideoPlayer({
                                     </div>}
                                 </div>
                             </div>
-                            <div className="ym-player-title">
-                                <strong>{fiche?.titre || "Votre séance"}</strong>
-                                {fiche?.sousTitre && <span>{fiche.sousTitre}</span>}
-                            </div>
                             <div className="ym-player-toolbar-group">
                                 {!compact && <button type="button" ref={speedTriggerRef} aria-label="Vitesse de lecture" data-tooltip="Vitesse de lecture"
                                     aria-expanded={showSettings && settingsSection === "speed"} aria-haspopup="dialog"
