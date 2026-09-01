@@ -405,6 +405,7 @@ export default function HomePage() {
                     items={recommendationItems}
                     seeAllHref="/browse"
                     testId="carousel-recommendations"
+                    cinematicHover
                 />
             )}
 
@@ -434,7 +435,7 @@ export default function HomePage() {
 
             {isEmpty ? null : (
                 <>
-                    <MediaCarousel title="Ajouts récents" eyebrow="Nouveautés" items={latest} seeAllHref="/browse" testId="carousel-latest" />
+                    <MediaCarousel title="Ajouts récents" eyebrow="Nouveautés" items={latest} seeAllHref="/browse" testId="carousel-latest" cinematicHover />
                     <TopTenCarousel items={trending} />
 
                     <section className="max-w-7xl mx-auto px-6 mt-16">
@@ -462,13 +463,14 @@ export default function HomePage() {
                         </Link>
                     </section>
 
-                    {movies.length > 0 && <MediaCarousel title="Films" items={movies} seeAllHref="/browse?type=movie" testId="carousel-movies" />}
-                    {series.length > 0 && <MediaCarousel title="Séries" items={series} seeAllHref="/browse?type=series" testId="carousel-series" />}
+                    {movies.length > 0 && <MediaCarousel title="Films" items={movies} seeAllHref="/browse?type=movie" testId="carousel-movies" cinematicHover />}
+                    {series.length > 0 && <MediaCarousel title="Séries" items={series} seeAllHref="/browse?type=series" testId="carousel-series" cinematicHover />}
                     <MediaCarousel
                         title="Animes"
                         items={animes}
                         seeAllHref="/browse?type=anime"
                         testId="carousel-animes"
+                        cinematicHover
                         showEmpty
                         emptyMessage="Aucun anime n’est encore disponible."
                     />

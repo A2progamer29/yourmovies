@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import MediaCard from "@/components/MediaCard";
 import HScroller from "@/components/HScroller";
 
-export default function MediaCarousel({ title, eyebrow = "Catalogue", items, seeAllHref, testId, showEmpty = false, emptyMessage = "Aucun contenu pour le moment." }) {
+export default function MediaCarousel({ title, eyebrow = "Catalogue", items, seeAllHref, testId, showEmpty = false, emptyMessage = "Aucun contenu pour le moment.", cinematicHover = false }) {
     if ((!items || items.length === 0) && !showEmpty) return null;
     return (
         <section className="max-w-7xl mx-auto px-6 mt-16" data-testid={testId || "media-carousel"}>
@@ -25,7 +25,7 @@ export default function MediaCarousel({ title, eyebrow = "Catalogue", items, see
             {items && items.length > 0 ? (
                 <HScroller testId={testId ? `${testId}-scroller` : undefined}>
                     {items.map((m) => (
-                        <MediaCard key={m.id} media={m} />
+                        <MediaCard key={m.id} media={m} cinematicHover={cinematicHover} />
                     ))}
                 </HScroller>
             ) : (

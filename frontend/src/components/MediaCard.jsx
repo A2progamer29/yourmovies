@@ -9,7 +9,7 @@ import { useFavorites } from "@/context/FavoritesContext";
 
 const POSTER_FALLBACK = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3Crect width='100%25' height='100%25' fill='%230a0a0a'/%3E%3C/svg%3E";
 
-export default function MediaCard({ media, size = "md" }) {
+export default function MediaCard({ media, size = "md", cinematicHover = false }) {
     const { user } = useAuth();
     const { favIds, watchIds, setStatus } = useFavorites();
     const navigate = useNavigate();
@@ -107,17 +107,28 @@ export default function MediaCard({ media, size = "md" }) {
             onTouchMove={cancelPress}
             onContextMenu={(e) => { if (isTouch) e.preventDefault(); }}
             style={{ WebkitTouchCallout: "none" }}
-            className={`poster-tile group shrink-0 ${widths[size]} snap-start focus-ring rounded-lg select-none`}
+            className={`poster-tile group shrink-0 ${widths[size]} snap-start focus-ring rounded-lg select-none ${cinematicHover ? "home-cinematic-card" : ""}`}
         >
-            <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-[#1a1a1a] group-hover:border-[#E8D2A6]/40 transition-colors bg-[#111]">
+            <div className="media-card__visual relative aspect-[2/3] overflow-hidden rounded-lg border border-[#1a1a1a] group-hover:border-[#E8D2A6]/40 transition-colors bg-[#111]">
                 <img
                     src={media.poster_url || POSTER_FALLBACK}
                     alt={media.title}
                     loading="lazy"
                     draggable={false}
-                    className="w-full h-full object-cover"
+                    className="media-card__poster w-full h-full object-cover"
                     onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = POSTER_FALLBACK; }}
                 />
+                {cinematicHover && (
+                    <img
+                        src={media.banner_url || media.poster_url || POSTER_FALLBACK}
+                        alt=""
+                        aria-hidden="true"
+                        loading="lazy"
+                        draggable={false}
+                        className="media-card__banner absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = media.poster_url || POSTER_FALLBACK; }}
+                    />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505]/95 via-[#050505]/10 to-transparent opacity-90" />
 
                 <AnimatePresence>
