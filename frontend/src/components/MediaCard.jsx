@@ -109,6 +109,7 @@ export default function MediaCard({ media, size = "md", cinematicHover = false }
             style={{ WebkitTouchCallout: "none" }}
             className={`poster-tile group shrink-0 ${widths[size]} snap-start focus-ring rounded-lg select-none ${cinematicHover ? "home-cinematic-card" : ""}`}
         >
+            <div className="media-card__morph">
             <div className="media-card__visual relative aspect-[2/3] overflow-hidden rounded-lg border border-[#1a1a1a] group-hover:border-[#E8D2A6]/40 transition-colors bg-[#111]">
                 <img
                     src={media.poster_url || POSTER_FALLBACK}
@@ -197,6 +198,7 @@ export default function MediaCard({ media, size = "md", cinematicHover = false }
                         </>
                     )}
                 </div>
+            </div>
             </div>
         </Link>
     );
