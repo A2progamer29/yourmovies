@@ -8,7 +8,7 @@ global.IS_REACT_ACT_ENVIRONMENT = true;
 jest.mock("@/lib/api", () => ({ api: { get: jest.fn(), post: jest.fn() } }));
 jest.mock("@/lib/playbackPass", () => ({ lirePass: jest.fn(), ecrirePass: jest.fn() }));
 let container, root, verified, options;
-const access = { grant: "current-grant" };
+const access = { grant: "current-grant", captcha_context: "0123456789abcdef0123456789abcdef" };
 beforeEach(() => {
     jest.clearAllMocks(); container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
     verified = jest.fn(); lirePass.mockReturnValue("old-pass");
@@ -23,6 +23,8 @@ test("a cached session pass never skips the fresh grant-bound challenge", async 
     await mount();
     expect(verified).not.toHaveBeenCalled();
     expect(window.turnstile.render).toHaveBeenCalledTimes(1);
+    expect(options.action).toBe("playback");
+    expect(options.cData).toBe(access.captcha_context);
     await act(async () => options.callback("cloudflare-response"));
     expect(api.post).toHaveBeenCalledWith("/playback/verify", { token: "cloudflare-response" }, expect.objectContaining({ headers: { "X-Playback-Grant": "current-grant" } }));
     expect(verified).toHaveBeenCalledTimes(1);

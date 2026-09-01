@@ -2676,13 +2676,24 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
     lui-même, donc c'est notre serveur qui s'authentifie et transmet le
     flux (avec le support de l'avance/recul via Range)."""
     try:
-        capability = pyjwt.decode(request.query_params.get("access", ""), JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "typ", "media_id", "season", "episode", "binding"]})
+        capability = pyjwt.decode(request.query_params.get("access", ""), JWT_SECRET, algorithms=[JWT_ALGO], options={"require": ["exp", "typ", "media_id", "season", "episode", "binding", "grant_id"]})
         if capability["typ"] != "uqflex-stream" or capability["media_id"] != id or capability["season"] != season or capability["episode"] != episode:
             raise pyjwt.InvalidTokenError("wrong resource")
         if not isinstance(capability["binding"], str) or not secrets.compare_digest(capability["binding"], playback_binding(request, viewer)):
             raise pyjwt.InvalidTokenError("wrong session")
     except pyjwt.InvalidTokenError:
         raise HTTPException(status_code=403, detail="Autorisation de lecture requise")
+    grant_id = capability.get("grant_id")
+    if grant_id:
+        grant = await db.playback_grants.find_one({
+            "_id": grant_id, "binding": capability["binding"], "media_id": id,
+            "completed": True, "captcha_verified": True,
+            "expires_at": {"$gt": datetime.now(timezone.utc)},
+        })
+        if not grant or str(grant.get("season_number") or "") != season or str(grant.get("episode_number") or "") != episode:
+            raise HTTPException(status_code=403, detail="Autorisation publicitaire expirée")
+    elif not (viewer and _is_premium(viewer)):
+        raise HTTPException(status_code=403, detail="Autorisation Premium ou publicitaire requise")
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="UQFlex non configuré.")
     item = await run_in_threadpool(uqflex_catalog.find_item, id)
@@ -3024,6 +3035,8 @@ async def playback_verify(inp: TurnstileInput, request: Request, viewer: Optiona
         grant = await read_playback_grant(request, viewer)
         if grant["done"] != grant["steps"]:
             raise HTTPException(status_code=403, detail="Terminez les publicités avant la vérification")
+        if grant.get("pre_seconds") and not grant.get("preroll_completed"):
+            raise HTTPException(status_code=403, detail="Terminez la publicité vidéo avant la vérification")
         wait = remaining_wait(grant)
         if wait:
             raise HTTPException(status_code=429, detail="Patientez jusqu'à la fin de la publicité", headers={"Retry-After": str(wait)})
@@ -3044,7 +3057,11 @@ async def playback_verify(inp: TurnstileInput, request: Request, viewer: Optiona
         logger.error("Verification anti-robots injoignable : %s", exc)
         raise HTTPException(status_code=502, detail="Vérification indisponible, réessaie dans un instant")
 
-    if not resultat.get("success") or resultat.get("hostname") not in {urlparse(o).hostname for o in ALLOWED_ORIGINS}:
+    valid = bool(resultat.get("success")) and resultat.get("hostname") in {urlparse(o).hostname for o in ALLOWED_ORIGINS}
+    if grant:
+        valid = valid and resultat.get("action") == "playback" and isinstance(resultat.get("cdata"), str)
+        valid = valid and secrets.compare_digest(resultat.get("cdata") or "", str(grant.get("captcha_context") or ""))
+    if not valid:
         logger.info("Verification anti-robots refusee : %s", resultat.get("error-codes"))
         raise HTTPException(status_code=403, detail="Vérification échouée, réessaie")
 
@@ -5104,6 +5121,17 @@ class PlaybackAccessInput(BaseModel):
     episode_number: Optional[str] = Field(default=None, max_length=10)
 
 
+class PlaybackStepInput(BaseModel):
+    action: Literal["start", "complete"]
+    ticket: str = Field(min_length=20, max_length=160)
+    challenge: Optional[str] = Field(default=None, min_length=20, max_length=160)
+
+
+class PlaybackPrerollInput(BaseModel):
+    action: Literal["start", "complete"]
+    challenge: Optional[str] = Field(default=None, min_length=20, max_length=160)
+
+
 def playback_binding(request, viewer, visitor=None):
     token = request.cookies.get(AUTH_COOKIE) if viewer else (visitor or request.cookies.get(VISITOR_COOKIE))
     if not token:
@@ -5131,19 +5159,26 @@ async def start_playback_access(inp: PlaybackAccessInput, request: Request, resp
     pre = ads.get("preroll") or {}
     gate_enabled = ads.get("enabled") and gate.get("enabled") and due("gate", gate.get("frequency_minutes")) and (gate.get("direct_link") or (ads.get("popunder") or {}).get("script_url"))
     steps = max(1, min(10, safe_int(gate.get("steps"), 1))) if gate_enabled else 0
-    seconds = max(0, min(120, safe_int(gate.get("seconds"), 0))) if steps else 0
+    # A configured gate always has a short server-enforced delay.  A zero value
+    # must not turn the proof endpoint into an instant client-side counter.
+    seconds = max(3, min(120, safe_int(gate.get("seconds"), 3))) if steps else 0
     pre_seconds = 0
     if ads.get("enabled") and pre.get("enabled") and due("preroll", pre.get("frequency_minutes")) and (pre.get("vast_tag_url") or ads.get("campaigns")):
-        pre_seconds = max(1, min(120, safe_int(pre.get("skip_after"), 5)))
+        pre_seconds = max(3, min(120, safe_int(pre.get("skip_after"), 5)))
     now = datetime.now(timezone.utc)
     token = secrets.token_urlsafe(32)
+    step_ticket = secrets.token_urlsafe(32)
+    captcha_context = secrets.token_hex(16)
     await db.playback_grants.insert_one({
         "_id": _token_fingerprint(token), "binding": binding,
         **inp.model_dump(), "steps": steps, "done": 0, "seconds": seconds,
-        "pre_seconds": pre_seconds, "ready_at": now + timedelta(seconds=pre_seconds if not steps else 0),
-        "expires_at": now + timedelta(hours=1), "completed": False, "captcha_verified": False,
+        "step_ticket_hash": _token_fingerprint(step_ticket), "active_step_challenge": None,
+        "pre_seconds": pre_seconds, "preroll_challenge": None, "preroll_completed": pre_seconds == 0,
+        "ready_at": now, "expires_at": now + timedelta(hours=1),
+        "captcha_context": captcha_context, "completed": False, "captcha_verified": False,
     })
     return {"grant": token, "gate_steps": steps, "gate_seconds": seconds, "preroll_seconds": pre_seconds,
+            "step_ticket": step_ticket, "captcha_context": captcha_context,
             "verification_required": not (viewer and _is_premium(viewer))}
 
 
@@ -5166,20 +5201,69 @@ def remaining_wait(grant):
 
 
 @api_router.post("/playback/access/step")
-async def playback_access_step(request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
+async def playback_access_step(inp: PlaybackStepInput, request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
     grant = await read_playback_grant(request, viewer)
+    if grant["done"] >= grant["steps"]:
+        return {"ok": True, "remaining_steps": 0}
+    if not secrets.compare_digest(_token_fingerprint(inp.ticket), str(grant.get("step_ticket_hash") or "")):
+        raise HTTPException(status_code=403, detail="Preuve d'étape invalide")
+    if inp.action == "start":
+        if grant.get("active_step_challenge"):
+            return {"ok": True, "challenge": grant["active_step_challenge"],
+                    "wait_seconds": remaining_wait(grant), "remaining_steps": grant["steps"] - grant["done"]}
+        challenge = secrets.token_urlsafe(32)
+        result = await db.playback_grants.update_one(
+            {"_id": grant["_id"], "done": grant["done"], "active_step_challenge": None},
+            {"$set": {"active_step_challenge": challenge,
+                      "ready_at": datetime.now(timezone.utc) + timedelta(seconds=grant["seconds"])}})
+        if not result.modified_count:
+            raise HTTPException(status_code=409, detail="Étape déjà démarrée")
+        return {"ok": True, "challenge": challenge, "wait_seconds": grant["seconds"],
+                "remaining_steps": grant["steps"] - grant["done"]}
+    if not inp.challenge or not grant.get("active_step_challenge") or not secrets.compare_digest(inp.challenge, grant["active_step_challenge"]):
+        raise HTTPException(status_code=403, detail="Preuve d'ouverture publicitaire invalide")
     wait = remaining_wait(grant)
     if wait:
         raise HTTPException(status_code=429, detail="Patientez avant de continuer", headers={"Retry-After": str(wait)})
-    if grant["done"] >= grant["steps"]:
-        return {"ok": True}
-    final = grant["done"] + 1 == grant["steps"]
+    next_ticket = secrets.token_urlsafe(32)
     result = await db.playback_grants.update_one(
-        {"_id": grant["_id"], "done": grant["done"]},
-        {"$inc": {"done": 1}, "$set": {"ready_at": datetime.now(timezone.utc) + timedelta(seconds=grant["seconds"] + (grant["pre_seconds"] if final else 0))}})
+        {"_id": grant["_id"], "done": grant["done"], "step_ticket_hash": grant["step_ticket_hash"],
+         "active_step_challenge": grant["active_step_challenge"]},
+        {"$inc": {"done": 1}, "$set": {"step_ticket_hash": _token_fingerprint(next_ticket),
+          "active_step_challenge": None, "ready_at": datetime.now(timezone.utc)}})
     if not result.modified_count:
         raise HTTPException(status_code=409, detail="Étape déjà traitée")
-    return {"ok": True, "done": grant["done"] + 1, "wait_seconds": grant["seconds"]}
+    remaining = grant["steps"] - grant["done"] - 1
+    return {"ok": True, "remaining_steps": remaining, "next_step_ticket": next_ticket if remaining else None}
+
+
+@api_router.post("/playback/access/preroll")
+async def playback_access_preroll(inp: PlaybackPrerollInput, request: Request, viewer: Optional[dict] = Depends(get_optional_user)):
+    grant = await read_playback_grant(request, viewer)
+    if grant["done"] != grant["steps"]:
+        raise HTTPException(status_code=403, detail="Terminez les étapes publicitaires")
+    if not grant.get("pre_seconds"):
+        return {"ok": True, "completed": True}
+    if inp.action == "start":
+        if grant.get("preroll_challenge"):
+            return {"ok": True, "challenge": grant["preroll_challenge"], "wait_seconds": remaining_wait(grant)}
+        challenge = secrets.token_urlsafe(32)
+        result = await db.playback_grants.update_one(
+            {"_id": grant["_id"], "preroll_challenge": None},
+            {"$set": {"preroll_challenge": challenge,
+                      "ready_at": datetime.now(timezone.utc) + timedelta(seconds=grant["pre_seconds"])}})
+        if not result.modified_count:
+            raise HTTPException(status_code=409, detail="Pré-roll déjà démarré")
+        return {"ok": True, "challenge": challenge, "wait_seconds": grant["pre_seconds"]}
+    if not inp.challenge or not grant.get("preroll_challenge") or not secrets.compare_digest(inp.challenge, grant["preroll_challenge"]):
+        raise HTTPException(status_code=403, detail="Preuve pré-roll invalide")
+    wait = remaining_wait(grant)
+    if wait:
+        raise HTTPException(status_code=429, detail="La publicité est encore en cours", headers={"Retry-After": str(wait)})
+    await db.playback_grants.update_one(
+        {"_id": grant["_id"], "preroll_challenge": grant["preroll_challenge"]},
+        {"$set": {"preroll_completed": True, "preroll_challenge": None}})
+    return {"ok": True, "completed": True}
 
 
 @api_router.post("/playback/access/complete")
@@ -5187,14 +5271,19 @@ async def complete_playback_access(request: Request, viewer: Optional[dict] = De
     grant = await read_playback_grant(request, viewer)
     if grant["done"] != grant["steps"]:
         raise HTTPException(status_code=403, detail="Étapes de lecture incomplètes")
+    if grant.get("pre_seconds") and not grant.get("preroll_completed"):
+        raise HTTPException(status_code=403, detail="Publicité pré-roll incomplète")
     wait = remaining_wait(grant)
     if wait:
         raise HTTPException(status_code=429, detail="Patientez avant la lecture", headers={"Retry-After": str(wait)})
     if not (viewer and _is_premium(viewer)) and not grant.get("captcha_verified"):
         raise HTTPException(status_code=403, detail="Vérification Cloudflare requise après les publicités")
-    await db.playback_grants.update_one({"_id": grant["_id"]}, {"$set": {"completed": True}})
+    now = datetime.now(timezone.utc)
+    await db.playback_grants.update_one(
+        {"_id": grant["_id"]},
+        {"$set": {"completed": True, "expires_at": now + timedelta(hours=4)}},
+    )
     if not grant["completed"]:
-        now = datetime.now(timezone.utc)
         history = {"expires_at": now + timedelta(days=7)}
         if grant["steps"]:
             history["gate"] = now
@@ -5206,10 +5295,11 @@ async def complete_playback_access(request: Request, viewer: Optional[dict] = De
 
 async def authorize_playback(request, media_id, season, episode, viewer):
     if viewer and _is_premium(viewer):
-        return
+        return None
     grant = await read_playback_grant(request, viewer)
     if not grant["completed"] or grant["media_id"] != media_id or grant.get("season_number") != season or grant.get("episode_number") != episode:
         raise HTTPException(status_code=403, detail="Autorisation invalide pour ce contenu")
+    return grant
 
 
 @api_router.get("/media/{media_id}/playback")
@@ -5229,7 +5319,7 @@ async def bunny_playback(
     C'est le seul point d'entrée vers la vidéo : exiger ici la preuve de
     vérification empêche un robot d'aspirer la bande passante en appelant
     directement l'API, sans jamais charger la page."""
-    await authorize_playback(request, media_id, season_number, episode_number, viewer)
+    playback_grant = await authorize_playback(request, media_id, season_number, episode_number, viewer)
     if uqflex_catalog.is_uqflex_id(media_id):
         item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
         if not item:
@@ -5239,7 +5329,8 @@ async def bunny_playback(
             raise HTTPException(status_code=503, detail="Adresse sécurisée du relais non configurée")
         expires = int(time.time()) + 4 * 3600
         capability = pyjwt.encode({"typ": "uqflex-stream", "media_id": media_id,
-            "season": season_number or "", "episode": episode_number or "", "binding": playback_binding(request, viewer), "exp": expires}, JWT_SECRET, algorithm=JWT_ALGO)
+            "season": season_number or "", "episode": episode_number or "", "binding": playback_binding(request, viewer),
+            "grant_id": playback_grant["_id"] if playback_grant else "", "exp": expires}, JWT_SECRET, algorithm=JWT_ALGO)
         params = urlencode({"id": media_id, "season": season_number or "", "episode": episode_number or "", "access": capability})
         return {"qualities": [{"quality": "720p", "url": f"{UQFLEX_API_BASE}/api/uqflex/stream?{params}"}], "expires": expires, "signed": True}
     doc = await db.media.find_one({"id": media_id}, {"_id": 0})

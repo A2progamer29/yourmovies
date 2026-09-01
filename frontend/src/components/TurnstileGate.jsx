@@ -61,6 +61,7 @@ export default function TurnstileGate({ onVerified, access }) {
                 setEtat("pret");
                 widget = turnstile.render(conteneur.current, {
                     sitekey: config.site_key, theme: "dark", size: conteneur.current.clientWidth < 300 ? "compact" : "flexible",
+                    action: "playback", ...(access?.captcha_context ? { cData: access.captcha_context } : {}),
                     callback: async (token) => {
                         if (!active || envoi) return;
                         envoi = true; setEtat("envoi");

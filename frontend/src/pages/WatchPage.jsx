@@ -837,7 +837,7 @@ export default function WatchPage() {
                             </div>
                         ) : showAd ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <PreRollAd key={access.grant} enforce required={access.preroll_seconds > 0} onDone={() => setAdDone(true)} />
+                                <PreRollAd key={access.grant} access={access} enforce required={access.preroll_seconds > 0} onDone={() => setAdDone(true)} />
                             </div>
                         ) : !verifie && !user?.premium ? (
                             <div className="relative w-full">

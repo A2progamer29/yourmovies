@@ -14,13 +14,16 @@ jest.mock("@/components/ui/dialog", () => ({
     DialogTitle: ({ children }) => <h2>{children}</h2>, DialogDescription: ({ children }) => <p>{children}</p>,
 }));
 let root, container, unlock;
-const access = { grant: "bound-grant", gate_steps: 3, gate_seconds: 2 };
+const access = { grant: "bound-grant", gate_steps: 3, gate_seconds: 2, step_ticket: "initial-step-ticket-long-enough" };
 beforeEach(() => {
     jest.useFakeTimers(); jest.clearAllMocks();
     container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
     unlock = jest.fn(); window.open = jest.fn();
     loadAdsConfig.mockResolvedValue({ enabled: true, gate: { enabled: true, direct_link: "https://ad.example" } });
-    api.post.mockResolvedValue({ data: { ok: true } });
+    let remaining = 3;
+    api.post.mockImplementation(async (_url, body) => body.action === "start"
+        ? { data: { ok: true, challenge: `challenge-${remaining}-long-enough`, wait_seconds: 2, remaining_steps: remaining } }
+        : { data: { ok: true, remaining_steps: --remaining, next_step_ticket: remaining ? `next-ticket-${remaining}-long-enough` : null } });
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); jest.useRealTimers(); });
 const mount = () => act(async () => root.render(<AdGate access={access} onUnlock={unlock} />));
@@ -33,11 +36,11 @@ test("three ads include the final wait before unlocking Cloudflare", async () =>
         await click();
         expect(unlock).not.toHaveBeenCalled();
         expect(container.querySelector('[data-testid="gate-continue-btn"]').disabled).toBe(true);
-        await advance(2000);
+        await advance(2200);
     }
     expect(window.open).toHaveBeenCalledTimes(3);
-    expect(api.post).toHaveBeenCalledTimes(3);
-    expect(api.post).toHaveBeenCalledWith("/playback/access/step", {}, expect.objectContaining({ headers: { "X-Playback-Grant": "bound-grant" } }));
+    expect(api.post).toHaveBeenCalledTimes(6);
+    expect(api.post).toHaveBeenCalledWith("/playback/access/step", expect.objectContaining({ action: "start", ticket: "initial-step-ticket-long-enough" }), expect.objectContaining({ headers: { "X-Playback-Grant": "bound-grant" } }));
     expect(unlock).toHaveBeenCalledTimes(1);
 });
 
@@ -52,7 +55,7 @@ test("a config failure keeps playback blocked and can be retried", async () => {
 
 test("retrying server validation does not open a duplicate ad", async () => {
     api.post.mockRejectedValueOnce({ response: { status: 429, headers: { "retry-after": "2" } } });
-    await mount(); await click(); await advance(2000); await click();
+    await mount(); await click(); await advance(2200); await click();
     expect(window.open).toHaveBeenCalledTimes(1);
     expect(api.post).toHaveBeenCalledTimes(2);
     expect(unlock).not.toHaveBeenCalled();

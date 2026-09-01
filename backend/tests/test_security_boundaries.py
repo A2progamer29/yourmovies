@@ -197,15 +197,25 @@ async def test_free_playback_requires_completed_resource_and_session_bound_grant
         c.headers["X-Playback-Grant"] = access["grant"]
         assert (await c.post("/api/playback/access/complete")).status_code == 403
         assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 403
-        assert (await c.post("/api/playback/access/step")).status_code == 200
-        assert (await c.post("/api/playback/access/step")).status_code == 429
+        first = (await c.post("/api/playback/access/step", json={"action": "start", "ticket": access["step_ticket"]})).json()
+        assert (await c.post("/api/playback/access/step", json={"action": "complete", "ticket": access["step_ticket"], "challenge": "fake-challenge-that-cannot-work", "done": 2})).status_code == 403
+        assert (await c.post("/api/playback/access/step", json={"action": "complete", "ticket": access["step_ticket"], "challenge": first["challenge"]})).status_code == 429
         past = datetime.now(timezone.utc) - timedelta(seconds=1)
         await appmod.db.playback_grants.update_many({}, {"$set": {"ready_at": past}})
-        assert (await c.post("/api/playback/access/step")).status_code == 200
-        assert (await c.post("/api/playback/access/complete")).status_code == 429
-        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 429
+        completed = (await c.post("/api/playback/access/step", json={"action": "complete", "ticket": access["step_ticket"], "challenge": first["challenge"]})).json()
+        access["step_ticket"] = completed["next_step_ticket"]
+        second = (await c.post("/api/playback/access/step", json={"action": "start", "ticket": access["step_ticket"]})).json()
         await appmod.db.playback_grants.update_many({}, {"$set": {"ready_at": past}})
+        completed = (await c.post("/api/playback/access/step", json={"action": "complete", "ticket": access["step_ticket"], "challenge": second["challenge"]})).json()
+        assert completed["remaining_steps"] == 0 and "done" not in completed
+        preroll = (await c.post("/api/playback/access/preroll", json={"action": "start"})).json()
+        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 403
+        assert (await c.post("/api/playback/access/preroll", json={"action": "complete", "challenge": preroll["challenge"]})).status_code == 429
+        await appmod.db.playback_grants.update_many({}, {"$set": {"ready_at": past}})
+        assert (await c.post("/api/playback/access/preroll", json={"action": "complete", "challenge": preroll["challenge"]})).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 403
+        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {
+            "success": True, "hostname": "yourmovies.space", "action": "playback", "cdata": access["captcha_context"]}))
         assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 200
         r = await c.get("/api/media/movie1/playback")
@@ -307,6 +317,31 @@ async def test_partner_stream_requires_issuing_session_and_preserves_range(monke
 
 
 @pytest.mark.asyncio
+async def test_free_uqflex_capability_stops_when_server_grant_is_revoked(monkeypatch):
+    monkeypatch.setattr(appmod, "TURNSTILE_CONFIGURED", True)
+    monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(
+        ok=True, json=lambda: {"success": True, "hostname": "yourmovies.space"}))
+    monkeypatch.setattr(appmod.uqflex_catalog, "configured", lambda: True)
+    monkeypatch.setattr(appmod.uqflex_catalog, "find_item", lambda _: {"id": "movie1", "type": "movie"})
+    upstream = Mock(side_effect=AssertionError("revoked grant must not contact partner"))
+    monkeypatch.setattr(appmod.requests, "get", upstream)
+    async with client() as c:
+        await account(c)
+        access = (await c.post("/api/playback/access", json={"media_id": "uq_movie1"})).json()
+        c.headers["X-Playback-Grant"] = access["grant"]
+        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {
+            "success": True, "hostname": "yourmovies.space", "action": "playback", "cdata": access["captcha_context"]}))
+        assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 200
+        assert (await c.post("/api/playback/access/complete")).status_code == 200
+        playback = await c.get("/api/media/uq_movie1/playback")
+        assert playback.status_code == 200
+        stream_url = playback.json()["qualities"][0]["url"]
+        await appmod.db.playback_grants.update_many({}, {"$set": {"completed": False}})
+        assert (await c.get(stream_url)).status_code == 403
+        assert not upstream.called
+
+
+@pytest.mark.asyncio
 async def test_anonymous_partner_stream_is_bound_to_visitor_cookie(monkeypatch):
     from unittest.mock import Mock
     upstream = Mock(return_value=None)
@@ -314,8 +349,14 @@ async def test_anonymous_partner_stream_is_bound_to_visitor_cookie(monkeypatch):
     visitor = "test-visitor-cookie"
     claims = {"typ": "uqflex-stream", "media_id": "uq_movie1", "season": "", "episode": "",
               "binding": appmod.fingerprint(visitor, appmod.JWT_SECRET),
+              "grant_id": "test-completed-grant",
               "exp": datetime.now(timezone.utc) + timedelta(minutes=1)}
     token = jwt.encode(claims, appmod.JWT_SECRET, algorithm="HS256")
+    await appmod.db.playback_grants.insert_one({
+        "_id": "test-completed-grant", "binding": claims["binding"], "media_id": "uq_movie1",
+        "season_number": None, "episode_number": None, "completed": True, "captcha_verified": True,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=5),
+    })
     monkeypatch.setattr(appmod.uqflex_catalog, "configured", lambda: False)
     async with client() as c:
         path = "/api/uqflex/stream?id=uq_movie1&access=" + token
@@ -362,7 +403,13 @@ async def test_ad_frequency_is_server_side(monkeypatch):
         grant = (await c.post("/api/playback/access", json={"media_id": "movie1"})).json()
         assert grant["gate_steps"] == 1
         c.headers["X-Playback-Grant"] = grant["grant"]
-        assert (await c.post("/api/playback/access/step")).status_code == 200
+        started = (await c.post("/api/playback/access/step", json={"action": "start", "ticket": grant["step_ticket"]})).json()
+        await appmod.db.playback_grants.update_one(
+            {"_id": appmod._token_fingerprint(grant["grant"])},
+            {"$set": {"ready_at": datetime.now(timezone.utc) - timedelta(seconds=1)}})
+        assert (await c.post("/api/playback/access/step", json={"action": "complete", "ticket": grant["step_ticket"], "challenge": started["challenge"]})).status_code == 200
+        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {
+            "success": True, "hostname": "yourmovies.space", "action": "playback", "cdata": grant["captcha_context"]}))
         assert (await c.post("/api/playback/verify", json={"token": "test"})).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 200
         following = (await c.post("/api/playback/access", json={"media_id": "movie2"})).json()
@@ -387,7 +434,8 @@ async def test_cloudflare_is_required_for_free_accounts_and_proof_is_grant_bound
         monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": False}))
         assert (await c.post("/api/playback/verify", json={"token": "invalid-token"})).status_code == 403
         assert (await c.post("/api/playback/access/complete")).status_code == 403
-        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {"success": True, "hostname": "yourmovies.space"}))
+        monkeypatch.setattr(appmod.requests, "post", lambda *a, **k: SimpleNamespace(ok=True, json=lambda: {
+            "success": True, "hostname": "yourmovies.space", "action": "playback", "cdata": grant["captcha_context"]}))
         assert (await c.post("/api/playback/verify", json={"token": "fresh-token"})).status_code == 200
         assert (await c.post("/api/playback/access/complete")).status_code == 200
         following = (await c.post("/api/playback/access", json={"media_id": "movie2"})).json()

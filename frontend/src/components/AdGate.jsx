@@ -27,7 +27,10 @@ export default function AdGate({ onUnlock, access }) {
     const callback = useRef(onUnlock);
     const unlocked = useRef(false);
     const adOpened = useRef(false);
+    const completionTimer = useRef(null);
+    const stepTicket = useRef(access?.step_ticket || "");
     useEffect(() => { callback.current = onUnlock; }, [onUnlock]);
+    useEffect(() => () => window.clearTimeout(completionTimer.current), []);
 
     useEffect(() => {
         let active = true;
@@ -74,6 +77,28 @@ export default function AdGate({ onUnlock, access }) {
     const total = cfg.steps || 1;
     const remaining = Math.max(0, total - step);
 
+    const completeServerStep = async (challenge, ticket) => {
+        try {
+            const { data } = await api.post("/playback/access/step", {
+                action: "complete", ticket, challenge,
+            }, { headers: { "X-Playback-Grant": access.grant }, silent: true });
+            const left = Math.max(0, Number(data?.remaining_steps) || 0);
+            stepTicket.current = data?.next_step_ticket || "";
+            setStep(Math.max(0, total - left));
+            setWait(0); setUntil(0); setBusy(false);
+            adOpened.current = false;
+        } catch (e) {
+            const seconds = Number(e?.response?.headers?.["retry-after"]);
+            if (seconds > 0) {
+                setWait(seconds); setUntil(Date.now() + seconds * 1000);
+                completionTimer.current = window.setTimeout(() => completeServerStep(challenge, ticket), seconds * 1000 + 100);
+                return;
+            }
+            setError(e?.response?.data?.detail || "Étape non validée. Réessayez.");
+            setBusy(false);
+        }
+    };
+
     const advance = async () => {
         if (wait > 0 || busy || step >= total) return;
         setBusy(true);
@@ -89,7 +114,17 @@ export default function AdGate({ onUnlock, access }) {
         }
         if (access) {
             try {
-                await api.post("/playback/access/step", {}, { headers: { "X-Playback-Grant": access.grant }, silent: true });
+                const ticket = stepTicket.current;
+                if (!ticket) throw new Error("Preuve publicitaire absente.");
+                const { data } = await api.post("/playback/access/step", {
+                    action: "start", ticket,
+                }, { headers: { "X-Playback-Grant": access.grant }, silent: true });
+                const seconds = Math.max(0, Number(data?.wait_seconds) || 0);
+                setWait(seconds); setUntil(Date.now() + seconds * 1000);
+                completionTimer.current = window.setTimeout(
+                    () => completeServerStep(data.challenge, ticket), seconds * 1000 + 100,
+                );
+                return;
             } catch (e) {
                 const seconds = Number(e?.response?.headers?.["retry-after"]);
                 if (seconds > 0) { setWait(seconds); setUntil(Date.now() + seconds * 1000); }

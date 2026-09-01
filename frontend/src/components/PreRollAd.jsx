@@ -1,12 +1,13 @@
 import PlayerLoading from "@/components/PlayerLoading";
 import { videoProtection } from "@/lib/videoProtection";
+import { api } from "@/lib/api";
 import React, { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { loadAdsConfig, frequencyAllows, markShown, fetchVast, fireTrackers } from "@/lib/ads";
 
 const FREQ_KEY = "ym_preroll_last";
 
-export default function PreRollAd({ onDone, enforce = false, required = true }) {
+export default function PreRollAd({ onDone, enforce = false, required = true, access = null }) {
     const onDoneRef = useRef(onDone);
     const finishedRef = useRef(false);
     const videoRef = useRef(null);
@@ -20,13 +21,47 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
     const [needsPlay, setNeedsPlay] = useState(false);
     const [attempt, setAttempt] = useState(0);
     const impressionSent = useRef(false);
+    const proofPromise = useRef(null);
+    const finishingRef = useRef(false);
 
     useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
-    const finish = () => {
-        if (finishedRef.current) return;
-        finishedRef.current = true;
-        onDoneRef.current?.();
+    const startServerProof = () => {
+        if (!access?.grant || !(Number(access?.preroll_seconds) > 0)) return Promise.resolve(null);
+        if (!proofPromise.current) {
+            proofPromise.current = api.post("/playback/access/preroll", { action: "start" }, {
+                headers: { "X-Playback-Grant": access.grant }, silent: true,
+            }).then(({ data }) => data?.challenge || null);
+        }
+        return proofPromise.current;
+    };
+
+    const finish = async () => {
+        if (finishedRef.current || finishingRef.current) return;
+        finishingRef.current = true;
+        try {
+            const challenge = await startServerProof();
+            if (challenge) {
+                try {
+                    await api.post("/playback/access/preroll", { action: "complete", challenge }, {
+                        headers: { "X-Playback-Grant": access.grant }, silent: true,
+                    });
+                } catch (error) {
+                    const seconds = Number(error?.response?.headers?.["retry-after"]);
+                    if (!(seconds > 0 && seconds <= 120)) throw error;
+                    await new Promise(resolve => window.setTimeout(resolve, seconds * 1000 + 100));
+                    await api.post("/playback/access/preroll", { action: "complete", challenge }, {
+                        headers: { "X-Playback-Grant": access.grant }, silent: true,
+                    });
+                }
+            }
+            finishedRef.current = true;
+            onDoneRef.current?.();
+        } catch (error) {
+            setError(error?.response?.data?.detail || "La validation de la publicité a échoué. Réessayez.");
+        } finally {
+            finishingRef.current = false;
+        }
     };
 
     // Sélection de la source : VAST (régie) puis campagne maison, sinon on passe.
@@ -89,6 +124,7 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
     // horloge démarrée pendant son chargement ou un refus de lecture automatique.
     useEffect(() => {
         if (!campaign) return undefined;
+        startServerProof().catch(error => setError(error?.response?.data?.detail || "Validation publicitaire indisponible."));
         const timer = window.setInterval(() => {
             if (document.visibilityState === "hidden") return;
             setElapsed(current => Math.min(duration, current + 1));
@@ -139,6 +175,7 @@ export default function PreRollAd({ onDone, enforce = false, required = true }) 
                     onCanPlay={playAd}
                     onPlaying={() => {
                         setNeedsPlay(false);
+                        startServerProof().catch(error => setError(error?.response?.data?.detail || "Validation publicitaire indisponible."));
                         if (!impressionSent.current) { impressionSent.current = true; markShown(FREQ_KEY); fireTrackers(vast.impressions); }
                     }}
                     onTimeUpdate={event => {

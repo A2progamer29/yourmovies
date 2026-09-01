@@ -77,14 +77,19 @@ def current_base() -> str:
 
 
 def _ssh_target() -> str:
-    user = os.environ.get("NAS_USER") or "Maxence"
-    host = os.environ.get("NAS_HOST") or "100.109.198.118"
+    user = (os.environ.get("NAS_USER") or "").strip()
+    host = (os.environ.get("NAS_HOST") or "").strip()
+    if not user or not host:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", user) or not re.fullmatch(r"[A-Za-z0-9.-]+", host):
+        return ""
     return "%s@%s" % (user, host)
 
 
 def _ssh_curl(path: str, extra_headers: Optional[list[str]] = None, timeout: int = 40) -> tuple[int, bytes]:
     key = _partner_key()
-    if not key or os.environ.get("UQFLEX_ENABLE_SSH") != "true":
+    target = _ssh_target()
+    if not key or not target or os.environ.get("UQFLEX_ENABLE_SSH") != "true":
         return 0, b""
     ssh = "ssh"
     identity = str(Path.home() / ".ssh" / "id_ed25519")
@@ -103,7 +108,7 @@ def _ssh_curl(path: str, extra_headers: Optional[list[str]] = None, timeout: int
     )
     cmd = [
         ssh, "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-        "-i", identity, _ssh_target(), remote,
+        "-i", identity, target, remote,
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
@@ -224,7 +229,13 @@ def _fetch_http_catalog(base: str, media_type: str = "", resource: str = "/v1/ca
     query = {"limit": "500", "page": "1"}
     if media_type:
         query["type"] = media_type
-    url = "%s%s?%s" % (base, resource, urlencode(query))
+    # UQFlex's production endpoint is not fully compatible with its advertised
+    # pagination parameters: the bare catalog can contain more rows than
+    # `/catalog?limit=500&page=1`. Keep the historical bare request for the
+    # primary catalog and only add query parameters for explicit rails/pages.
+    url = "%s%s" % (base, resource)
+    if media_type or resource != "/v1/catalog":
+        url = "%s?%s" % (url, urlencode(query))
     rows: list[dict] = []
     expected = None
     seen_urls = set()
@@ -335,7 +346,7 @@ def fetch_items(force: bool = False) -> list[dict]:
         last_error = ""
         raw_items: list[dict] = []
         source = ""
-        status, body = _ssh_curl("/v1/catalog?limit=500&page=1", timeout=40)
+        status, body = _ssh_curl("/v1/catalog", timeout=40)
         if status == 200 and body:
             try:
                 raw_items, meta = _catalog_page(json.loads(body.decode("utf-8")))
@@ -352,8 +363,6 @@ def fetch_items(force: bool = False) -> list[dict]:
         for base in partner_bases():
             if raw_items:
                 break
-            if base == "ssh" or "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
-                continue
             candidate, _, error = _fetch_http_catalog(base)
             if error:
                 last_error = error
@@ -589,8 +598,6 @@ def _fetch_series_detail(raw_id_value: str, kind: str = "series") -> dict:
     """Va chercher le détail (avec épisodes) d'une entrée du catalogue,
     peu importe la base actuellement active."""
     for base in partner_bases():
-        if base == "ssh" or "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
-            continue
         resources = ("anime", "animes", "series") if kind == "anime" else ("series", "shows")
         for resource in resources:
             try:
@@ -648,8 +655,6 @@ def find_item(media_id: str) -> Optional[dict]:
             if kind in {"series", "anime"}:
                 return resolve_full_series_item(item)
             for base in partner_bases():
-                if base == "ssh" or "127.0.0.1" in base or "100.109." in base or "192.168.1.95" in base:
-                    continue
                 for resource in ("movies", "movie"):
                     try:
                         response = requests.get(
@@ -703,7 +708,8 @@ def partner_stream_path(item_id: str, season: str = "", episode: str = "", media
 
 def ssh_stream(path: str, range_header: str = ""):
     key = _partner_key()
-    if not key or os.environ.get("UQFLEX_ENABLE_SSH") != "true":
+    target = _ssh_target()
+    if not key or not target or os.environ.get("UQFLEX_ENABLE_SSH") != "true":
         return None
     headers = [
         "Authorization: Bearer %s" % key,
@@ -721,7 +727,7 @@ def ssh_stream(path: str, range_header: str = ""):
     cmd = [
         "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
         "-i", str(Path.home() / ".ssh" / "id_ed25519"),
-        _ssh_target(),
+        target,
         remote,
     ]
     try:

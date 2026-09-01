@@ -16,6 +16,8 @@ import uqflex_catalog as catalog
 def isolated_catalog(monkeypatch, tmp_path):
     monkeypatch.setenv("UQFLEX_PARTNER_KEY", "partner-test-key")
     monkeypatch.setenv("UQFLEX_ENABLE_SSH", "false")
+    monkeypatch.delenv("NAS_USER", raising=False)
+    monkeypatch.delenv("NAS_HOST", raising=False)
     monkeypatch.setattr(catalog, "CACHE_PATH", str(tmp_path / "catalog.json"))
     monkeypatch.setattr(catalog, "_cache_items", [])
     monkeypatch.setattr(catalog, "_cache_at", 0.0)
@@ -25,6 +27,15 @@ def isolated_catalog(monkeypatch, tmp_path):
     monkeypatch.setattr(catalog, "_last_raw_count", 0)
     monkeypatch.setattr(catalog, "_active_base", "")
     monkeypatch.setattr(catalog, "partner_bases", lambda: ["https://partner.example/api/partner"])
+
+
+def test_ssh_target_has_no_embedded_network_defaults(monkeypatch):
+    assert catalog._ssh_target() == ""
+    monkeypatch.setenv("NAS_USER", "partner")
+    monkeypatch.setenv("NAS_HOST", "media.internal.example")
+    assert catalog._ssh_target() == "partner@media.internal.example"
+    monkeypatch.setenv("NAS_HOST", "-oProxyCommand=bad")
+    assert catalog._ssh_target() == ""
 
 
 class Response:
@@ -52,6 +63,8 @@ def test_paginated_catalog_fetches_every_page_deduplicates_and_persists(monkeypa
     result = catalog.fetch_items(True)
     assert [item["id"] for item in result] == ["new-3", "new-2", "new-1"]
     assert len(calls) == 2 and catalog._last_raw_count == 3
+    assert urlsplit(calls[0]).query == ""
+    assert parse_qs(urlsplit(calls[1]).query)["page"] == ["2"]
     assert catalog._last_sync_error == ""
     assert json.loads(Path(catalog.CACHE_PATH).read_text(encoding="utf-8"))[2]["id"] == "new-1"
 
