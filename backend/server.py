@@ -2696,11 +2696,15 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
         raise HTTPException(status_code=403, detail="Autorisation Premium ou publicitaire requise")
     if not uqflex_catalog.configured():
         raise HTTPException(status_code=503, detail="UQFlex non configuré.")
-    item = await run_in_threadpool(uqflex_catalog.find_item, id)
+    item = uqflex_catalog.find_cached_item(id)
+    if not item:
+        item = await run_in_threadpool(uqflex_catalog.find_item, id)
     if not item:
         raise HTTPException(status_code=404, detail="Contenu UQFlex introuvable.")
     media_type = uqflex_catalog.item_kind(item)
-    range_demande = request.headers.get("range")
+    # A byte range lets the partner return the first video bytes promptly and
+    # keeps seeks cheap. Some browsers omit it on their initial metadata load.
+    range_demande = request.headers.get("range") or ("bytes=0-" if request.method == "GET" else "")
     if uqflex_catalog.current_base() == "ssh":
         path = uqflex_catalog.partner_stream_path(str(item.get("id") or ""), season, episode, media_type)
         process = await run_in_threadpool(uqflex_catalog.ssh_stream, path, range_demande or "")
@@ -2766,7 +2770,7 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
 
     def appel_amont():
         methode = requests.head if request.method == "HEAD" else requests.get
-        return methode(cible, headers=en_tetes, stream=True, timeout=30, allow_redirects=False)
+        return methode(cible, headers=en_tetes, stream=True, timeout=(10, 90), allow_redirects=False)
 
     try:
         amont = await run_in_threadpool(appel_amont)
@@ -2789,7 +2793,7 @@ async def uqflex_stream(request: Request, id: str = Query(...), season: str = Qu
 
     def relais():
         try:
-            for morceau in amont.iter_content(chunk_size=262144):
+            for morceau in amont.iter_content(chunk_size=1024 * 1024):
                 if morceau:
                     yield morceau
         finally:
@@ -5161,10 +5165,10 @@ async def start_playback_access(inp: PlaybackAccessInput, request: Request, resp
     steps = max(1, min(10, safe_int(gate.get("steps"), 1))) if gate_enabled else 0
     # A configured gate always has a short server-enforced delay.  A zero value
     # must not turn the proof endpoint into an instant client-side counter.
-    seconds = max(3, min(120, safe_int(gate.get("seconds"), 3))) if steps else 0
+    seconds = max(1, min(120, safe_int(gate.get("seconds"), 1))) if steps else 0
     pre_seconds = 0
     if ads.get("enabled") and pre.get("enabled") and due("preroll", pre.get("frequency_minutes")) and (pre.get("vast_tag_url") or ads.get("campaigns")):
-        pre_seconds = max(3, min(120, safe_int(pre.get("skip_after"), 5)))
+        pre_seconds = max(1, min(120, safe_int(pre.get("skip_after"), 5)))
     now = datetime.now(timezone.utc)
     token = secrets.token_urlsafe(32)
     step_ticket = secrets.token_urlsafe(32)
@@ -5321,7 +5325,9 @@ async def bunny_playback(
     directement l'API, sans jamais charger la page."""
     playback_grant = await authorize_playback(request, media_id, season_number, episode_number, viewer)
     if uqflex_catalog.is_uqflex_id(media_id):
-        item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
+        item = uqflex_catalog.find_cached_item(media_id)
+        if not item:
+            item = await run_in_threadpool(uqflex_catalog.find_item, media_id)
         if not item:
             raise HTTPException(status_code=404, detail="Contenu introuvable")
         public_base = urlparse(UQFLEX_API_BASE)

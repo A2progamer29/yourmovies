@@ -275,6 +275,7 @@ async def test_partner_stream_requires_issuing_session_and_preserves_range(monke
     from unittest.mock import Mock
     from urllib.parse import urlsplit, parse_qs
     monkeypatch.setattr(appmod.uqflex_catalog, "configured", lambda: True)
+    monkeypatch.setattr(appmod.uqflex_catalog, "find_cached_item", lambda _: {"id": "movie1", "type": "movie"})
     monkeypatch.setattr(appmod.uqflex_catalog, "find_item", lambda _: {"id": "movie1", "type": "movie"})
     monkeypatch.setattr(appmod.uqflex_catalog, "partner_stream_url", lambda *args: "https://partner.example/stream")
     monkeypatch.setattr(appmod.uqflex_catalog, "_headers", lambda: {"X-Api-Key": "test-private-key"})
@@ -305,6 +306,7 @@ async def test_partner_stream_requires_issuing_session_and_preserves_range(monke
         assert "x-api-key" not in r.headers
         assert get.call_args.kwargs["headers"] == {"X-Api-Key": "test-private-key", "Range": "bytes=0-3"}
         assert get.call_args.kwargs["allow_redirects"] is False
+        assert get.call_args.kwargs["timeout"] == (10, 90)
         assert (await c.head(url, headers={"Range": "bytes=0-3"})).status_code == 206
         assert (await c.get(url.replace("id=uq_movie1", "id=uq_other"))).status_code == 403
         claims = jwt.decode(parse_qs(urlsplit(url).query)["access"][0], appmod.JWT_SECRET, algorithms=["HS256"])

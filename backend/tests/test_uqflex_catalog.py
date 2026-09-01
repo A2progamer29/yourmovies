@@ -163,6 +163,13 @@ def test_old_grouped_variant_links_still_resolve(monkeypatch):
     assert catalog.find_item("uq_season-2")["id"] == "season-1"
 
 
+def test_cached_item_resolution_never_fetches_partner(monkeypatch):
+    item = {"id": "season-1", "type": "series", "_variant_ids": ["season-1", "season-2"]}
+    monkeypatch.setattr(catalog, "_cache_items", [item])
+    monkeypatch.setattr(catalog, "fetch_items", lambda *_: (_ for _ in ()).throw(AssertionError("network")))
+    assert catalog.find_cached_item("uq_season-2") is item
+
+
 def test_disk_write_is_atomic_and_readable(tmp_path, monkeypatch):
     target = tmp_path / "runtime" / "catalog.json"
     monkeypatch.setattr(catalog, "CACHE_PATH", str(target))

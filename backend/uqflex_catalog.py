@@ -672,6 +672,16 @@ def find_item(media_id: str) -> Optional[dict]:
     return None
 
 
+def find_cached_item(media_id: str) -> Optional[dict]:
+    """Resolve an id from the healthy snapshot without partner requests."""
+    wanted = raw_id(media_id)
+    for item in _cache_items:
+        variants = [str(value) for value in item.get("_variant_ids") or []]
+        if str(item.get("id") or "") == wanted or wanted in variants:
+            return item
+    return None
+
+
 def list_docs(api_base: str, media_type: Optional[str] = None, query: Optional[str] = None) -> list[dict]:
     needle = (query or "").strip().lower()
     out = []
