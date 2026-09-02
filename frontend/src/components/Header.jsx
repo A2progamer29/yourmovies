@@ -85,7 +85,7 @@ export default function Header() {
             <div className="relative z-20 max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-6">
                 <Link to="/" data-testid="header-logo" className="flex items-center gap-2 group">
                     <img src="/logo.png" alt="YourMovie's" className="w-9 h-9 rounded-full object-cover" />
-                    <span className="font-display text-xl tracking-tight text-white" style="margin-left: -13px;">
+                    <span className="font-display text-xl tracking-tight text-white" style="margin-left: -13px">
                         ourMovie<span className="text-[#E8D2A6]">&apos;s</span>
                     </span>
                 </Link>
