@@ -116,7 +116,7 @@ export default function MediaCard({ media, size = "md", cinematicHover = false }
                     alt={media.title}
                     loading="lazy"
                     draggable={false}
-                    className="media-card__poster w-full h-full object-cover"
+                    className="media-card__poster w-full h-full object-contain sm:object-cover"
                     onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = POSTER_FALLBACK; }}
                 />
                 {cinematicHover && (
