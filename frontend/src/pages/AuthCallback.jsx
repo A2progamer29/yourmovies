@@ -21,6 +21,7 @@ export default function AuthCallback() {
             return;
         }
 
+        window.history.replaceState(null, "", window.location.pathname);
         (async () => {
             try {
                 const r = await api.post("/auth/session", { session_id: sessionId });

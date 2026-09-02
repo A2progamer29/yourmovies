@@ -1,6 +1,7 @@
+import PlayerLoading from "@/components/PlayerLoading";
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Crown, WifiOff } from "lucide-react";
+import { ChevronLeft, Crown, WifiOff, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import VideoPlayer from "@/components/VideoPlayer";
 import { useAuth } from "@/context/AuthContext";
@@ -51,7 +52,7 @@ export default function OfflineWatchPage() {
                 </button>
 
                 {searching || loading ? (
-                    <div className="aspect-video animate-pulse rounded-2xl border border-[#262626] bg-[#111]" />
+                    <PlayerLoading label="Ouverture de la vidéo hors connexion…" />
                 ) : !download ? (
                     <section className="rounded-3xl border border-[#262626] bg-[#0a0a0a] px-6 py-14 text-center">
                         <Crown size={28} className="mx-auto text-[#E8D2A6]" />
@@ -69,13 +70,14 @@ export default function OfflineWatchPage() {
                         <div className="overflow-hidden rounded-2xl border border-[#262626] bg-[#0a0a0a]">
                             <VideoPlayer
                                 key={download.id}
+                                downloadControl={<Link to="/settings?tab=downloads" className="ym-player-button" aria-label="Gérer les téléchargements" data-tooltip="Mes téléchargements"><Download aria-hidden="true" /></Link>}
                                 manifestUrl={download.kind === "hls" ? offlinePlaybackUrl(download) : null}
                                 qualitySources={download.kind === "file" ? [{ quality: download.quality || "720p", url: offlinePlaybackUrl(download) }] : []}
                                 poster={download.poster_url || undefined}
                                 userMaxQuality="4k"
                                 runAds={false}
                                 boostInitial={user?.audio_boost || 1}
-                                fiche={{ titre: download.title, sousTitre: subtitle, affiche: download.poster_url, description: download.media?.description }}
+                                fiche={{ titre: download.title, logo: download.media?.title_logo_url, sousTitre: subtitle, affiche: download.poster_url, description: download.media?.description }}
                             />
                         </div>
                         {download.media?.description && <p className="mt-7 max-w-3xl text-sm leading-relaxed text-neutral-400">{download.media.description}</p>}

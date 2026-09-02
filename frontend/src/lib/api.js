@@ -3,7 +3,7 @@ import { lireLocal } from "@/lib/stockage";
 import { toast } from "sonner";
 import { describeError } from "@/lib/errors";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || window.location.origin;
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({
@@ -66,13 +66,13 @@ api.interceptors.response.use(
     (erreur) => { marquerFin(erreur?.config); return Promise.reject(erreur); },
 );
 
-// Inject JWT token + active profile if present
+// Session is an HttpOnly cookie; only non-secret profile selection is readable.
 api.interceptors.request.use((config) => {
-    const token = lireLocal("ym_token");
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
+    // The public startup check needs only the session cookie, never a profile
+    // identifier or the mutation-only CSRF header (which causes a preflight).
+    if (config.publicBootstrap) return config;
+    config.headers = config.headers || {};
+    config.headers["X-YM-Request"] = "1";
     const profileId = lireLocal("ym_profile_id");
     if (profileId) {
         config.headers = config.headers || {};

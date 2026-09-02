@@ -11,7 +11,14 @@ const CLE = "ym_playback_pass";
  *  vérification et l'appel de lecture, et le serveur refusait la vidéo à
  *  quelqu'un qui venait pourtant de la franchir. */
 export function lirePass() {
-    return lireSession(CLE);
+    const token = lireSession(CLE);
+    if (!token) return null;
+    try {
+        const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+        if (payload.typ === "playback" && payload.exp * 1000 > Date.now()) return token;
+    } catch { /* Malformed or legacy pass: verify again. Server verifies signatures. */ }
+    supprimerSession(CLE);
+    return null;
 }
 
 export function ecrirePass(valeur) {

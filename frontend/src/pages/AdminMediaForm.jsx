@@ -1,3 +1,4 @@
+import { videoProtection } from "@/lib/videoProtection";
 import React, { useEffect, useState, useRef } from "react";
 import { lireSession, ecrireSession, supprimerSession } from "@/lib/stockage";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -215,7 +216,7 @@ export default function AdminMediaForm() {
         if (!isEdit) return;
         (async () => {
             try {
-                const r = await api.get(`/media/${id}`);
+                const r = await api.get(`/admin/media/${id}`);
                 const m = r.data;
                 setForm({
                     ...EMPTY,
@@ -1098,7 +1099,7 @@ export default function AdminMediaForm() {
                                     </label>
                                     {form.trailer_video_url && (
                                         <div className="flex items-center gap-3 mt-2">
-                                            <video src={form.trailer_video_url} className="h-20 rounded border border-[#262626]" muted />
+                                            <video {...videoProtection} src={form.trailer_video_url} className="h-20 rounded border border-[#262626]" muted />
                                             <button type="button" onClick={() => setForm((f) => ({ ...f, trailer_video_url: "" }))} className="text-xs text-neutral-500 hover:text-red-400">Retirer</button>
                                         </div>
                                     )}

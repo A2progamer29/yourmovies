@@ -1,3 +1,4 @@
+import EmbeddedPlayer from "@/components/EmbeddedPlayer";
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Play, X, CircleAlert, CircleCheck, Clock } from "lucide-react";
@@ -111,7 +112,7 @@ export default function VerifierVideo({ videoId, libraryId, compact = false }) {
 
             {url && (
                 <div className="relative mt-2 overflow-hidden rounded-lg border border-[#262626]" style={{ aspectRatio: "16 / 9" }}>
-                    <iframe
+                    <EmbeddedPlayer
                         src={url}
                         title="Vérification de la vidéo"
                         data-testid="apercu-lecteur"

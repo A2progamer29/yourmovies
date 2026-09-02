@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, SkipBack, SkipForward, Zap, X } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, RotateCcw, RotateCw, Gauge, Zap, X } from "lucide-react";
 import { Link } from "react-router-dom";
+import PlayerLoading from "./PlayerLoading";
+import PlayerSettings from "./PlayerSettings";
+import PlayerPauseInfo from "./PlayerPauseInfo";
+import "./VideoPlayer.css";
+import { videoProtection, videoCrossOrigin } from "@/lib/videoProtection";
+import { API } from "@/lib/api";
 
 // Google IMA sample VAST tag (linear ad, production-grade Google IMA infrastructure).
 // Change to your real ad server VAST/VMAP URL in production.
@@ -16,7 +22,6 @@ const SAMPLE_VAST_TAG =
 const AD_TAG_URL = process.env.REACT_APP_AD_TAG_URL || SAMPLE_VAST_TAG;
 
 const QUALITY_ORDER = ["4k", "1080p", "720p", "480p"];
-const VITESSES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function loadIma() {
     return new Promise((resolve, reject) => {
@@ -31,9 +36,10 @@ function loadIma() {
 }
 
 function fmt(seconds) {
-    if (!seconds || isNaN(seconds)) return "0:00";
+    if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
+    if (m >= 60) return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
     return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
@@ -56,13 +62,18 @@ export default function VideoPlayer({
     onFluxImpossible = null,
     fiche = null,
     boostInitial = 1,
+    downloadControl = null,
+    playbackLocked = false,
+    settingsLocked = false,
+    partyMode = false,
 }) {
     const wrapRef = useRef(null);
     const videoRef = useRef(null);
     // Expose the internal video element to parents (e.g. Watch Party)
     useEffect(() => {
         if (videoRefOut) videoRefOut.current = videoRef.current;
-    });
+        return () => { if (videoRefOut) videoRefOut.current = null; };
+    }, [videoRefOut]);
     const adContainerRef = useRef(null);
     const adsManagerRef = useRef(null);
     const adsLoaderRef = useRef(null);
@@ -74,18 +85,60 @@ export default function VideoPlayer({
     const preferred = preferredQuality && preferredQuality !== "auto"
         ? availableQualities.find((q) => q.quality === preferredQuality)
         : null;
-    const initialSrc = preferred || availableQualities[0] || qualitySources[qualitySources.length - 1];
+    const initialSrc = preferred || availableQualities[0];
 
     const [currentQuality, setCurrentQuality] = useState(initialSrc?.quality || "720p");
     const [src, setSrc] = useState(initialSrc?.url || "");
     const [playing, setPlaying] = useState(false);
+    const [paused, setPaused] = useState(false);
+    const hasPlayed = useRef(false);
+    const [buffering, setBuffering] = useState(true);
+    const [playbackError, setPlaybackError] = useState(false);
+    const [slow, setSlow] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
+    const pendingSeek = useRef(startAt);
+    const resumeAfterQuality = useRef(false);
+    const fallbackRef = useRef(onFluxImpossible);
+    fallbackRef.current = onFluxImpossible;
+    const failPlayback = useCallback(() => {
+        setBuffering(false);
+        setPlaybackError(true);
+        fallbackRef.current?.();
+    }, []);
     const [muted, setMuted] = useState(false);
     const [volume, setVolume] = useState(1);
     const [progress, setProgress] = useState(0);
     const [duration, setDuration] = useState(0);
     const [showSettings, setShowSettings] = useState(false);
+    const [settingsSection, setSettingsSection] = useState("quality");
+    const settingsPanelRef = useRef(null);
+    const settingsTriggerRef = useRef(null);
+    const speedTriggerRef = useRef(null);
+    const settingsOpenerRef = useRef(null);
+    const [buffered, setBuffered] = useState(0);
+    const closeSettings = useCallback((restoreFocus = true) => {
+        setShowSettings(false);
+        setShowControls(true);
+        if (restoreFocus) settingsOpenerRef.current?.focus();
+    }, []);
+    const openSettings = (section, trigger) => {
+        if (settingsLocked) return;
+        settingsOpenerRef.current = trigger.current;
+        setSettingsSection(section);
+        setShowSettings(true);
+    };
+    useEffect(() => {
+        if (!showSettings) return undefined;
+        const outside = event => {
+            if (![settingsPanelRef, settingsTriggerRef, speedTriggerRef].some(ref => ref.current?.contains(event.target))) closeSettings(false);
+        };
+        document.addEventListener("pointerdown", outside);
+        return () => document.removeEventListener("pointerdown", outside);
+    }, [showSettings, closeSettings]);
     const [showControls, setShowControls] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [compact, setCompact] = useState(false);
+    const [narrow, setNarrow] = useState(false);
     const [adsRunning, setAdsRunning] = useState(false);
     const [adInfo, setAdInfo] = useState(null); // {remainingTime, skippable, canSkip, index, total}
     const [adsFinished, setAdsFinished] = useState(!runAds);
@@ -99,6 +152,51 @@ export default function VideoPlayer({
     const hideTimer = useRef(null);
     const demarrageAuto = useRef(false);
     const progressTimer = useRef(null);
+
+    useEffect(() => {
+        const element = wrapRef.current;
+        if (!element) return undefined;
+        const resize = () => { setCompact(element.clientWidth < 640); setNarrow(element.clientWidth < 360); };
+        resize();
+        if (typeof ResizeObserver === "undefined") {
+            window.addEventListener("resize", resize);
+            return () => window.removeEventListener("resize", resize);
+        }
+        const observer = new ResizeObserver(resize);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        setSrc(initialSrc?.url || "");
+        setCurrentQuality(initialSrc?.quality || "720p");
+        pendingSeek.current = startAt;
+        demarrageAuto.current = false;
+        setPlaying(false);
+        setPaused(false);
+        hasPlayed.current = false;
+        setBuffering(true);
+        setPlaybackError(false);
+        setDuration(0);
+        setProgress(0);
+        setBuffered(0);
+        setNiveaux([]);
+        setNiveauChoisi(-1);
+        // startAt is a resume hint; progress updates must not restart playback.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialSrc?.url, initialSrc?.quality, manifestUrl]);
+
+    useEffect(() => {
+        setSlow(false);
+        if (!buffering || playbackError) return undefined;
+        const timer = setTimeout(() => setSlow(true), 15000);
+        return () => clearTimeout(timer);
+    }, [buffering, playbackError, retryCount]);
+
+    useEffect(() => () => {
+        clearTimeout(hideTimer.current);
+        clearTimeout(progressTimer.current);
+    }, []);
 
     // Flux adaptatif : Safari lit le HLS nativement, les autres passent par
     // hls.js, chargé à la demande pour ne pas alourdir le reste du site.
@@ -117,6 +215,7 @@ export default function VideoPlayer({
                 if (annule) return;
                 if (!Hls.isSupported()) {
                     if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = manifestUrl;
+                    else failPlayback();
                     return;
                 }
                 instance = new Hls({ capLevelToPlayerSize: true });
@@ -130,7 +229,7 @@ export default function VideoPlayer({
                 // écran noir, on rend la main au lecteur intégré.
                 instance.on(Hls.Events.ERROR, (_evenement, donnees) => {
                     if (annule || !donnees?.fatal) return;
-                    if (onFluxImpossible) onFluxImpossible();
+                    failPlayback();
                 });
                 instance.loadSource(manifestUrl);
                 instance.attachMedia(video);
@@ -139,7 +238,7 @@ export default function VideoPlayer({
                 // et à défaut le lecteur intégré reprend la main.
                 if (annule) return;
                 if (video.canPlayType("application/vnd.apple.mpegurl")) video.src = manifestUrl;
-                else if (onFluxImpossible) onFluxImpossible();
+                else failPlayback();
             }
         })();
 
@@ -148,7 +247,7 @@ export default function VideoPlayer({
             if (instance) instance.destroy();
             hlsRef.current = null;
         };
-    }, [manifestUrl, onFluxImpossible]);
+    }, [manifestUrl, retryCount, failPlayback]);
 
     // Amplification au-delà de 100 %. Le graphe audio n'est construit qu'au
     // premier usage : tant que personne n'y touche, le son suit son chemin
@@ -199,6 +298,7 @@ export default function VideoPlayer({
     }, [boostInitial, playing, appliquerBoost]);
 
     const choisirNiveau = (index) => {
+        if (settingsLocked) return;
         setNiveauChoisi(index);
         const hls = hlsRef.current;
         if (hls) {
@@ -206,13 +306,14 @@ export default function VideoPlayer({
             hls.autoLevelCapping = -1;
             hls.currentLevel = index;
         }
-        setShowSettings(false);
+        closeSettings();
     };
 
     const changerVitesse = (valeur) => {
+        if (settingsLocked) return;
         setVitesse(valeur);
         if (videoRef.current) videoRef.current.playbackRate = valeur;
-        setShowSettings(false);
+        closeSettings();
     };
 
     // Init IMA
@@ -327,40 +428,60 @@ export default function VideoPlayer({
     // premier démarrage réussi, ou dès que la lecture est commandée à la main.
     const demarrerSiPossible = useCallback(() => {
         const video = videoRef.current;
-        if (!adsFinished || demarrageAuto.current || !video) return;
+        if (partyMode || !adsFinished || demarrageAuto.current || !video) return;
         // La tentative peut échouer tant que le flux n'est pas rattaché, ou si le
         // navigateur refuse une lecture non sollicitée : on réessaie à « canplay ».
-        video.play().then(() => { demarrageAuto.current = true; }).catch(() => { });
-    }, [adsFinished]);
+        video.play().then(() => { demarrageAuto.current = true; }).catch((error) => {
+            if (error?.name === "NotAllowedError") {
+                demarrageAuto.current = true;
+                setBuffering(false);
+            }
+        });
+    }, [adsFinished, partyMode]);
 
     useEffect(() => { demarrerSiPossible(); }, [demarrerSiPossible]);
 
     // Change quality preserves position
     const changeQuality = (q) => {
+        if (settingsLocked) return;
         if (!videoRef.current) return;
         const time = videoRef.current.currentTime;
         const wasPlaying = !videoRef.current.paused;
         const found = availableQualities.find((s) => s.quality === q);
         if (!found) return;
+        if (found.url === src) { closeSettings(); return; }
         setCurrentQuality(q);
         setSrc(found.url);
-        setShowSettings(false);
-        // After src change, restore time
-        setTimeout(() => {
-            if (videoRef.current) {
-                videoRef.current.currentTime = time;
-                if (wasPlaying) videoRef.current.play().catch(() => { });
-            }
-        }, 100);
+        closeSettings();
+        pendingSeek.current = time;
+        resumeAfterQuality.current = wasPlaying;
+        setBuffering(true);
+        setPlaybackError(false);
+    };
+
+    const retryPlayback = () => {
+        pendingSeek.current = videoRef.current?.currentTime || startAt;
+        demarrageAuto.current = false;
+        setPlaybackError(false);
+        setBuffering(true);
+        setSlow(false);
+        setRetryCount(n => n + 1);
+        if (!manifestUrl) videoRef.current?.load();
     };
 
     const togglePlay = () => {
+        if (playbackLocked) return;
         const v = videoRef.current;
         if (!v) return;
         // Commander la lecture soi-même clôt le démarrage automatique : sans
         // cela, une pause suivie d'un saut le relancerait.
         demarrageAuto.current = true;
-        if (v.paused) v.play(); else v.pause();
+        if (v.paused) {
+            v.play().catch((error) => {
+                setBuffering(false);
+                if (error?.name !== "NotAllowedError" && error?.name !== "AbortError") failPlayback();
+            });
+        } else v.pause();
     };
     const toggleMute = () => {
         const v = videoRef.current;
@@ -377,23 +498,25 @@ export default function VideoPlayer({
         setMuted(val === 0);
     };
     const seek = (val) => {
+        if (playbackLocked) return;
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
         v.currentTime = (val / 100) * v.duration;
     };
     const skip = (delta) => {
+        if (playbackLocked) return;
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
         v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
     };
     const toggleFs = async () => {
         const el = wrapRef.current;
         if (!el) return;
-        if (!document.fullscreenElement) {
-            await el.requestFullscreen();
-        } else {
-            await document.exitFullscreen();
-        }
+        try {
+            if (document.fullscreenElement) await document.exitFullscreen();
+            else if (el.requestFullscreen) await el.requestFullscreen();
+            else videoRef.current?.webkitEnterFullscreen?.();
+        } catch { /* Unsupported fullscreen must not interrupt playback. */ }
     };
 
     useEffect(() => {
@@ -403,8 +526,18 @@ export default function VideoPlayer({
     }, []);
 
     const onLoadedMetadata = () => {
-        if (startAt > 0 && videoRef.current) videoRef.current.currentTime = startAt;
-        setDuration(videoRef.current?.duration || 0);
+        const video = videoRef.current;
+        const length = Number.isFinite(video?.duration) ? video.duration : 0;
+        setDuration(length);
+        if (video && length > 0 && pendingSeek.current != null) {
+            video.currentTime = Math.max(0, Math.min(pendingSeek.current, Math.max(0, length - 0.1)));
+            pendingSeek.current = null;
+        }
+        if (video) video.playbackRate = vitesse;
+        if (resumeAfterQuality.current) {
+            resumeAfterQuality.current = false;
+            video?.play().catch(() => setBuffering(false));
+        }
     };
     const onTimeUpdate = () => {
         if (!videoRef.current) return;
@@ -421,32 +554,70 @@ export default function VideoPlayer({
         setShowControls(true);
         if (hideTimer.current) clearTimeout(hideTimer.current);
         hideTimer.current = setTimeout(() => {
-            if (playing) setShowControls(false);
+            if (playing && !showSettings && !wrapRef.current?.contains(document.activeElement)) setShowControls(false);
         }, 3000);
-    }, [playing]);
+    }, [playing, showSettings]);
+
+    useEffect(() => {
+        bumpControls();
+        return () => clearTimeout(hideTimer.current);
+    }, [bumpControls]);
+
+    const percent = duration ? Math.min(100, Math.max(0, (progress / duration) * 100)) : 0;
+    const controlsVisible = showControls || !playing || showSettings || buffering;
+    const showPauseInfo = paused && !playing && !buffering && !playbackError && !adsRunning && !showSettings && Boolean(fiche);
 
     return (
         <div
             ref={wrapRef}
             data-testid="video-player-wrapper"
-            className="relative w-full aspect-video bg-black rounded-lg overflow-hidden group"
+            className="ym-player"
+            data-compact={compact}
+            data-narrow={narrow}
+            data-paused-info={showPauseInfo}
+            data-controls={controlsVisible ? "visible" : "hidden"}
+            tabIndex={0}
+            role="region"
+            aria-label="Lecteur vidéo"
+            onContextMenu={videoProtection.onContextMenu}
             onMouseMove={bumpControls}
-            onMouseLeave={() => playing && setShowControls(false)}
+            onTouchStart={bumpControls}
+            onFocus={bumpControls}
+            onKeyDown={(event) => {
+                if (event.target !== event.currentTarget || adsRunning) return;
+                const action = { " ": togglePlay, k: togglePlay, m: toggleMute, f: toggleFs, ArrowLeft: () => skip(-10), ArrowRight: () => skip(10), Escape: () => closeSettings() }[event.key];
+                if (action) { event.preventDefault(); bumpControls(); action(); }
+            }}
         >
             <video
+                {...videoProtection}
+                preload="metadata"
                 ref={videoRef}
                 data-testid="video-player"
                 src={manifestUrl ? undefined : src}
-                crossOrigin={manifestUrl ? "anonymous" : undefined}
+                crossOrigin={videoCrossOrigin(manifestUrl || src, API) || (manifestUrl ? "anonymous" : undefined)}
                 poster={poster}
                 className="w-full h-full"
                 onLoadedMetadata={onLoadedMetadata}
                 onTimeUpdate={onTimeUpdate}
-                onCanPlay={demarrerSiPossible}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
-                onError={() => onFluxImpossible?.()}
+                onProgress={() => {
+                    const video = videoRef.current;
+                    if (video?.buffered.length && Number.isFinite(video.duration) && video.duration > 0) {
+                        setBuffered(Math.min(100, video.buffered.end(video.buffered.length - 1) / video.duration * 100));
+                    }
+                }}
+                onLoadStart={() => { setBuffering(true); setPlaybackError(false); }}
+                onWaiting={() => setBuffering(true)}
+                onStalled={() => { if (videoRef.current?.readyState < 3) setBuffering(true); }}
+                onSeeking={() => setBuffering(true)}
+                onSeeked={() => { if (videoRef.current?.readyState >= 2) setBuffering(false); }}
+                onCanPlay={() => { setBuffering(false); demarrerSiPossible(); }}
+                onRateChange={() => setVitesse(videoRef.current?.playbackRate || 1)}
+                onPlay={() => { setPlaying(true); setPaused(false); }}
+                onPlaying={() => { hasPlayed.current = true; setPaused(false); setPlaying(true); setBuffering(false); setPlaybackError(false); bumpControls(); }}
+                onPause={() => { setPaused(hasPlayed.current && !videoRef.current?.ended); setPlaying(false); setShowControls(true); }}
+                onEnded={() => { setPaused(false); setPlaying(false); setBuffering(false); }}
+                onError={failPlayback}
                 onClick={() => !adsRunning && togglePlay()}
                 playsInline
             />
@@ -483,215 +654,81 @@ export default function VideoPlayer({
                 </div>
             )}
 
-            {/* Controls */}
+            {buffering && !playbackError && !adsRunning && <PlayerLoading overlay label={slow ? "Le chargement prend plus de temps…" : "Chargement de la vidéo…"} />}
+            {(playbackError || (buffering && slow)) && !adsRunning && (
+                <div role={playbackError ? "alert" : undefined} className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/90 px-5 text-center">
+                    <p className="text-sm text-neutral-200">{playbackError ? "La vidéo n’a pas pu être chargée." : "Le flux met du temps à répondre."}</p>
+                    <button type="button" onClick={retryPlayback} className="rounded-full bg-[#E8D2A6] px-5 py-2.5 text-sm font-semibold text-black">Réessayer</button>
+                </div>
+            )}
+            {showPauseInfo && <PlayerPauseInfo fiche={fiche} />}
             {!adsRunning && (
-                <div
-                    className={`absolute inset-x-0 bottom-0 z-20 transition-opacity duration-300 ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
-                >
-                    <div className="bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-16 pb-4 px-5">
-                        {/* Progress bar */}
-                        <div className="mb-3 flex items-center gap-3 text-xs text-white/80">
-                            <span>{fmt(progress)}</span>
-                            <input
-                                data-testid="player-seek"
-                                type="range"
-                                min="0"
-                                max="100"
-                                value={duration ? (progress / duration) * 100 : 0}
-                                onChange={(e) => seek(Number(e.target.value))}
-                                className="flex-1 accent-[#E8D2A6] cursor-pointer"
-                            />
-                            <span>{fmt(duration)}</span>
+                <>
+                    <div className="ym-player-brand" aria-hidden="true">
+                        <div className="ym-player-top-title"><strong>{fiche?.titre}</strong><span>{fiche?.sousTitre}</span></div>
+                    </div>
+                    <div className="ym-player-controls">
+                        <div className="ym-player-progress-row">
+                            <div className="ym-player-timeline" style={{ "--played": `${percent}%`, "--buffered": `${buffered}%` }}>
+                                <div className="ym-player-timeline-track" />
+                                <div className="ym-player-timeline-buffer" />
+                                <input data-testid="player-seek" aria-label="Position de lecture" aria-valuetext={`${fmt(progress)} sur ${fmt(duration)}`}
+                                    type="range" min="0" max="100" step="0.1" value={percent} disabled={playbackLocked || !duration || playbackError}
+                                    onChange={event => seek(Number(event.target.value))} className="ym-player-seek" />
+                            </div>
+                            <span className="ym-player-time" aria-label={`Temps restant : ${fmt(Math.max(0, duration - progress))}`}>
+                                −{fmt(Math.max(0, duration - progress))}
+                            </span>
                         </div>
-                        {/* Buttons */}
-                        <div className="flex items-center gap-3 text-white">
-                            <button data-testid="player-play" onClick={togglePlay} className="hover:text-[#E8D2A6]">
-                                {playing ? <Pause size={22} /> : <Play size={22} fill="currentColor" />}
-                            </button>
-                            <button onClick={() => skip(-10)} className="hover:text-[#E8D2A6]">
-                                <SkipBack size={18} />
-                            </button>
-                            <button onClick={() => skip(10)} className="hover:text-[#E8D2A6]">
-                                <SkipForward size={18} />
-                            </button>
-                            <div className="flex items-center gap-2">
-                                <button onClick={toggleMute} className="hover:text-[#E8D2A6]">
-                                    {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                        <div className="ym-player-toolbar">
+                            <div className="ym-player-toolbar-group">
+                                <button type="button" data-testid="player-play" disabled={playbackLocked} aria-label={playing ? "Mettre en pause" : "Lire"}
+                                    data-tooltip={playing ? "Pause (Espace)" : "Lecture (Espace)"} onClick={togglePlay} className="ym-player-button">
+                                    {playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
                                 </button>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.05"
-                                    value={muted ? 0 : volume}
-                                    onChange={(e) => setVol(Number(e.target.value))}
-                                    className="w-20 accent-[#E8D2A6] cursor-pointer"
-                                />
-                                {boost > 1 && (
-                                    <span className="rounded-full bg-[#E8D2A6]/15 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#E8D2A6]">
-                                        x{boost.toFixed(1)}
-                                    </span>
-                                )}
-                            </div>
-                            <div className="flex-1" />
-                            <div className="relative">
-                                <button
-                                    data-testid="player-settings"
-                                    onClick={() => setShowSettings((s) => !s)}
-                                    className="flex items-center gap-1.5 hover:text-[#E8D2A6] text-sm"
-                                >
-                                    <Settings size={18} />
-                                    <span className="text-xs uppercase tracking-widest">
-                                        {niveaux.length > 0
-                                            ? (niveauChoisi === -1 ? "Auto" : `${niveaux[niveauChoisi]?.height}p`)
-                                            : currentQuality}
-                                    </span>
+                                <button type="button" disabled={playbackLocked} aria-label="Reculer de 10 secondes" data-tooltip="Reculer de 10 s" onClick={() => skip(-10)} className="ym-player-button">
+                                    <span className="ym-player-skip" aria-hidden="true"><RotateCcw /><span>10</span></span>
                                 </button>
-                                {showSettings && (
-                                    <div
-                                        data-testid="quality-menu"
-                                        className="absolute bottom-full right-0 z-30 mb-2 max-h-[min(60vh,300px)] min-w-[220px] overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] shadow-2xl"
-                                    >
-                                        <div className="sticky top-0 border-b border-[#262626] bg-[#0a0a0a] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
-                                            Qualité
-                                        </div>
-                                        {niveaux.length > 0 ? (
-                                            <>
-                                                <button
-                                                    onClick={() => choisirNiveau(-1)}
-                                                    className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === -1 ? "text-[#E8D2A6]" : "text-white"}`}
-                                                >
-                                                    Automatique
-                                                </button>
-                                                {[...niveaux].reverse().map((n) => (
-                                                    <button
-                                                        key={n.index}
-                                                        data-testid={`niveau-${n.height}`}
-                                                        onClick={() => choisirNiveau(n.index)}
-                                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${niveauChoisi === n.index ? "text-[#E8D2A6]" : "text-white"}`}
-                                                    >
-                                                        {n.height}p
-                                                    </button>
-                                                ))}
-                                            </>
-                                        ) : (
-                                            <>
-                                                {availableQualities.length === 0 && (
-                                                    <div className="px-3 py-2 text-xs text-neutral-500">Aucune option</div>
-                                                )}
-                                                {availableQualities.map((q) => (
-                                                    <button
-                                                        key={q.quality}
-                                                        data-testid={`quality-${q.quality}`}
-                                                        onClick={() => changeQuality(q.quality)}
-                                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${currentQuality === q.quality ? "text-[#E8D2A6]" : "text-white"}`}
-                                                    >
-                                                        {q.quality.toUpperCase()}
-                                                    </button>
-                                                ))}
-                                                {qualitySources
-                                                    .filter((source) => !availableQualities.find((a) => a.quality === source.quality))
-                                                    .map((q) => (
-                                                        <Link
-                                                            key={q.quality}
-                                                            to="/pricing"
-                                                            className="flex items-center justify-between border-t border-[#262626] px-3 py-2 text-sm text-neutral-500 hover:bg-white/5"
-                                                        >
-                                                            <span>{q.quality.toUpperCase()}</span>
-                                                            <Zap size={12} className="text-[#E8D2A6]" />
-                                                        </Link>
-                                                    ))}
-                                            </>
-                                        )}
-
-                                        <div className="border-y border-[#262626] px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
-                                            Vitesse
-                                        </div>
-                                        <div className="grid grid-cols-3 gap-1 p-2">
-                                            {VITESSES.map((v) => (
-                                                <button
-                                                    key={v}
-                                                    data-testid={`vitesse-${v}`}
-                                                    onClick={() => changerVitesse(v)}
-                                                    className={`rounded px-2 py-1.5 text-xs tabular-nums transition-colors ${vitesse === v
-                                                        ? "bg-[#E8D2A6] font-semibold text-black"
-                                                        : "bg-white/5 text-neutral-300 hover:bg-white/10"}`}
-                                                >
-                                                    {v === 1 ? "Normal" : `${v}x`}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div className="border-t border-[#262626] px-3 py-2.5">
-                                            <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-neutral-500">
-                                                <span>Amplification</span>
-                                                <span className="tabular-nums text-[#E8D2A6]">{Math.round(boost * 100)} %</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="1"
-                                                max="2.5"
-                                                step="0.1"
-                                                value={boost}
-                                                data-testid="player-boost"
-                                                onChange={(e) => appliquerBoost(Number(e.target.value))}
-                                                className="mt-2 w-full cursor-pointer accent-[#E8D2A6]"
-                                            />
-                                            <p className="mt-1.5 text-[10px] leading-snug text-neutral-600">
-                                                Au-delà de 100 %, le son peut saturer selon la piste.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
+                                <button type="button" disabled={playbackLocked} aria-label="Avancer de 10 secondes" data-tooltip="Avancer de 10 s" onClick={() => skip(10)} className="ym-player-button">
+                                    <span className="ym-player-skip" aria-hidden="true"><RotateCw /><span>10</span></span>
+                                </button>
+                                <div className="ym-player-volume">
+                                    <button type="button" aria-label={muted ? "Activer le son" : "Couper le son"} data-tooltip="Volume (M)" onClick={toggleMute} className="ym-player-button">
+                                        {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
+                                    </button>
+                                    {!compact && <div className="ym-player-volume-panel">
+                                        <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} aria-label="Volume"
+                                            onChange={event => setVol(Number(event.target.value))} />
+                                    </div>}
+                                </div>
                             </div>
-                            <button onClick={toggleFs} className="hover:text-[#E8D2A6]">
-                                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                            </button>
+                            <div className="ym-player-toolbar-group">
+                                {!compact && <button type="button" ref={speedTriggerRef} disabled={settingsLocked} aria-label="Vitesse de lecture" data-tooltip="Vitesse de lecture"
+                                    aria-expanded={showSettings && settingsSection === "speed"} aria-haspopup="dialog"
+                                    onClick={() => showSettings && settingsSection === "speed" ? closeSettings() : openSettings("speed", speedTriggerRef)} className="ym-player-button">
+                                    <Gauge />{vitesse !== 1 && <span className="ym-player-speed-badge">{vitesse}×</span>}
+                                </button>}
+                                {downloadControl}
+                                <button type="button" ref={settingsTriggerRef} disabled={settingsLocked} data-testid="player-settings" aria-label="Réglages de lecture"
+                                    data-tooltip="Réglages" aria-expanded={showSettings} aria-haspopup="dialog"
+                                    onClick={() => showSettings ? closeSettings() : openSettings("quality", settingsTriggerRef)} className="ym-player-button">
+                                    <Settings />
+                                </button>
+                                <button type="button" aria-label={isFullscreen ? "Quitter le plein écran" : "Plein écran"} data-tooltip="Plein écran (F)" onClick={toggleFs} className="ym-player-button">
+                                    {isFullscreen ? <Minimize /> : <Maximize />}
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                    {showSettings && !settingsLocked && <PlayerSettings panelRef={settingsPanelRef} section={settingsSection} onSection={setSettingsSection} onClose={closeSettings}
+                        levels={niveaux} level={niveauChoisi} onLevel={choisirNiveau} qualities={availableQualities} allQualities={qualitySources}
+                        quality={currentQuality} onQuality={changeQuality} speed={vitesse} onSpeed={changerVitesse}
+                        volume={volume} muted={muted} onVolume={setVol} boost={boost} onBoost={appliquerBoost} />}
+                </>
             )}
-
-            {/* À l'arrêt, la fiche du titre prend la place de l'image figée.
-                Sans capture de clic : un clic n'importe où relance la lecture. */}
-            {!playing && !adsRunning && fiche && (
-                <div
-                    data-testid="fiche-pause"
-                    className="pointer-events-none absolute inset-0 z-20 flex items-center gap-5 bg-gradient-to-r from-black/90 via-black/60 to-transparent p-6 sm:p-10"
-                >
-                    {fiche.affiche && (
-                        <img
-                            src={fiche.affiche}
-                            alt=""
-                            className="hidden h-40 w-[112px] shrink-0 rounded-lg object-cover shadow-2xl ring-1 ring-white/10 sm:block"
-                        />
-                    )}
-                    <div className="min-w-0 max-w-xl">
-                        <div className="text-[10px] uppercase tracking-[0.2em] text-[#E8D2A6]">En pause</div>
-                        <h2 className="mt-1.5 font-display text-2xl leading-tight text-white sm:text-4xl">
-                            {fiche.titre}
-                        </h2>
-                        {fiche.sousTitre && (
-                            <div className="mt-1.5 text-sm text-neutral-400">{fiche.sousTitre}</div>
-                        )}
-                        {fiche.description && (
-                            <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-neutral-300 sm:line-clamp-4">
-                                {fiche.description}
-                            </p>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Center play when paused */}
-            {!playing && !adsRunning && (
-                <button
-                    onClick={togglePlay}
-                    aria-label="Lancer la lecture"
-                    data-testid="player-center-play"
-                    className="ym-play-surgit absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#E8D2A6]/95 shadow-2xl transition-transform duration-150 hover:scale-105 hover:bg-[#E8D2A6] sm:h-16 sm:w-16"
-                >
-                    <Play size={22} className="ml-1 text-black" fill="currentColor" />
+            {!playbackLocked && !playing && !paused && !buffering && !playbackError && !adsRunning && !showSettings && (
+                <button type="button" onClick={togglePlay} aria-label="Lancer la lecture" data-testid="player-center-play" className="ym-player-center">
+                    <Play fill="currentColor" />
                 </button>
             )}
         </div>

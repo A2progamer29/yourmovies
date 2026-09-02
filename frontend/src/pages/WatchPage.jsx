@@ -1,6 +1,7 @@
+import PlayerLoading from "@/components/PlayerLoading";
+import EmbeddedPlayer from "@/components/EmbeddedPlayer";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import Chargement from "@/components/Chargement";
-import { lireLocal } from "@/lib/stockage";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronDown, Users, Play, Film, ListVideo, X, Clock3, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -16,82 +17,18 @@ import Header from "@/components/Header";
 import ReportDialog from "@/components/ReportDialog";
 import TurnstileGate from "@/components/TurnstileGate";
 import AvertissementContenu from "@/components/AvertissementContenu";
-import { lirePass } from "@/lib/playbackPass";
 import VideoPlayer from "@/components/VideoPlayer";
 import WatchParty from "@/components/WatchParty";
 import PreRollAd from "@/components/PreRollAd";
 import AdGate from "@/components/AdGate";
 import SuiteAutomatique from "@/components/SuiteAutomatique";
+import { partyPath, validPartyCode } from "@/lib/partySync";
 
-const BUNNY_LIBRARY_ID = process.env.REACT_APP_BUNNY_LIBRARY_ID || "719915";
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
 const SEUIL_FIN = 0.95;
 
 
-function resolveBunnySource(media) {
-    if (!media) return null;
-    // Une piste importee seule fait office de video principale : sinon un episode
-    // n'existant qu'en VO passerait pour depourvu de fichier.
-    const premierePiste = (media.language_tracks || []).find((p) => p?.bunny_video_id);
-    const candidates = [media.bunny_video_id, media.video_url, premierePiste?.bunny_video_id]
-        .filter(Boolean);
-
-    for (const value of candidates) {
-        const raw = String(value).trim();
-        if (!raw) continue;
-
-        try {
-            const url = new URL(raw);
-            const match = url.pathname.match(/\/(?:embed|play)\/(\d+)\/([a-zA-Z0-9-]+)/);
-            if (match) return { libraryId: match[1], videoId: match[2] };
-            const videoId = url.searchParams.get("videoId") || url.searchParams.get("video_id");
-            const libraryId = url.searchParams.get("libraryId") || url.searchParams.get("library_id");
-            if (videoId) {
-                return {
-                    libraryId: String(libraryId || media.bunny_library_id || BUNNY_LIBRARY_ID),
-                    videoId,
-                };
-            }
-        } catch {
-            // A raw GUID is the preferred stored format.
-        }
-
-        if (/^[a-zA-Z0-9-]{12,}$/.test(raw) && !raw.includes("/")) {
-            return {
-                libraryId: String(media.bunny_library_id || BUNNY_LIBRARY_ID),
-                videoId: raw,
-            };
-        }
-    }
-
-    return null;
-}
-
-/** Un fichier est jouable par sa piste principale ou par l'une de ses pistes de
- *  langue. Ce test doit rester unique : reparti en plusieurs endroits, il en
- *  restait toujours un qui ignorait les pistes et rejetait l'episode. */
-function estJouable(item) {
-    if (!item) return false;
-    return Boolean(
-        item.bunny_video_id
-        || item.video_url
-        || item.video_file_path
-        || (item.language_tracks || []).some((piste) => piste?.bunny_video_id),
-    );
-}
-
-function fallbackQualities(media) {
-    if (media.qualities && media.qualities.length > 0) {
-        return media.qualities.map((q) => ({
-            quality: q.quality,
-            url: q.url || (q.file_path ? `${API}/files/${q.file_path}` : null),
-        })).filter((q) => q.url);
-    }
-    const single = media.video_url || (media.video_file_path ? `${API}/files/${media.video_file_path}` : null);
-    if (!single) return [];
-    return [{ quality: "720p", url: single }];
-}
-
+function estJouable(item) { return Boolean(item?.has_video); }
 
 function formatEpisodeDuration(episode) {
     const raw = episode?.duration_minutes ?? episode?.duration;
@@ -297,9 +234,15 @@ export default function WatchPage() {
     const [episodePanelOpen, setEpisodePanelOpen] = useState(false);
     const [isPartyHost, setIsPartyHost] = useState(false);
     const [partyStarted, setPartyStarted] = useState(false);
-    const [partyCode, setPartyCode] = useState(searchParams.get("party") || "");
+    const partyCode = (searchParams.get("party") || "").toUpperCase();
     const [joinInput, setJoinInput] = useState("");
-    const [partyOpen, setPartyOpen] = useState(Boolean(searchParams.get("party")));
+    const partyOpen = Boolean(searchParams.get("party"));
+    const [partyValidated, setPartyValidated] = useState(false);
+    const [partyError, setPartyError] = useState(null);
+    const [partyConnected, setPartyConnected] = useState(false);
+    const [partyPlayerReady, setPartyPlayerReady] = useState(false);
+    const [creatingParty, setCreatingParty] = useState(false);
+    const guestLocked = partyOpen && (!isPartyHost || !partyConnected);
     const videoElRef = useRef(null);
     const [manifestUrl, setManifestUrl] = useState(null);
     const [apiPlayerActive, setApiPlayerActive] = useState(false);
@@ -308,19 +251,11 @@ export default function WatchPage() {
     // de la valeur elle-même relancerait la vidéo à chaque cran du curseur.
     const lecteurAvanceDemande = (Number(user?.audio_boost) || 1) > 1;
     const [bunnyPlaybackError, setBunnyPlaybackError] = useState(null);
-    // En salon, la fin des publicités change la mise en page et reconstruit
-    // l'iframe du lecteur : on recharge la page pour repartir sur un lecteur propre.
-    // L'état est donc mémorisé le temps de la session, sinon le rechargement
-    // rejouerait les publicités et bouclerait indéfiniment.
-    const adsMemoryKey = searchParams.get("party") ? `ym_party_ads:${searchParams.get("party")}:${id}` : null;
-    const readAdsMemory = () => {
-        if (!adsMemoryKey) return false;
-        try { return sessionStorage.getItem(adsMemoryKey) === "1"; } catch { return false; }
-    };
-    const adsAlreadyCleared = useRef(readAdsMemory());
-    const [adDone, setAdDone] = useState(adsAlreadyCleared.current);
-    const [gateDone, setGateDone] = useState(adsAlreadyCleared.current);
-    const [verifie, setVerifie] = useState(() => Boolean(lirePass()));
+    const [adDone, setAdDone] = useState(false);
+    const [gateDone, setGateDone] = useState(false);
+    const [access, setAccess] = useState(null);
+    const [source, setSource] = useState(null);
+    const [verifie, setVerifie] = useState(false);
     const [playbackActive, setPlaybackActive] = useState(false);
     const [chronologie, setChronologie] = useState({ titre: "", items: [] });
     const saveProgressRef = useRef(() => { });
@@ -371,8 +306,8 @@ export default function WatchPage() {
         suiteRefusee.current = false;
     }, [id, selectedEpisodeKey, searchParams]);
 
-    const selectEpisode = (episode) => {
-        if (!episode) return;
+    const selectEpisode = (episode, fromHost = false) => {
+        if (!episode || (guestLocked && !fromHost) || selectedEpisode?._key === episode._key) return;
         const isSameEpisode = selectedEpisode?._key === episode._key;
         setSelectedEpisodeKey(episode._key);
         setSelectedSeason(String(episode.season_number));
@@ -386,7 +321,7 @@ export default function WatchPage() {
         const matchesSavedProgress = watchProgress
             && String(watchProgress.season_number) === String(episode.season_number)
             && String(watchProgress.episode_number) === String(episode.ep_number);
-        setResumeAt(matchesSavedProgress && Number(watchProgress.position_seconds) > 5
+        setResumeAt(!partyOpen && matchesSavedProgress && Number(watchProgress.position_seconds) > 5
             ? Number(watchProgress.position_seconds)
             : 0);
 
@@ -487,6 +422,7 @@ export default function WatchPage() {
         const episode = media.type === "movie" ? null : selectedEpisode;
         return {
             titre: media.title,
+            logo: media.title_logo_url,
             affiche: media.poster_url,
             sousTitre: episode
                 ? `Saison ${episode.season_number} · Épisode ${episode.ep_number}${episode.title ? ` — ${episode.title}` : ""}`
@@ -498,11 +434,8 @@ export default function WatchPage() {
     const baseMedia = media?.type === "movie" ? media : selectedEpisode;
     // Une piste choisie remplace la source principale : le lecteur doit
     // vraiment changer de fichier, pas seulement l'affichage du bouton.
-    const pisteActive = piste ? (baseMedia?.language_tracks || []).find((p) => p?.label === piste) : null;
-    const playbackMedia = pisteActive
-        ? { ...baseMedia, bunny_video_id: pisteActive.bunny_video_id, bunny_library_id: pisteActive.bunny_library_id }
-        : baseMedia;
-    const apiPlayerUrl = media?.api_player_url || baseMedia?.api_player_url || "";
+    const playbackMedia = baseMedia;
+    const apiPlayerUrl = source?.url || "";
     const basculerVersLecteurApi = useCallback(() => {
         if (!apiPlayerUrl) return;
         setManifestUrl(null);
@@ -526,7 +459,7 @@ export default function WatchPage() {
         };
     }, []);
 
-    const bunnySource = resolveBunnySource(playbackMedia);
+    const bunnySource = playbackMedia?.has_video;
 
     // Déclaré après bunnySource, dont il dépend.
     const lecteurDirectActif = Boolean(bunnySource && manifestUrl && !partyOpen);
@@ -534,73 +467,64 @@ export default function WatchPage() {
     // Les pistes appartiennent au fichier joue : celles de l'episode en cours pour
     // une serie, celles de la fiche pour un film.
     const pistesDisponibles = ((media?.type === "movie" ? media : selectedEpisode)?.language_tracks || [])
-        .filter((p) => p && p.label && p.bunny_video_id);
+        .filter((p) => p && p.label && p.available);
 
     useEffect(() => {
-        // Sans la preuve de vérification, le serveur refuserait l'URL : on
-        // n'appelle donc pas tant qu'elle n'a pas été franchie.
-        if (!bunnySource?.videoId || !verifie) {
-            return;
-        }
+        if (!media || authEnCours || (partyOpen && !partyValidated)) return;
         let active = true;
+        setAccess(null);
+        setSource(null);
+        setManifestUrl(null);
+        setBunnyPlaybackError(null);
+        setGateDone(false);
+        setAdDone(false);
+        setVerifie(false);
+        api.post("/playback/access", {
+            media_id: id,
+            season_number: media.type === "movie" ? null : String(selectedEpisode?.season_number ?? ""),
+            episode_number: media.type === "movie" ? null : String(selectedEpisode?.ep_number ?? ""),
+        }, { silent: true }).then(r => { if (active) setAccess(r.data); })
+            .catch(e => { if (active) setBunnyPlaybackError(e?.response?.data?.detail || "Autorisation indisponible."); });
+        return () => { active = false; };
+    }, [id, media, selectedEpisode?.season_number, selectedEpisode?.ep_number, authEnCours, user?.user_id, partyOpen, partyValidated]);
+
+    useEffect(() => {
+        if (!access || !bunnySource || authEnCours || (!user?.premium && (!verifie || !gateDone || !adDone))) return;
+        let active = true;
+        let retry;
+        setSource(null);
         setManifestUrl(null);
         setApiPlayerActive(false);
         setBunnyPlaybackError(null);
-        // Le lecteur avancé n'est demandé que si l'amplification est réglée : sans
-        // elle il n'apporte rien, et le lecteur intégré reste le chemin éprouvé.
-        const amplification = lecteurAvanceDemande ? 2 : 1;
-        const playbackParams = {
-            ...(media?.type === "movie" ? {} : {
-                season_number: selectedEpisode?.season_number,
-                episode_number: selectedEpisode?.ep_number,
-            }),
-            ...(amplification > 1 ? { direct: 1 } : {}),
+        const headers = { "X-Playback-Grant": access.grant };
+        const params = {
+            ...(media?.type === "movie" ? {} : { season_number: selectedEpisode?.season_number, episode_number: selectedEpisode?.ep_number }),
+            direct: 1,
             ...(piste ? { track: piste } : {}),
         };
-        api.get(`/bunny/playback/${id}`, {
-            params: playbackParams,
-            silent: true,
-            headers: lirePass() ? { "X-Playback-Pass": lirePass() } : undefined,
-        })
-            .then((response) => {
+        const load = async () => {
+            try {
+                if (!user?.premium) await api.post("/playback/access/complete", {}, { headers, silent: true });
+                const r = await api.get(`/media/${id}/playback`, { params, headers, silent: true });
                 if (!active) return;
-                const data = response.data || {};
-                if (!data.manifest_url) {
-                    setBunnyPlaybackError("Ce contenu ne fournit pas de flux compatible avec le lecteur maison.");
-                    return;
-                }
-                // Le flux servi en direct autorise nos propres contrôles, dont
-                // l’amplification du son. À défaut, le lecteur intégré prend le relais.
-                setManifestUrl(data.playback_type === "direct" ? data.manifest_url : null);
-                if (data.libraryMatchesUploadConfig === false) {
-                    setBunnyPlaybackError(
-                        `Cette vidéo appartient à la bibliothèque ${data.libraryId}, mais le serveur est configuré pour une autre. Corrige la configuration ou réimporte la vidéo.`
-                    );
-                    return;
-                }
-            })
-            .catch((error) => {
+                setBunnyPlaybackError(null);
+                setSource(r.data);
+                setManifestUrl(r.data.manifest_url || null);
+                if (!r.data.manifest_url && r.data.url) setApiPlayerActive(true);
+            } catch (e) {
                 if (!active) return;
-                const status = error?.response?.status;
-                const detail = error?.response?.data?.detail;
-                setBunnyPlaybackError(
-                    detail || `Impossible d’obtenir l’autorisation de lecture${status ? ` (HTTP ${status})` : ""}. Vérifie la configuration du serveur et la sécurité de la bibliothèque.`
-                );
-            });
-        return () => { active = false; };
-    }, [
-        id,
-        media?.type,
-        selectedEpisode?.season_number,
-        selectedEpisode?.ep_number,
-        bunnySource?.videoId,
-        bunnySource?.libraryId,
-        verifie,
-        piste,
-        // Changer de lecteur, oui ; changer de niveau, non : le niveau est suivi
-        // en direct par le lecteur lui-même.
-        lecteurAvanceDemande,
-    ]);
+                const wait = Number(e?.response?.headers?.["retry-after"]);
+                if (e?.response?.status === 429 && wait > 0 && wait <= 120) {
+                    setBunnyPlaybackError(`Autorisation de lecture dans ${wait} secondes…`);
+                    retry = window.setTimeout(load, wait * 1000);
+                } else {
+                    setBunnyPlaybackError(e?.response?.data?.detail || "Autorisation de lecture refusée.");
+                }
+            }
+        };
+        load();
+        return () => { active = false; window.clearTimeout(retry); };
+    }, [access, id, media?.type, selectedEpisode?.season_number, selectedEpisode?.ep_number, bunnySource, verifie, piste, gateDone, adDone, authEnCours, user]);
 
     useEffect(() => {
         (async () => {
@@ -737,14 +661,6 @@ export default function WatchPage() {
         selectedEpisode?.ep_number,
     ]);
 
-    useEffect(() => {
-        if (!adsMemoryKey || adsAlreadyCleared.current) return;
-        if (!user || user.premium) return;
-        if (!gateDone || !adDone) return;
-        try { sessionStorage.setItem(adsMemoryKey, "1"); } catch { }
-        window.location.reload();
-    }, [adsMemoryKey, gateDone, adDone, user]);
-
     // Entrer dans un salon recharge la page : le lecteur est reconstruit
     // par le changement de mise en page, et l'ancienne instance restait
     // attachée — d'où la synchronisation qui n'arrivait qu'après un F5 manuel.
@@ -757,33 +673,57 @@ export default function WatchPage() {
 
     const createParty = async () => {
         if (!user) { navigate("/login"); return; }
+        if (creatingParty) return;
+        setCreatingParty(true);
         try {
-            const r = await api.post("/party/create", { media_id: id });
-            gotoParty(r.data.code);
+            const r = await api.post("/party/create", { media_id: id,
+                season_number: media.type === "movie" ? null : String(selectedEpisode?.season_number),
+                episode_number: media.type === "movie" ? null : String(selectedEpisode?.ep_number) });
+            window.location.assign(partyPath(r.data));
         } catch (e) { showError(toast, e, "Impossible de créer le salon"); }
+        finally { setCreatingParty(false); }
     };
 
-    const joinParty = async (rawCode) => {
+    const joinParty = async () => {
         if (!user) { navigate("/login"); return; }
-        const source = typeof rawCode === "string" ? rawCode : joinInput;
-        if (!source.trim()) return;
-        const code = source.trim().toUpperCase();
-        // Sans cette vérification, un code inexistant ouvrait un salon vide.
+        const code = joinInput.trim().toUpperCase();
+        if (!validPartyCode(code)) { toast.error("Utilisez un code généré par Watch Party."); return; }
         try {
-            await api.get(`/party/${code}`);
-        } catch (e) {
-            if (e?.response?.status === 404) {
-                toast.error(`Aucun salon ne porte le code ${code}.`);
-                setJoinInput("");
+            const response = await api.get(`/party/${code}`);
+            window.location.assign(partyPath(response.data));
+        } catch (e) { showError(toast, e, "Ce salon n’existe pas ou n’est plus disponible"); }
+    };
+
+    useEffect(() => {
+        if (!partyOpen || authEnCours) return undefined;
+        if (!user) { navigate("/login", { replace: true }); return undefined; }
+        if (!validPartyCode(partyCode)) { setPartyError("Ce code de salon n’est pas valide."); return undefined; }
+        let active = true;
+        api.get(`/party/${partyCode}`, { silent: true }).then(response => {
+            if (!active) return;
+            const room = response.data;
+            const expected = partyPath(room);
+            const params = new URLSearchParams(window.location.search);
+            if (room.media_id !== id || String(room.state?.season_number || "") !== (params.get("season") || "") || String(room.state?.episode_number || "") !== (params.get("episode") || "")) {
+                window.location.replace(expected);
                 return;
             }
-            showError(toast, e, "Impossible de rejoindre le salon");
-            return;
-        }
-        gotoParty(code);
-    };
+            setPartyValidated(true);
+        }).catch(() => { if (active) setPartyError("Ce salon n’existe plus ou son accès est refusé."); });
+        return () => { active = false; };
+    }, [partyOpen, partyCode, authEnCours, user?.user_id, id, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!partyOpen) return undefined;
+        const timer = setInterval(() => setPartyPlayerReady(Boolean(videoElRef.current && videoElRef.current.readyState >= 2 && !videoElRef.current.error)), 400);
+        return () => clearInterval(timer);
+    }, [partyOpen]);
 
     const closeParty = () => { gotoParty(null); };
+
+    if (partyOpen && !partyValidated) {
+        return <div className="min-h-screen bg-[#050505] text-white"><Header /><div className="mx-auto max-w-xl px-6 py-20 text-center">{partyError ? <><p role="alert" className="text-neutral-300">{partyError}</p><Link to="/room-party" className="mt-6 inline-block text-[#E8D2A6]">Trouver une séance dans Room Party →</Link></> : <Chargement pleinePage />}</div></div>;
+    }
 
     if (media?.in_theaters && searchParams.get("cinema-warning") !== "accepted") {
         return (
@@ -813,16 +753,15 @@ export default function WatchPage() {
         );
     }
 
-    const qualities = fallbackQualities(playbackMedia);
+    const qualities = source?.qualities || [];
     const userMaxQuality = "4k";
     // Sans attendre la fin du chargement, un membre premium verrait la porte
     // publicitaire pendant la seconde qui précède l'arrivée de son compte.
     const runAds = !authEnCours && !user?.premium;
-    const hasVideo = !!(bunnySource || qualities.length > 0);
+    const hasVideo = estJouable(playbackMedia);
     const showGate = runAds && !gateDone && hasVideo;
     const showAd = runAds && gateDone && !adDone && hasVideo;
-    const adsDone = !runAds || adDone;
-    const token = lireLocal("ym_token");
+    const sourceReady = Boolean(source && partyPlayerReady && !apiPlayerActive && (user?.premium || (verifie && adDone && gateDone)));
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -842,44 +781,42 @@ export default function WatchPage() {
                     <h1 className={`font-display text-3xl sm:text-4xl ${lecteurDirectActif ? "sr-only" : ""}`}>
                         {media.title}
                     </h1>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Link to="/room-party" className="flex h-10 items-center gap-2 rounded-full border border-[#E8D2A6]/40 px-5 text-sm text-[#E8D2A6] hover:bg-[#E8D2A6]/10"><Users size={14} />Room Party</Link>
                         {!partyOpen ? (
                             <>
                                 <Button
                                     onClick={createParty}
+                                    disabled={creatingParty}
                                     data-testid="party-create-btn"
                                     className="bg-[#E8D2A6] text-black hover:bg-[#D4BB8B] rounded-full font-semibold h-10 px-5"
                                 >
                                     <Users size={14} className="mr-2" /> {user ? "Watch Party" : "Se connecter pour une Watch Party"}
                                 </Button>
-                                {/* Code à 6 caractères : dès qu'il est complet, on entre dans
-                                    le salon. Évite un bouton « Rejoindre » hors écran sur mobile. */}
+
                                 <div className="relative w-full sm:w-48">
                                     <Input
                                         data-testid="party-join-input"
                                         value={joinInput}
                                         onChange={(e) => {
-                                            const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+                                            const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
                                             setJoinInput(value);
-                                            if (value.length === 6) joinParty(value);
                                         }}
                                         onKeyDown={(e) => { if (e.key === "Enter") joinParty(); }}
                                         placeholder="Code du salon"
                                         inputMode="text"
                                         autoComplete="off"
-                                        maxLength={6}
+                                        maxLength={8}
                                         className="h-10 w-full bg-[#111] border-[#262626] pr-16 text-white tracking-[0.3em] uppercase placeholder:tracking-normal"
                                     />
-                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] tabular-nums text-neutral-500">
-                                        {joinInput.length}/6
-                                    </span>
+                                    <button type="button" onClick={joinParty} aria-label="Rejoindre avec ce code" className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#E8D2A6]">Entrer</button>
                                 </div>
                             </>
                         ) : null}
                     </div>
                 </div>
 
-                <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
+                <div className="grid lg:grid-cols-[minmax(0,1fr)_auto] gap-6 items-start">
                     <div>
                         <div className="relative overflow-hidden rounded-lg border border-[#262626] bg-[#0a0a0a]">
                             {media.player_broken ? (
@@ -892,21 +829,27 @@ export default function WatchPage() {
                                     </p>
                                 </div>
                             </div>
+                        ) : !access ? (
+                            bunnyPlaybackError ? <div role="alert" className="flex aspect-video items-center justify-center p-8 text-center text-neutral-300">{bunnyPlaybackError}</div> : <PlayerLoading label="Préparation de la lecture…" />
                         ) : showGate ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <AdGate onUnlock={() => setGateDone(true)} />
+                                <AdGate key={access.grant} access={access} onUnlock={() => setGateDone(true)} />
                             </div>
                         ) : showAd ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <PreRollAd onDone={() => setAdDone(true)} />
+                                <PreRollAd key={access.grant} access={access} enforce required={access.preroll_seconds > 0} onDone={() => setAdDone(true)} />
                             </div>
-                        ) : !verifie ? (
-                            <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <TurnstileGate onVerified={() => setVerifie(true)} />
+                        ) : !verifie && !user?.premium ? (
+                            <div className="relative w-full">
+                                <TurnstileGate key={access.grant} access={access} onVerified={() => setVerifie(true)} />
                             </div>
+                        ) : bunnySource && !source && !bunnyPlaybackError ? (
+                            <PlayerLoading />
+                        ) : partyOpen && apiPlayerActive ? (
+                            <div role="alert" className="flex aspect-video items-center justify-center px-8 text-center text-sm text-neutral-400">Ce flux externe ne permet pas la synchronisation. Choisissez un autre contenu pour cette Watch Party.</div>
                         ) : apiPlayerActive && apiPlayerUrl ? (
                             <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-                                <iframe
+                                <EmbeddedPlayer
                                     src={apiPlayerUrl}
                                     title={`Lecteur API — ${media.title}`}
                                     data-testid="api-player-fallback"
@@ -919,11 +862,15 @@ export default function WatchPage() {
                             <VideoPlayer
                                 key={manifestUrl}
                                 manifestUrl={manifestUrl}
+                                downloadControl={<OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} player />}
                                 poster={media.banner_url || media.poster_url}
                                 onProgress={suivreProgression}
-                                startAt={resumeAt}
+                                startAt={partyOpen ? 0 : resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
+                                partyMode={partyOpen}
+                                playbackLocked={partyOpen && (guestLocked || !partyStarted)}
+                                settingsLocked={guestLocked}
                                 videoRefOut={videoElRef}
                                 onFluxImpossible={basculerVersLecteurApi}
                                 fiche={ficheLecteur}
@@ -935,12 +882,19 @@ export default function WatchPage() {
                             </div>
                         ) : (
                             <VideoPlayer
+                                key={`${id}:${selectedEpisodeKey}:${piste || "main"}`}
                                 qualitySources={qualities}
+                                downloadControl={<OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} player />}
+                                fiche={ficheLecteur}
+                                boostInitial={Number(user?.audio_boost) || 1}
                                 poster={media.banner_url || media.poster_url}
                                 onProgress={suivreProgression}
-                                startAt={resumeAt}
+                                startAt={partyOpen ? 0 : resumeAt}
                                 userMaxQuality={userMaxQuality}
                                 runAds={false}
+                                partyMode={partyOpen}
+                                playbackLocked={partyOpen && (guestLocked || !partyStarted)}
+                                settingsLocked={guestLocked}
                                 videoRefOut={videoElRef}
                                 onFluxImpossible={basculerVersLecteurApi}
                             />
@@ -951,6 +905,7 @@ export default function WatchPage() {
                                     <span className="text-[10px] uppercase tracking-widest text-neutral-500">Version</span>
                                     <button
                                         type="button"
+                                        disabled={guestLocked}
                                         onClick={() => setPiste(null)}
                                         className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === null
                                             ? "bg-[#E8D2A6] text-black"
@@ -962,6 +917,7 @@ export default function WatchPage() {
                                         <button
                                             key={p.label}
                                             type="button"
+                                            disabled={guestLocked}
                                             onClick={() => setPiste(p.label)}
                                             data-testid={`piste-${p.label}`}
                                             className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${piste === p.label
@@ -995,11 +951,11 @@ export default function WatchPage() {
                                     watchProgress={watchProgress}
                                     onSeasonChange={setSelectedSeason}
                                     onEpisodeSelect={selectEpisode}
-                                    locked={partyOpen && !isPartyHost}
+                                    locked={guestLocked}
                                 />
                             )}
 
-                        {partyOpen && !partyStarted && !showGate && !showAd && (
+                        {partyOpen && !partyStarted && sourceReady && !showGate && !showAd && (
                             <div className="absolute inset-x-0 top-0 bottom-[60px] z-40 flex flex-col items-center justify-center gap-2 bg-black/85 px-6 text-center backdrop-blur-sm" data-testid="party-waiting">
                                 <Users size={22} className="text-[#E8D2A6]" />
                                 <div className="font-display text-lg text-white">
@@ -1018,7 +974,7 @@ export default function WatchPage() {
                                 <Button
                                     variant="outline"
                                     onClick={() => previousEpisode && selectEpisode(previousEpisode)}
-                                    disabled={!previousEpisode}
+                                    disabled={guestLocked || !previousEpisode}
                                     data-testid="episode-prev"
                                     title={previousEpisode ? `S${previousEpisode.season_number}E${previousEpisode.ep_number} — ${previousEpisode.title || "Sans titre"}` : "Aucun épisode précédent"}
                                     className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
@@ -1029,7 +985,7 @@ export default function WatchPage() {
 
                                 <button
                                     type="button"
-                                    disabled={partyOpen && !isPartyHost}
+                                    disabled={guestLocked}
                                     onClick={() => setEpisodePanelOpen((v) => !v)}
                                     aria-expanded={episodePanelOpen}
                                     aria-controls="episode-selector-panel"
@@ -1051,7 +1007,7 @@ export default function WatchPage() {
                                 <Button
                                     variant="outline"
                                     onClick={() => nextEpisode && selectEpisode(nextEpisode)}
-                                    disabled={!nextEpisode}
+                                    disabled={guestLocked || !nextEpisode}
                                     data-testid="episode-next"
                                     title={nextEpisode ? `S${nextEpisode.season_number}E${nextEpisode.ep_number} — ${nextEpisode.title || "Sans titre"}` : "Aucun épisode suivant"}
                                     className="h-11 shrink-0 rounded-full border-[#262626] bg-transparent px-4 text-white transition-colors hover:border-[#E8D2A6]/60 hover:bg-white/5 disabled:opacity-30"
@@ -1063,8 +1019,7 @@ export default function WatchPage() {
                         )}
                         </div>
 
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                            <OfflineDownloadButton media={media} episode={media.type === "movie" ? null : selectedEpisode} className="h-10" />
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
                             <div className="flex items-center">
                             <AvertissementContenu media={media} />
                             <ReportDialog
@@ -1097,14 +1052,15 @@ export default function WatchPage() {
                             profileName={activeProfile?.name}
                             videoRef={videoElRef}
                             onHostChange={setIsPartyHost}
-                            currentEpisode={selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
+                            currentEpisode={media.type !== "movie" && selectedEpisode ? { season_number: selectedEpisode.season_number, episode_number: selectedEpisode.ep_number } : null}
                             onEpisodeSync={(sn, en) => {
                                 const target = episodes.find((e) => String(e.season_number) === String(sn) && String(e.ep_number) === String(en));
-                                if (target) selectEpisode(target);
+                                if (target) selectEpisode(target, true);
                             }}
                             onClose={closeParty}
-                            token={token}
-                            adsDone={adsDone}
+                            sourceReady={sourceReady}
+                            grant={access?.grant}
+                            onConnectionChange={setPartyConnected}
                             onStartedChange={setPartyStarted}
                         />
                     )}

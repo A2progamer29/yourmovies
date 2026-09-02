@@ -17,10 +17,10 @@ export function adsAllowed(user) {
     return !user?.premium;
 }
 
-export async function loadAdsConfig() {
+export async function loadAdsConfig({ force = false, strict = false } = {}) {
     const now = Date.now();
-    if (cached && now - cachedAt < CACHE_MS) return cached;
-    if (inFlight) return inFlight;
+    if (!force && cached && now - cachedAt < CACHE_MS) return cached;
+    if (inFlight) return inFlight.catch(error => { if (strict) throw error; return EMPTY_ADS; });
     // Chemin neutre : « /ads/ » est filtré par les bloqueurs de publicité.
     inFlight = api.get("/promo/config", { silent: true })
         .then((r) => {
@@ -28,9 +28,8 @@ export async function loadAdsConfig() {
             cachedAt = Date.now();
             return cached;
         })
-        .catch(() => EMPTY_ADS)
         .finally(() => { inFlight = null; });
-    return inFlight;
+    return inFlight.catch(error => { if (strict) throw error; return EMPTY_ADS; });
 }
 
 function readStamp(key) {
@@ -77,9 +76,11 @@ export function injectScript(url, target) {
  */
 export async function fetchVast(tagUrl) {
     if (!tagUrl) return null;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
     try {
         const url = tagUrl.replace(/\[?(CACHEBUSTER|cachebuster)\]?/g, String(Date.now()));
-        const res = await fetch(url, { credentials: "omit" });
+        const res = await fetch(url, { credentials: "omit", signal: controller.signal });
         if (!res.ok) return null;
         const xml = new DOMParser().parseFromString(await res.text(), "application/xml");
         if (xml.querySelector("parsererror")) return null;
@@ -102,11 +103,13 @@ export async function fetchVast(tagUrl) {
 
         return {
             mediaUrl: media.url,
-            clickThrough: (clickNode?.textContent || "").trim(),
+            clickThrough: (clickNode?.textContent || "").trim().startsWith("https://") ? clickNode.textContent.trim() : "",
             impressions,
         };
     } catch {
         return null;
+    } finally {
+        window.clearTimeout(timeout);
     }
 }
 

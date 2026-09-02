@@ -294,7 +294,7 @@ export default function MediaDetailPage() {
                                     {status.watchlist ? "Dans ma liste" : "À voir plus tard"}
                                 </Button>
                             </div>
-                            {media.type === "movie" && (media.language_tracks || []).some((p) => p?.label && p?.bunny_video_id) && (
+                            {media.type === "movie" && (media.language_tracks || []).some((p) => p?.label && p?.available) && (
                                 <div className="mt-3 flex flex-wrap items-center gap-1.5" data-testid="media-pistes">
                                     <span className="mr-1 text-[10px] uppercase tracking-widest text-neutral-500">Version</span>
                                     <Link
@@ -303,7 +303,7 @@ export default function MediaDetailPage() {
                                     >
                                         Principale
                                     </Link>
-                                    {media.language_tracks.filter((p) => p?.label && p?.bunny_video_id).map((p) => (
+                                    {media.language_tracks.filter((p) => p?.label && p?.available).map((p) => (
                                         <Link
                                             key={p.label}
                                             to={`/watch/${media.id}?piste=${encodeURIComponent(p.label)}`}
@@ -356,7 +356,7 @@ export default function MediaDetailPage() {
                                     className="w-full h-full"
                                     src={`https://www.youtube.com/embed/${media.trailer_youtube_id}`}
                                     title="Bande-annonce"
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
                                     allowFullScreen
                                 />
                             </div>
@@ -386,10 +386,10 @@ export default function MediaDetailPage() {
                                                     const seasonNo = s.season_number || i + 1;
                                                     const epNo = ep.ep_number || j + 1;
                                                     const playable = Boolean(
-                                                        ep.bunny_video_id
+                                                        ep.has_primary_video
                                                         || ep.video_url
                                                         || ep.video_file_path
-                                                        || (ep.language_tracks || []).some((piste) => piste?.bunny_video_id),
+                                                        || (ep.language_tracks || []).some((piste) => piste?.available),
                                                     );
                                                     const label = ep.title || "Épisode";
 
@@ -408,8 +408,8 @@ export default function MediaDetailPage() {
                                                         );
                                                     }
 
-                                                    const pistesEp = (ep.language_tracks || []).filter((p) => p?.label && p?.bunny_video_id);
-                                                    const aPrincipale = Boolean(ep.bunny_video_id || ep.video_url || ep.video_file_path);
+                                                    const pistesEp = (ep.language_tracks || []).filter((p) => p?.label && p?.available);
+                                                    const aPrincipale = Boolean(ep.has_primary_video || ep.video_url || ep.video_file_path);
 
                                                     return (
                                                         <li key={j} className="flex items-center gap-2">

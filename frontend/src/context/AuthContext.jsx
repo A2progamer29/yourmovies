@@ -79,16 +79,8 @@ export function AuthProvider({ children }) {
     }, []);
 
     const checkAuth = useCallback(async () => {
-        // A visitor without a token is a valid anonymous session. Avoid probing
-        // /auth/me in that case: the endpoint is protected and would correctly
-        // answer 401 even though public playback remains available.
-        const token = lireLocal("ym_token");
-        if (!token) {
-            clearPremiumOfflineSession();
-            setUser(null);
-            setLoading(false);
-            return;
-        }
+        // Remove legacy bearer credentials. HttpOnly cookies are probed via /auth/me.
+        supprimerLocal("ym_token");
 
         try {
             if (!navigator.onLine) {
@@ -158,7 +150,6 @@ export function AuthProvider({ children }) {
 
     const login = async (email, password) => {
         const res = await api.post("/auth/login", { email, password });
-        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -166,7 +157,6 @@ export function AuthProvider({ children }) {
     const register = async (email, password, name) => {
         const res = await api.post("/auth/register", { email, password, name, ref: refCode() });
         clearRef();
-        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -174,7 +164,6 @@ export function AuthProvider({ children }) {
     const loginWithGoogle = async (credential) => {
         const res = await api.post("/auth/google", { credential, ref: refCode() });
         clearRef();
-        ecrireLocal("ym_token", res.data.token);
         setUser(res.data.user);
         return res.data.user;
     };
@@ -183,7 +172,8 @@ export function AuthProvider({ children }) {
         try {
             await api.post("/auth/logout");
         } catch (e) {
-            // ignore logout errors
+            toast.error("Déconnexion non confirmée. Réessayez lorsque le serveur est joignable.");
+            return;
         }
         supprimerLocal("ym_token");
         clearPremiumOfflineSession();

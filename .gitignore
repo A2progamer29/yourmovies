@@ -95,3 +95,6 @@ frontend/build/
 
 # Cache local de Wrangler (identifiant de compte Cloudflare)
 .wrangler/
+
+# Runtime catalogs can include private playback references.
+backend/runtime_data/
