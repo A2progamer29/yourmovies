@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#08090b">
+
+    <title>YourMovie's</title>
+    <meta name="description" content="Films, séries et animes en français.">
+
+    <link rel="icon" href="/logo.png">
+    <link rel="preconnect" href="https://yourmovies-backend.onrender.com" crossorigin>
+
+    <!-- La police de titre est la seule chargée : le reste de
+         l'interface utilise la police du système, qui ne coûte rien
+         et ne provoque aucun saut de rendu. -->
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" media="print" onload="this.media='all'">
+
+    <link rel="stylesheet" href="/src/design/tokens.css">
+    <link rel="stylesheet" href="/src/design/base.css">
+    <link rel="stylesheet" href="/src/design/animations.css">
+    <link rel="stylesheet" href="/src/design/components.css">
+    <link rel="stylesheet" href="/src/design/entete.css">
+    <link rel="stylesheet" href="/src/design/banniere.css">
+</head>
+<body>
+    <a href="#vue" class="invisible-sauf-lecteur">Aller au contenu</a>
+    <div id="app"></div>
+
+    <noscript>
+        <div style="padding:48px 16px;text-align:center">
+            YourMovie's a besoin de JavaScript pour fonctionner.
+        </div>
+    </noscript>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

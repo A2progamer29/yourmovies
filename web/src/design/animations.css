@@ -1,0 +1,106 @@
+/* ============================================================
+   Mouvement. Chaque animation répond à une question de
+   l'utilisateur : « est-ce que ça a marché ? », « d'où vient cet
+   élément ? », « est-ce que ça charge ? ». Une animation qui ne
+   répond à rien est du bruit et ralentit la perception du site.
+   ============================================================ */
+
+@keyframes tourne {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes balaye {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+@keyframes monte {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes apparait {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes surgit {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes glisse-bas {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+}
+
+@keyframes pulse-douce {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* ---- Entrée de page -------------------------------------------------
+   Une seule couche animée, sur l'opacité et une translation courte :
+   animer chaque enfant multiplierait le coût de rendu au moment
+   précis où le navigateur a le plus à faire. */
+
+.page-entre {
+    animation: monte var(--duree-page) var(--courbe-entree) both;
+}
+
+/* ---- Arrivée en cascade ---------------------------------------------
+   Réservée aux listes courtes. Le délai est plafonné : sur une grille
+   de cent affiches, une cascade intégrale ferait attendre la dernière
+   plus d'une seconde. */
+
+.cascade > * {
+    animation: monte var(--duree-composant) var(--courbe-entree) both;
+    animation-delay: calc(var(--rang, 0) * 40ms);
+}
+
+/* ---- Couches flottantes ---------------------------------------------- */
+
+.surgit { animation: surgit var(--duree-composant) var(--courbe-entree) both; }
+.apparait { animation: apparait var(--duree-composant) var(--courbe) both; }
+.glisse-bas { animation: glisse-bas var(--duree-composant) var(--courbe-entree) both; }
+
+/* ---- Bandeau lumineux -------------------------------------------------
+   Signature discrète sur les appels à soutenir le site : un reflet qui
+   traverse lentement, assez rare pour ne pas distraire. */
+
+.reflet {
+    position: relative;
+    overflow: hidden;
+}
+
+.reflet::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(232, 210, 166, 0.09) 50%, transparent 65%);
+    transform: translateX(-100%);
+    animation: balaye 7s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cascade > *,
+    .page-entre,
+    .surgit,
+    .apparait,
+    .glisse-bas {
+        animation: none;
+    }
+
+    .reflet::after,
+    .squelette::after {
+        animation: none;
+        opacity: 0;
+    }
+
+    .cercle {
+        /* Le cercle reste le seul mouvement conservé : sans lui, rien
+           ne distinguerait un chargement d'une page figée. */
+        animation-duration: 1.2s;
+    }
+}

@@ -1,0 +1,67 @@
+/* Bandeau du titre mis en avant. La hauteur est bornee par la fenetre :
+   une banniere plus haute que l'ecran repousserait tout le catalogue
+   sous la ligne de flottaison. */
+
+.banniere {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    min-height: 52vh;
+    max-height: 620px;
+    margin-inline: calc(var(--gouttiere) * -1);
+    padding: var(--e8) var(--gouttiere) var(--e7);
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.banniere__fond {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: -2;
+}
+
+/* Deux degrades croises : l'un pour detacher le texte du bas, l'autre
+   pour raccorder la banniere au fond de la page sur les cotes. */
+.banniere::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+        linear-gradient(to top, var(--fond) 2%, rgba(8, 9, 11, 0.55) 45%, rgba(8, 9, 11, 0.15) 100%),
+        linear-gradient(to right, var(--fond) 0%, transparent 60%);
+}
+
+.banniere__contenu {
+    max-width: 620px;
+    animation: monte var(--duree-page) var(--courbe-entree) both;
+}
+
+.banniere__titre {
+    margin-block: var(--e2) var(--e3);
+    text-wrap: balance;
+}
+
+.banniere__texte {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: var(--encre-douce);
+    font-size: var(--t-sm);
+}
+
+.banniere__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e3);
+    margin-top: var(--e5);
+}
+
+@media (min-width: 768px) {
+    .banniere { min-height: 62vh; }
+    .banniere__texte { font-size: var(--t-md); }
+}

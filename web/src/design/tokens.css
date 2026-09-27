@@ -1,0 +1,126 @@
+/* ============================================================
+   YourMovie's — Jetons de design
+   Direction artistique « Projection » : flat, mais jamais plat.
+   La profondeur vient des paliers de surface et de bordures fines,
+   jamais d'ombres molles. Les ombres sont réservées aux couches
+   qui flottent réellement au-dessus du contenu.
+   ============================================================ */
+
+:root {
+    /* --- Surfaces -------------------------------------------------
+       Noir profond mais non pur : le noir absolu écrase les dégradés
+       sur les dalles OLED et fait « trou » à côté d'une affiche. */
+    --fond: #08090b;
+    --surface-1: #0e1012;
+    --surface-2: #14171a;
+    --surface-3: #1c2025;
+    --voile: rgba(8, 9, 11, 0.72);
+
+    /* --- Traits ---------------------------------------------------
+       Une bordure d'un pixel remplace l'ombre portée : elle découpe
+       sans salir et reste nette à tous les facteurs de zoom. */
+    --trait: rgba(255, 255, 255, 0.07);
+    --trait-fort: rgba(255, 255, 255, 0.14);
+    --trait-accent: rgba(232, 210, 166, 0.35);
+
+    /* --- Encres ---------------------------------------------------- */
+    --encre: #f4f5f7;
+    --encre-douce: #a8adb6;
+    --encre-faible: #6b7280;
+    --encre-inverse: #08090b;
+
+    /* --- Accents ----------------------------------------------------
+       L'or est l'identité existante : on la garde, mais on la
+       discipline — action principale et état actif, jamais décoration.
+       Le bleu porte l'information, ce qui évite le tout-doré générique. */
+    --or: #e8d2a6;
+    --or-vif: #f3e2c2;
+    --or-sourd: #b99f6f;
+    --bleu: #6c9bff;
+    --vert: #4ade80;
+    --ambre: #fbbf24;
+    --rouge: #f87171;
+
+    /* --- Rythme ----------------------------------------------------
+       Échelle de 4 px : toutes les marges du site en sont des
+       multiples, ce qui suffit à aligner sans grille explicite. */
+    --e1: 4px;
+    --e2: 8px;
+    --e3: 12px;
+    --e4: 16px;
+    --e5: 24px;
+    --e6: 32px;
+    --e7: 48px;
+    --e8: 64px;
+    --e9: 96px;
+
+    /* --- Rayons ---------------------------------------------------- */
+    --r-xs: 4px;
+    --r-sm: 8px;
+    --r-md: 14px;
+    --r-lg: 20px;
+    --r-plein: 999px;
+
+    /* --- Coupe signature -------------------------------------------
+       L'angle coupé est la marque visuelle du site : un coin de
+       billet poinçonné. Systématique sur les surfaces porteuses,
+       jamais sur les petits éléments où il deviendrait du bruit. */
+    --coupe: 14px;
+    --coupe-petite: 8px;
+
+    /* --- Typographie ------------------------------------------------
+       Échelle modulaire de 1,25. La police système pour l'interface :
+       aucun téléchargement, aucun saut de rendu, netteté maximale. */
+    --police-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+    --police-titre: "Bebas Neue", ui-sans-serif, system-ui, sans-serif;
+    --police-chiffre: ui-monospace, "SF Mono", Menlo, monospace;
+
+    --t-xs: 0.75rem;
+    --t-sm: 0.875rem;
+    --t-md: 1rem;
+    --t-lg: 1.25rem;
+    --t-xl: 1.5625rem;
+    --t-2xl: 1.953rem;
+    --t-3xl: 2.441rem;
+    --t-4xl: 3.052rem;
+
+    /* --- Mouvement --------------------------------------------------
+       Trois durées seulement. Au-delà, le site perd son unité : chaque
+       composant inventerait son propre tempo. */
+    --duree-micro: 120ms;
+    --duree-composant: 180ms;
+    --duree-page: 240ms;
+    --courbe: cubic-bezier(0.2, 0.7, 0.3, 1);
+    --courbe-entree: cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* --- Élévations -------------------------------------------------
+       Réservées à ce qui flotte : menus, modales, notifications. */
+    --ombre-flottante: 0 12px 32px rgba(0, 0, 0, 0.55);
+    --ombre-modale: 0 24px 64px rgba(0, 0, 0, 0.7);
+
+    /* --- Cadre ------------------------------------------------------ */
+    --largeur-page: 1400px;
+    --gouttiere: var(--e4);
+    --hauteur-entete: 64px;
+}
+
+@media (min-width: 768px) {
+    :root {
+        --gouttiere: var(--e6);
+        --hauteur-entete: 72px;
+    }
+}
+
+/* L'accent est personnalisable par les abonnés : il passe par une
+   variable propre pour qu'un seul réglage repeigne tout le site. */
+:root[data-accent] {
+    --or: var(--accent-choisi, #e8d2a6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --duree-micro: 1ms;
+        --duree-composant: 1ms;
+        --duree-page: 1ms;
+    }
+}
