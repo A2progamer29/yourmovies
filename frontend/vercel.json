@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/apercu", "destination": "/apercu/index.html" },
+    { "source": "/apercu/:chemin*", "destination": "/apercu/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
