@@ -1,0 +1,139 @@
+/* ============================================================
+   En-tête. Deux mises en page, un seul balisage.
+   ============================================================ */
+
+.entete {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--voile);
+    border-bottom: 1px solid var(--trait);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.entete__barre {
+    display: flex;
+    align-items: center;
+    gap: var(--e5);
+    height: var(--hauteur-entete);
+}
+
+.entete__logo {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    font-family: var(--police-titre);
+    font-size: var(--t-lg);
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+
+.entete__logo img {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-plein);
+    object-fit: cover;
+}
+
+.entete__logo i {
+    color: var(--or);
+    font-style: normal;
+}
+
+.entete__nav {
+    display: none;
+    align-items: center;
+    gap: var(--e1);
+}
+
+.entete__lien {
+    position: relative;
+    padding: var(--e2) var(--e3);
+    border-radius: var(--r-plein);
+    font-size: var(--t-sm);
+    color: var(--encre-douce);
+    transition: color var(--duree-micro) var(--courbe), background-color var(--duree-micro) var(--courbe);
+}
+
+.entete__lien:hover {
+    color: var(--encre);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* L'état actif se marque par un trait sous le libellé plutôt que par un
+   fond : le fond entrerait en concurrence avec le survol et on ne
+   distinguerait plus « je suis ici » de « je survole ». */
+.entete__lien.actif {
+    color: var(--or);
+}
+
+.entete__lien.actif::after {
+    content: "";
+    position: absolute;
+    left: var(--e3);
+    right: var(--e3);
+    bottom: 2px;
+    height: 2px;
+    border-radius: var(--r-plein);
+    background: var(--or);
+}
+
+.entete__avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-plein);
+    background: var(--or);
+    color: var(--encre-inverse);
+    font-size: var(--t-sm);
+    font-weight: 700;
+    overflow: hidden;
+    transition: transform var(--duree-micro) var(--courbe);
+}
+
+.entete__avatar:hover {
+    transform: scale(1.07);
+}
+
+.entete__avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ---- Menu déroulant, sous 900 px ---------------------------------- */
+
+.entete__menu {
+    border-top: 1px solid var(--trait);
+    background: var(--surface-1);
+    animation: monte var(--duree-composant) var(--courbe-entree) both;
+}
+
+.entete__menu[hidden] {
+    display: none;
+}
+
+.entete__menu-lien {
+    display: block;
+    padding: var(--e4) var(--gouttiere);
+    border-bottom: 1px solid var(--trait);
+    font-size: var(--t-sm);
+    color: var(--encre-douce);
+}
+
+.entete__menu-lien:last-child {
+    border-bottom: none;
+}
+
+.entete__menu-lien.actif {
+    color: var(--or);
+    background: rgba(232, 210, 166, 0.06);
+}
+
+@media (min-width: 900px) {
+    .entete__nav { display: flex; }
+    .entete__bascule { display: none; }
+    .entete__menu { display: none !important; }
+}

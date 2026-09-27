@@ -1,0 +1,362 @@
+/* ============================================================
+   Composants. Un seul fichier tant qu'il reste lisible : ces
+   éléments partagent leurs jetons et se lisent mieux ensemble
+   qu'éparpillés en vingt fichiers de trente lignes.
+   ============================================================ */
+
+/* ---- Boutons ---------------------------------------------------
+   Trois variantes seulement. Chaque variante supplémentaire est une
+   décision de moins prise par le design et une de plus laissée à
+   celui qui écrit la page. */
+
+.btn {
+    --btn-h: 40px;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--e2);
+    height: var(--btn-h);
+    padding-inline: var(--e4);
+    border-radius: var(--r-plein);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+        background-color var(--duree-micro) var(--courbe),
+        border-color var(--duree-micro) var(--courbe),
+        transform var(--duree-micro) var(--courbe),
+        opacity var(--duree-micro) var(--courbe);
+}
+
+.btn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.btn:disabled {
+    opacity: 0.45;
+}
+
+.btn--grand { --btn-h: 48px; padding-inline: var(--e5); font-size: var(--t-md); }
+.btn--petit { --btn-h: 32px; padding-inline: var(--e3); font-size: var(--t-xs); }
+
+.btn--principal {
+    background: var(--or);
+    color: var(--encre-inverse);
+}
+
+.btn--principal:hover:not(:disabled) {
+    background: var(--or-vif);
+}
+
+.btn--contour {
+    border: 1px solid var(--trait-fort);
+    color: var(--encre);
+}
+
+.btn--contour:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--trait-accent);
+}
+
+.btn--fantome {
+    color: var(--encre-douce);
+}
+
+.btn--fantome:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--encre);
+}
+
+.btn--danger {
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    color: var(--rouge);
+}
+
+.btn--danger:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.1);
+}
+
+.btn--icone {
+    width: var(--btn-h);
+    padding: 0;
+}
+
+/* ---- Surfaces --------------------------------------------------- */
+
+.carte {
+    background: var(--surface-1);
+    border: 1px solid var(--trait);
+    border-radius: var(--r-md);
+}
+
+.carte--creuse {
+    background: transparent;
+}
+
+.panneau {
+    background: var(--surface-1);
+    border: 1px solid var(--trait);
+    border-radius: var(--r-lg);
+    padding: var(--e5);
+}
+
+@media (min-width: 768px) {
+    .panneau { padding: var(--e6); }
+}
+
+/* ---- Affiche ----------------------------------------------------
+   L'élément le plus répété du site : son coût de rendu compte.
+   L'agrandissement porte sur l'image seule, jamais sur la carte,
+   pour n'animer qu'une couche composite. */
+
+.affiche {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    aspect-ratio: 2 / 3;
+    transition: transform var(--duree-composant) var(--courbe);
+}
+
+.affiche__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition:
+        transform var(--duree-page) var(--courbe),
+        filter var(--duree-composant) var(--courbe);
+}
+
+.affiche:hover .affiche__image,
+.affiche:focus-visible .affiche__image {
+    transform: scale(1.06);
+}
+
+/* Le voile ne s'installe qu'au survol : dessiné en permanence, il
+   assombrirait toute une grille d'affiches. */
+.affiche__voile {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: var(--e1);
+    padding: var(--e3);
+    background: linear-gradient(to top, rgba(8, 9, 11, 0.95) 0%, rgba(8, 9, 11, 0.4) 45%, transparent 75%);
+    opacity: 0;
+    transition: opacity var(--duree-composant) var(--courbe);
+}
+
+.affiche:hover .affiche__voile,
+.affiche:focus-visible .affiche__voile {
+    opacity: 1;
+}
+
+.affiche__titre {
+    font-size: var(--t-sm);
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.affiche__meta {
+    font-size: var(--t-xs);
+    color: var(--encre-douce);
+}
+
+/* Reprise de lecture : un trait plein suffit, une barre encadrée
+   ferait doublon avec la bordure de l'affiche. */
+.affiche__progression {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.affiche__progression span {
+    display: block;
+    height: 100%;
+    background: var(--or);
+}
+
+/* ---- Étiquettes -------------------------------------------------- */
+
+.etiquette {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--e1);
+    padding: 2px var(--e2);
+    border-radius: var(--r-xs);
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--encre-douce);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.etiquette--or { background: rgba(232, 210, 166, 0.14); color: var(--or); }
+.etiquette--vert { background: rgba(74, 222, 128, 0.12); color: var(--vert); }
+.etiquette--rouge { background: rgba(248, 113, 113, 0.12); color: var(--rouge); }
+.etiquette--ambre { background: rgba(251, 191, 36, 0.12); color: var(--ambre); }
+
+/* ---- Champs ------------------------------------------------------ */
+
+.champ {
+    width: 100%;
+    height: 44px;
+    padding-inline: var(--e3);
+    background: var(--surface-2);
+    border: 1px solid var(--trait);
+    border-radius: var(--r-sm);
+    color: var(--encre);
+    transition: border-color var(--duree-micro) var(--courbe);
+}
+
+.champ::placeholder {
+    color: var(--encre-faible);
+}
+
+.champ:focus {
+    outline: none;
+    border-color: var(--trait-accent);
+}
+
+.champ--zone {
+    height: auto;
+    min-height: 96px;
+    padding: var(--e3);
+    resize: vertical;
+}
+
+.libelle {
+    display: block;
+    margin-bottom: var(--e2);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--encre-faible);
+}
+
+/* ---- En-tête de section ------------------------------------------ */
+
+.section {
+    margin-block: var(--e8);
+}
+
+.section__entete {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--e4);
+    margin-bottom: var(--e4);
+}
+
+.section__sur-titre {
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--or);
+}
+
+.section__lien {
+    font-size: var(--t-sm);
+    color: var(--encre-douce);
+    transition: color var(--duree-micro) var(--courbe);
+}
+
+.section__lien:hover {
+    color: var(--encre);
+}
+
+/* ---- Rangée défilante --------------------------------------------
+   Le défilement par ancrage remplace le calcul de position en
+   JavaScript : le navigateur s'en charge, y compris au doigt. */
+
+.rangee {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(136px, 1fr);
+    gap: var(--e3);
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: var(--gouttiere);
+    padding-bottom: var(--e2);
+    scrollbar-width: none;
+}
+
+.rangee::-webkit-scrollbar { display: none; }
+
+.rangee > * {
+    scroll-snap-align: start;
+}
+
+@media (min-width: 640px) { .rangee { grid-auto-columns: minmax(160px, 1fr); } }
+@media (min-width: 1024px) { .rangee { grid-auto-columns: minmax(180px, 1fr); } }
+
+/* ---- Grille d'affiches -------------------------------------------- */
+
+.grille {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    gap: var(--e3);
+}
+
+@media (min-width: 768px) {
+    .grille {
+        grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+        gap: var(--e4);
+    }
+}
+
+/* ---- Cercle de chargement ------------------------------------------ */
+
+.cercle {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--trait-fort);
+    border-top-color: var(--or);
+    border-radius: 50%;
+    animation: tourne 700ms linear infinite;
+}
+
+.cercle--centre {
+    margin: var(--e9) auto;
+}
+
+/* ---- Squelettes ----------------------------------------------------
+   Une silhouette vaut mieux qu'un cercle sur une grille : elle
+   annonce la forme de ce qui arrive et évite le saut de mise en page. */
+
+.squelette {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface-2);
+    border-radius: var(--r-sm);
+}
+
+.squelette::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    animation: balaye 1.4s ease-in-out infinite;
+}
+
+/* ---- Message vide ---------------------------------------------------- */
+
+.vide {
+    padding: var(--e8) var(--e4);
+    text-align: center;
+    color: var(--encre-faible);
+}
+
+.vide__titre {
+    margin-bottom: var(--e2);
+    color: var(--encre-douce);
+    font-size: var(--t-lg);
+}
